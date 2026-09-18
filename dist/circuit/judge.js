@@ -104,3 +104,46 @@ export function judgeSymbols(graph, query, matches) {
         ? "confident" : "abstain";
     return { verdict, gap, ranked };
 }
+
+/**
+ * Crux-pass gate: is this node trivial enough that the LLM's own rules
+ * (SYSTEM_PROMPT in ai/crux.js — trivial getter/data-holder/one-line
+ * delegation → one-sentence summary + crux 0/0) make its answer predictable?
+ * If so the deterministic entry is written locally and the node is left out
+ * of the LLM call — same entry shape, zero round-trip.
+ *
+ * Conservative by construction: anything ambiguous returns false, so the
+ * node stays in the LLM batch. Quality is preserved by abstaining to the
+ * model whenever the cheap judgment is unsure.
+ */
+const TRIVIAL_KINDS = new Set(["type", "interface", "enum", "constant",
+    "property", "field", "type_alias", "typedef"]);
+const CTRL_RE = /\b(if|elif|else|for|foreach|while|switch|case|match|try|except|catch|finally|await|yield|raise|throw|return\s+[^;\n]*[+\-*/<>=&|?]|=>)\b/;
+
+export function isTrivialNode(node, sourceLines) {
+    const kind = (node.kind || "").toLowerCase();
+    if (TRIVIAL_KINDS.has(kind))
+        return true;
+    const start = node.startLine, end = node.endLine;
+    if (!start || !end || end - start + 1 > 4)
+        return false;
+    const body = sourceLines.slice(start - 1, end).join("\n");
+    if (CTRL_RE.test(body))
+        return false;
+    // A signature-bearing short span (getter, delegation, plain holder) —
+    // the case the LLM answers with crux 0/0 anyway.
+    return Boolean(node.signature) || kind === "method" || kind === "function";
+}
+
+/** Deterministic crux entry for a node the gate classified as trivial. */
+export function localCruxEntry(node) {
+    const name = String(node.id).split(/[#.]/).pop();
+    const kind = (node.kind || "symbol").toLowerCase();
+    const sig = node.signature ? ` — \`${node.signature}\`` : "";
+    return {
+        id: node.id,
+        summary: `Trivial ${kind} \`${name}\`${sig} — surface declaration, no core logic.`,
+        crux_start: 0,
+        crux_end: 0,
+    };
+}

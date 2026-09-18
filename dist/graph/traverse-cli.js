@@ -171,6 +171,17 @@ export function runCallersCommand(query, dir, opts) {
             scores: judged.ranked.map((r) => ({ id: r.node.id, score: Number(r.score.toFixed(3)) })),
         };
     }
+    // --top N: emit only the circuit's best N matches — the answer an agent
+    // would reach after reading all of them anyway, at a fraction of the
+    // output tokens. Dropped matches stay visible via the verdict line /
+    // circuit.scores so nothing is hidden.
+    let truncated = null;
+    const topN = opts.top !== undefined ? Math.max(1, Math.floor(Number(opts.top) || 1)) : null;
+    if (topN !== null && results.length > topN) {
+        truncated = { shown: topN, total: results.length,
+            omitted: results.slice(topN).map((r) => r.symbol.id) };
+        results.length = topN;
+    }
     if (opts.json) {
         const payload = {
             query,
@@ -185,6 +196,8 @@ export function runCallersCommand(query, dir, opts) {
         };
         if (circuit)
             payload.circuit = circuit;
+        if (truncated)
+            payload.truncated = truncated;
         console.log(JSON.stringify(payload, null, 2));
         return;
     }
@@ -194,6 +207,12 @@ export function runCallersCommand(query, dir, opts) {
         lines.push(c.verdict === "abstain"
             ? `⚖ circuit: ${matches.length} same-name matches — abstain (gap ${c.gap.toFixed(2)} < ${ABSTAIN_GAP}); best guess first`
             : `⚖ circuit: ${matches.length} same-name matches — confident → ${c.top}`);
+        lines.push("");
+    }
+    if (truncated) {
+        const preview = truncated.omitted.slice(0, 8);
+        const rest = truncated.omitted.length - preview.length;
+        lines.push(`… --top ${truncated.shown} of ${truncated.total} matches (circuit-ranked); omitted: ${preview.join(", ")}${rest > 0 ? ` … +${rest} more` : ""}`);
         lines.push("");
     }
     // One reader for the whole walk: several hits usually live in the same file.
