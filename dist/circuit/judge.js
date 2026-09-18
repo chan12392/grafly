@@ -39,8 +39,21 @@ function tokens(s) {
     return s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1);
 }
 
+/**
+ * id → edge-touch count, built once per judgeSymbols call. Scoring each
+ * candidate by scanning graph.edges is O(matches × edges) — 44M scans for
+ * 300 matches on a 144k-edge graph (12s). One pass + lookup is O(edges). */
+function degreeMap(graph) {
+    const m = new Map();
+    for (const e of graph.edges) {
+        m.set(e.source, (m.get(e.source) || 0) + 1);
+        m.set(e.target, (m.get(e.target) || 0) + 1);
+    }
+    return m;
+}
+
 /** Per-candidate feature vector for (query, node) over the graph. */
-export function matchFeatures(graph, query, node) {
+export function matchFeatures(graph, query, node, deg) {
     const q = query.toLowerCase();
     const dot = q.lastIndexOf(".");
     const hasQualifier = dot > 0;
@@ -60,10 +73,7 @@ export function matchFeatures(graph, query, node) {
     for (const t of qPrefix) if (pTokens.has(t)) overlap++;
     const pathOverlap = qPrefix.size ? overlap / qPrefix.size : 0;
 
-    let degree = 0;
-    for (const e of graph.edges) {
-        if (e.source === node.id || e.target === node.id) degree++;
-    }
+    const degree = (deg ?? degreeMap(graph)).get(node.id) ?? 0;
 
     const qTokens = new Set(tokens(q));
     let kindHit = 0;
@@ -84,8 +94,8 @@ export function matchFeatures(graph, query, node) {
     };
 }
 
-export function scoreMatch(graph, query, node) {
-    const f = matchFeatures(graph, query, node);
+export function scoreMatch(graph, query, node, deg) {
+    const f = matchFeatures(graph, query, node, deg);
     return Object.keys(W).reduce((s, k) => s + W[k] * f[k], 0);
 }
 
@@ -95,8 +105,9 @@ export function scoreMatch(graph, query, node) {
  * match exists or the top-two gap clears ABSTAIN_GAP, else "abstain".
  */
 export function judgeSymbols(graph, query, matches) {
+    const deg = degreeMap(graph);
     const ranked = matches
-        .map((node) => ({ node, score: scoreMatch(graph, query, node) }))
+        .map((node) => ({ node, score: scoreMatch(graph, query, node, deg) }))
         .sort((a, b) => b.score - a.score);
     const gap = ranked.length > 1 ? ranked[0].score - ranked[1].score
         : Number.POSITIVE_INFINITY;

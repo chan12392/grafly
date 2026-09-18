@@ -16,10 +16,59 @@ import { fileReader, referenceLine, wordRe } from "../blast/evidence.js";
 import { contextDirFor } from "../context/node-file.js";
 import { withSavings, savingsFor } from "../context/savings.js";
 import { loadGraphCached } from "./load.js";
-import { resolveSymbol, edgeWalk } from "./traverse.js";
+import { resolveSymbol } from "./traverse.js";
+import { WALK_RELATIONS } from "./relations.js";
 import { judgeSymbols, ABSTAIN_GAP } from "../circuit/judge.js";
 const ARROW = { in: "←", out: "→" };
 const DEFAULT_DEPTH = 1;
+/**
+ * Walk adjacency built ONCE per command instead of per match — upstream
+ * edgeWalk scans all edges for every matched symbol (O(matches × edges): 44M
+ * scans for 308 `close` matches on a 144k-edge graph ≈ 9s). One shared pass
+ * is O(edges) and produces byte-identical hit lists: callersOf/calleesOf is
+ * exactly this adjacency lookup at depth 1, and impactOfMany's BFS is the
+ * same loop with frontier expansion.
+ */
+function walkAdjacency(graph, direction) {
+    const adj = new Map();
+    for (const e of graph.edges) {
+        if (!WALK_RELATIONS.has(e.relation))
+            continue;
+        const key = direction === "in" ? e.target : e.source;
+        const other = direction === "in" ? e.source : e.target;
+        const arr = adj.get(key);
+        if (arr)
+            arr.push({ other, relation: e.relation });
+        else
+            adj.set(key, [{ other, relation: e.relation }]);
+    }
+    return adj;
+}
+function symbolsInFile(graph, fileNode) {
+    return graph.nodes.filter((n) => n.kind !== "file" && n.path === fileNode.path);
+}
+/** edgeWalk with shared adjacency — same seeds, same dedup, same hit order. */
+function sharedEdgeWalk(graph, adj, byId, node, direction, depth) {
+    const seeds = depth > 1 && node.kind === "file"
+        ? [node, ...symbolsInFile(graph, node)] : [node];
+    const visited = new Set(seeds.map((s) => s.id));
+    const hits = [];
+    let frontier = [...visited];
+    for (let d = 1; d <= depth && frontier.length > 0; d++) {
+        const next = [];
+        for (const current of frontier) {
+            for (const { other, relation } of adj.get(current) ?? []) {
+                if (visited.has(other))
+                    continue;
+                visited.add(other);
+                hits.push({ node: byId.get(other) ?? null, id: other, relation, depth: d });
+                next.push(other);
+            }
+        }
+        frontier = next;
+    }
+    return hits;
+}
 /** Exported so the MCP `graft_trace_calls` tool (`src/mcp/tools.ts`) can render the
  * same human report format as the CLI, rather than re-implementing it — both
  * surfaces walk the same edges via the same `resolveSymbol` / `edgeWalk` core. */
@@ -154,16 +203,15 @@ export function runCallersCommand(query, dir, opts) {
         }
     }
     const showDepth = depth > 1;
-    const results = matches.map((symbol) => ({ symbol, hits: edgeWalk(graph, symbol, direction, depth) }));
-    const saved = callersSavings(graph, results);
-    // Same-name ambiguity is the judgment circuit's task: score the matches,
-    // order by confidence, and state the verdict instead of silently listing
-    // every same-named symbol as if they were equivalent.
+    // Judge and --top BEFORE walking: the circuit order decides what to show,
+    // then only the shown symbols get edge-walked over one shared adjacency.
+    // Upstream walked every match — O(matches × edges) — which is what made
+    // ambiguous queries on large graphs slow.
     let circuit = null;
     if (matches.length > 1) {
         const judged = judgeSymbols(graph, query, matches);
         const order = new Map(judged.ranked.map((r, i) => [r.node.id, i]));
-        results.sort((a, b) => order.get(a.symbol.id) - order.get(b.symbol.id));
+        matches.sort((a, b) => order.get(a.id) - order.get(b.id));
         circuit = {
             verdict: judged.verdict,
             gap: judged.gap,
@@ -177,11 +225,15 @@ export function runCallersCommand(query, dir, opts) {
     // circuit.scores so nothing is hidden.
     let truncated = null;
     const topN = opts.top !== undefined ? Math.max(1, Math.floor(Number(opts.top) || 1)) : null;
-    if (topN !== null && results.length > topN) {
-        truncated = { shown: topN, total: results.length,
-            omitted: results.slice(topN).map((r) => r.symbol.id) };
-        results.length = topN;
+    const shown = topN !== null && matches.length > topN ? matches.slice(0, topN) : matches;
+    if (shown.length < matches.length) {
+        truncated = { shown: shown.length, total: matches.length,
+            omitted: matches.slice(shown.length).map((n) => n.id) };
     }
+    const adj = walkAdjacency(graph, direction);
+    const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+    const results = shown.map((symbol) => ({ symbol, hits: sharedEdgeWalk(graph, adj, byId, symbol, direction, depth) }));
+    const saved = callersSavings(graph, results);
     if (opts.json) {
         const payload = {
             query,
