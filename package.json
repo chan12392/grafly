@@ -1,0 +1,98 @@
+{
+  "name": "grafly",
+  "version": "0.1.0",
+  "description": "graft + local judgment circuit: repo context graph with same-name disambiguation and abstain scoring",
+  "keywords": [
+    "ai",
+    "agents",
+    "knowledge-graph",
+    "context",
+    "codebase",
+    "llm",
+    "graft"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chan12392/grafly.git"
+  },
+  "homepage": "https://github.com/chan12392/grafly#readme",
+  "bugs": {
+    "url": "https://github.com/chan12392/grafly/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "grafly": "dist/cli.js",
+    "graft": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "scripts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node scripts/run-tests.mjs",
+    "postinstall": "node scripts/postinstall.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
+    "commander": "^15.0.0",
+    "dotenv": "^17.4.2",
+    "gray-matter": "^4.0.3",
+    "openai": "^6.45.0",
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-go": "^0.23.4",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-kotlin": "^0.3.8",
+    "tree-sitter-php": "^0.23.4",
+    "tree-sitter-python": "^0.21.0",
+    "tree-sitter-r": "npm:@davisvaughan/tree-sitter-r@^1.3.0",
+    "tree-sitter-swift": "^0.7.1",
+    "tree-sitter-typescript": "^0.23.2",
+    "tree-sitter-wasm": "^1.1.6",
+    "vscode-jsonrpc": "^8.2.1",
+    "vscode-languageserver-protocol": "^3.18.2",
+    "web-tree-sitter": "^0.26.13"
+  },
+  "devDependencies": {
+    "@types/d3-force": "^3.0.10",
+    "@types/node": "^26.1.0",
+    "d3-force": "^3.0.0",
+    "esbuild": "^0.28.1",
+    "node-gyp": "^12.4.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  },
+  "allowScripts": {
+    "tree-sitter@0.21.1": true,
+    "tree-sitter-typescript@0.23.2": true,
+    "tree-sitter-python@0.21.0": true,
+    "tree-sitter-go@0.23.4": true,
+    "tree-sitter-javascript@0.23.1": true,
+    "tree-sitter-java@0.23.5": true,
+    "esbuild@0.28.2": true,
+    "fsevents@2.3.3": true,
+    "tree-sitter-kotlin@0.3.8": true,
+    "tree-sitter-php@0.23.12": true,
+    "@davisvaughan/tree-sitter-r@1.3.0": true,
+    "tree-sitter-swift@0.7.1": true
+  },
+  "overrides": {
+    "tree-sitter-swift": {
+      "tree-sitter": "$tree-sitter"
+    }
+  }
+}
