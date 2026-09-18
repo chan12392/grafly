@@ -29,7 +29,7 @@ export function hookTargets(home) {
     return [
         {
             hostId: 'agents', id: 'codex-hook-shim',
-            path: join(base, 'hooks', 'graft', 'graft-hooks.cjs'),
+            path: join(base, 'hooks', 'grafly', 'grafly-hooks.cjs'),
             scope: 'global', kind: 'hook', what: 'post-edit hook shim',
         },
         {

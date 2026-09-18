@@ -81,7 +81,7 @@ export function isNewer(candidate, current) {
 /** Machine-global, not per-repo: "what's the latest graft" is one fact, and a
  * dev with twelve repos should cost the registry one request a day, not twelve. */
 export function updateCachePath(home = homedir()) {
-    return join(home, '.graft', 'update-check.json');
+    return join(home, '.grafly', 'update-check.json');
 }
 export function readUpdateCache(home) {
     return readJson(updateCachePath(home));
@@ -174,7 +174,10 @@ export function maybeRefreshBrainRules(repo, now = Date.now()) {
 export function formatUpdateNudge(current, latest) {
     if (!isNewer(latest, current))
         return null;
-    return `⬆ graft ${current} → ${latest} available: run \`npm i -g @nanonets/graft@latest\` (restart your agent after).`;
+    const source = process.env.GRAFLY_NPM_PACKAGE
+        ? `run \`npm i -g ${process.env.GRAFLY_NPM_PACKAGE}@latest\``
+        : "update from the Git repository";
+    return `⬆ grafly ${current} → ${latest} available: ${source} (restart your agent after).`;
 }
 export const DEFAULT_WIRING_OPTS = { global: true, mcp: true, hooks: true, statusline: true };
 /** An older stamp has no `opts`; a plain `graft init` wired everything. */
@@ -266,6 +269,6 @@ export function formatWiringRefresh(r) {
     // Name the out-of-repo writes explicitly: those are machine-wide and shared by
     // every repo, so a user seeing this line should not have to guess what moved.
     const scope = r.global && r.hosts.includes('agents') ? " (including this machine's ~/.codex config)" : '';
-    return `· graft refreshed this repo's agent wiring${scope} (written by ${r.from}, now ${r.to}): ${r.hosts.join(', ')}.`;
+    return `· grafly refreshed this repo's agent wiring${scope} (written by ${r.from}, now ${r.to}): ${r.hosts.join(', ')}.`;
 }
 //# sourceMappingURL=upkeep.js.map

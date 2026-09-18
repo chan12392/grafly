@@ -18,7 +18,7 @@ import { classifyToolUse, isMcpToolName, isGraftMcpTool, parseSavings, recordToo
  * them reliably with so few terms. */
 const MIN_PROMPT_CHARS = 12;
 function readStdin() {
-    const seam = process.env.GRAFT_TEST_STDIN;
+    const seam = process.env.GRAFLY_TEST_STDIN ?? process.env.GRAFT_TEST_STDIN;
     const raw = seam !== undefined ? seam : safeReadFd0();
     try {
         return JSON.parse(raw);

@@ -9,7 +9,7 @@
  * on top of each other. `claude/state.ts` re-exports all of this, so nothing
  * outside had to change when it moved.
  */
-import { readFileSync, writeFileSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, renameSync, rmSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
 export const LOCK_STALE_MS = 300000;
 export function emptyStats() {
@@ -26,14 +26,22 @@ const LOCK_FILE = '.sync.lock';
  * `contextDirFor` (`context/node-file.ts`). This mirrors that same override
  * precedence for those entry points: `GRAFT_DIR` wins over the default
  * `<projectDir>/graft`, the same env var `resolveConfig` already honors for
- * the `--deep` LLM path. A relative `GRAFT_DIR` resolves against `projectDir`
- * so it holds regardless of the caller's cwd.
+ * the `--deep` LLM path. `GRAFLY_DIR` is the canonical override; `GRAFT_DIR` is
+ * the legacy spelling kept so configs written before the rename still hold. A
+ * relative override resolves against `projectDir` so it holds regardless of the
+ * caller's cwd. Without an override an existing `grafly/` wins, then a legacy
+ * `graft/` — so unmigrated repos keep working until `grafly migrate` runs —
+ * and a bare repo resolves to `grafly`.
  */
 export function resolveContextDir(projectDir) {
-    const override = process.env.GRAFT_DIR;
-    if (!override)
+    const override = process.env.GRAFLY_DIR ?? process.env.GRAFT_DIR;
+    if (override)
+        return isAbsolute(override) ? override : join(projectDir, override);
+    if (existsSync(join(projectDir, 'grafly')))
+        return join(projectDir, 'grafly');
+    if (existsSync(join(projectDir, 'graft')))
         return join(projectDir, 'graft');
-    return isAbsolute(override) ? override : join(projectDir, override);
+    return join(projectDir, 'grafly');
 }
 export function cacheDir(projectDir) { return join(resolveContextDir(projectDir), '.cache'); }
 function statsPath(d) { return join(cacheDir(d), 'stats.json'); }
@@ -77,10 +85,14 @@ export function writeJsonAtomic(p, value, compact = false) {
 export function readStats(d) { return readJson(statsPath(d)); }
 export function writeStats(d, s) { writeJsonAtomic(statsPath(d), s); }
 /** Local, Git-ignored repository configuration. Kept outside generated
- * `graft/` output so deleting/replacing that cache, workspace federation, and
+ * `grafly/` output so deleting/replacing that cache, workspace federation, and
  * custom `--dir` builds cannot erase or redirect the persisted choice. */
-export const BUILD_CONFIG_DIR = '.graft';
+export const BUILD_CONFIG_DIR = '.grafly';
+/** Pre-rename location, still honored for reads so a persisted
+ * `--include-dir`/submodule choice survives the `.graft` → `.grafly` rename. */
+export const LEGACY_BUILD_CONFIG_DIR = '.graft';
 export function buildConfigPath(d) { return join(d, BUILD_CONFIG_DIR, 'config.json'); }
+function legacyBuildConfigPath(d) { return join(d, LEGACY_BUILD_CONFIG_DIR, 'config.json'); }
 /** Keep local build configuration out of Git without coupling it to the
  * generated graph directory. Best-effort, matching graph-cache ignore setup. */
 function ensureBuildConfigIgnored(d) {
@@ -97,13 +109,15 @@ function ensureBuildConfigIgnored(d) {
     if (present)
         return;
     const gap = current === '' ? '' : current.endsWith('\n') ? '\n' : '\n\n';
-    const block = `${gap}# graft's local repository settings — not committed.\n/${BUILD_CONFIG_DIR}/\n`;
+    const block = `${gap}# grafly's local repository settings — not committed.\n/${BUILD_CONFIG_DIR}/\n`;
     try {
         writeFileSync(path, current + block);
     }
     catch { /* best-effort */ }
 }
-export function readBuildConfig(d) { return readJson(buildConfigPath(d)); }
+export function readBuildConfig(d) {
+    return readJson(buildConfigPath(d)) ?? readJson(legacyBuildConfigPath(d));
+}
 export function writeBuildConfig(d, c) {
     ensureBuildConfigIgnored(d);
     writeJsonAtomic(buildConfigPath(d), c);

@@ -1,5 +1,5 @@
 /**
- * `graft ask "<task>"` — the ACTIVE channel.
+ * `grafly ask "<task>"` — the ACTIVE channel.
  *
  * One tool that routes a plain-words query to the right graph and returns a lean,
  * ranked context pack (prose + exact `file:line` + related), never raw JSON and
@@ -204,7 +204,7 @@ function findSubjectNodes(query, graph, inPrefix) {
 }
 function fallthroughNoteFor(subject) {
     return (`structural index: no entries for '${subject}' — showing lexical matches; ` +
-        `for precise edges try graft callers '${subject}', or graft grep '${subject}' for every reference (loosen the pattern if it returns nothing)`);
+        `for precise edges try grafly callers '${subject}', or grafly grep '${subject}' for every reference (loosen the pattern if it returns nothing)`);
 }
 function structural(query, graph, limit, inPrefix) {
     const wantsIn = INCOMING.test(query);
@@ -239,7 +239,7 @@ function structural(query, graph, limit, inPrefix) {
         });
     }
     // Subject resolved but the graph has no indexed edges for it — same "loud,
-    // never a bare empty" contract as `graft callers`/`callees` — fall through
+    // never a bare empty" contract as `grafly callers`/`callees` — fall through
     // to lexical rather than returning a structural result with zero hits.
     if (hits.length === 0)
         return { fallthroughNote: fallthroughNoteFor(subjects[0].name) };
@@ -955,7 +955,7 @@ function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fi
         // so a query that missed everywhere still tells the caller where to look.
         note: scored.length
             ? undefined
-            : `no matching nodes — try different words, or \`graft build\` if graft/ is empty${scopesHereClause(scopes ?? [])}`,
+            : `no matching nodes — try different words, or \`grafly build\` if grafly/ is empty${scopesHereClause(scopes ?? [])}`,
     };
 }
 /** Parse a `path:Lx-Ly` pointer into its parts, or null if it isn't one
@@ -1038,7 +1038,7 @@ function baselineFor(hits, graph) {
         return undefined;
     return savingsFor(graph, hitFiles(hits));
 }
-/** Answer a query from the graft/ graph at `dir`. Deterministic, $0. */
+/** Answer a query from the grafly/ graph at `dir`. Deterministic, $0. */
 export function ask(dir, query, opts = {}) {
     const root = resolve(dir);
     const outDir = contextDirFor(root, opts.contextDir);
@@ -1094,7 +1094,7 @@ export function ask(dir, query, opts = {}) {
         result.saved = baselineFor(result.hits, corpus.graph);
         // What the team decided about the code this pack just inlined. Read from the
         // local cache only — `ask` is on the agent's hot path and must never wait on
-        // the network; `graft brain pull` and `init` are what refresh it.
+        // the network; `grafly brain pull` and `init` are what refresh it.
         const applied = attachBrainRules(root, result.hits, corpus.graph);
         if (applied.length)
             result.rules = applied;
@@ -1103,7 +1103,7 @@ export function ask(dir, query, opts = {}) {
 }
 /** Rules for this answer's symbols, or [] when the repo has no brain linked,
  * the cache is missing, or nothing overlaps. Never throws: a broken link must
- * degrade to the code-only answer graft gave before a brain existed. */
+ * degrade to the code-only answer grafly gave before a brain existed. */
 function attachBrainRules(root, hits, graph) {
     try {
         if (!readLink(root))
@@ -1124,7 +1124,7 @@ export function skeleton(dir, file, opts = {}) {
     const outDir = contextDirFor(resolve(dir), opts.contextDir);
     const graph = loadGraphCached(outDir);
     if (!graph)
-        return { file, entries: [], note: "no wiring graph — run `graft build` first" };
+        return { file, entries: [], note: "no wiring graph — run `grafly build` first" };
     let defs = graph.nodes.filter((n) => n.kind !== "file" && n.path === file);
     if (!defs.length) {
         const matches = new Set(graph.nodes.filter((n) => n.path === file || n.path.endsWith(`/${file}`)).map((n) => n.path));
@@ -1152,7 +1152,7 @@ export function skeleton(dir, file, opts = {}) {
 }
 /** Render a {@link SkeletonResult} as compact markdown. */
 export function formatSkeleton(r) {
-    const head = `graft skeleton — ${r.file}`;
+    const head = `grafly skeleton — ${r.file}`;
     if (!r.entries.length)
         return `${head}\n\n${r.note ?? "no definitions."}\n`;
     const lines = r.entries.map((e) => {
@@ -1169,7 +1169,7 @@ function toTokens(chars) {
 }
 /** Render an {@link AskResult} as a compact markdown context pack. */
 export function formatAsk(r) {
-    const head = `graft ask — "${r.query}"  (${r.mode})`;
+    const head = `grafly ask — "${r.query}"  (${r.mode})`;
     // The note prints as its own prominent line(s) right under the header —
     // above every hit — so a loud structural-fallthrough note (or the
     // no-structural-edges / no-lexical-match note) can never be missed by only
@@ -1230,8 +1230,8 @@ function escalationNudge(r) {
     if ((r.mode !== "lexical" && r.mode !== "empty") || r.hits.length > 3)
         return "";
     const n = r.hits.length;
-    return (`\n\n[graft] ${n === 0 ? "no hits" : `only ${n} hit${n === 1 ? "" : "s"}`} — don't re-ask with new wording; switch tool: ` +
-        "`graft grep \"<literal>\"` for every occurrence · `graft skeleton <file>` for a file's full API · `graft callers <symbol>` for who-uses.");
+    return (`\n\n[grafly] ${n === 0 ? "no hits" : `only ${n} hit${n === 1 ? "" : "s"}`} — don't re-ask with new wording; switch tool: ` +
+        "`grafly grep \"<literal>\"` for every occurrence · `grafly skeleton <file>` for a file's full API · `grafly callers <symbol>` for who-uses.");
 }
 /** The one-line token-saving estimate `ask` prepends in retriever mode, so the
  * agent gets the number for free in the tool output — no extra work on its end.
@@ -1247,7 +1247,7 @@ function askSavingsLine(r, body) {
         return ""; // no saving to claim (tiny files); stay quiet
     const saved = base - pack;
     const pct = Math.round((saved / base) * 100);
-    return (`[graft] tokens saved ≈ ${saved.toLocaleString()} (${pct}%) — this pack ≈ ` +
+    return (`[grafly] tokens saved ≈ ${saved.toLocaleString()} (${pct}%) — this pack ≈ ` +
         `${pack.toLocaleString()} tok vs reading the ${r.saved.files} source file(s) whole ≈ ` +
         `${base.toLocaleString()} tok. Estimate (baseline = those files read in full).` +
         savingsTurnNudge(saved));

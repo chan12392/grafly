@@ -61,11 +61,11 @@ export function formatGrepResult(result) {
  * otherwise a zero-hit result on a stale graph or wrong root reads as "no
  * matches" when really some files were never searched at all. */
 export function zeroHitNote(result) {
-    const base = `no hits for "${result.pattern}" in ${result.filesSearched} indexed files. The pattern may be too specific — retry graft grep with a bare symbol name or short substring (drop the receiver, full signature, and regex anchors). All indexed code was searched; use raw grep -rn only for genuinely unindexed files (docs, configs, brand-new files)`;
+    const base = `no hits for "${result.pattern}" in ${result.filesSearched} indexed files. The pattern may be too specific — retry grafly grep with a bare symbol name or short substring (drop the receiver, full signature, and regex anchors). All indexed code was searched; use raw grep -rn only for genuinely unindexed files (docs, configs, brand-new files)`;
     const { files } = result.truncated;
     if (files === 0)
         return base;
-    return `${base} — note: ${files} indexed file${files === 1 ? "" : "s"} could not be read (stale graph? run graft build)`;
+    return `${base} — note: ${files} indexed file${files === 1 ? "" : "s"} could not be read (stale graph? run grafly build)`;
 }
 /**
  * Resolve the graph at `dir` (respecting `--dir`), run `grepGraph`, and print
@@ -79,7 +79,7 @@ export function runGrepCommand(pattern, dir, opts) {
     const contextDir = contextDirFor(root, opts.globalDir);
     const graph = loadGraphCached(contextDir);
     if (!graph) {
-        console.error("✗ no graph — run graft build first");
+        console.error("✗ no graph — run grafly build first");
         process.exit(1);
     }
     let result;

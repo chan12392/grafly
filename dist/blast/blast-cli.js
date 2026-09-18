@@ -1,5 +1,5 @@
 /**
- * CLI wiring for `graft blast` — the command a CI job runs on a pull request.
+ * CLI wiring for `grafly blast` — the command a CI job runs on a pull request.
  *
  * Kept out of cli.ts (argument wiring only) so the diff → seeds → walk → render
  * chain stays unit-testable without shelling out, matching `graph/traverse-cli.ts`.
@@ -20,7 +20,7 @@ function resolveFormat(raw) {
     console.error(`✗ --format must be text, markdown, mermaid or json, got "${raw}"`);
     process.exit(1);
 }
-/** Same grammar as `graft callers --depth`, so the two commands stay learnable together. */
+/** Same grammar as `grafly callers --depth`, so the two commands stay learnable together. */
 function resolveDepth(raw) {
     if (raw === undefined)
         return DEFAULT_DEPTH;
@@ -40,7 +40,7 @@ export async function runBlastCommand(dir, opts) {
     const depth = resolveDepth(opts.depth);
     const graph = loadGraphCached(contextDir);
     if (!graph) {
-        console.error(`✗ no graph found at ${contextDir} — run \`graft build\` first`);
+        console.error(`✗ no graph found at ${contextDir} — run \`grafly build\` first`);
         process.exit(1);
     }
     // An unknown base is the most common CI misconfiguration by a distance: an
@@ -126,7 +126,7 @@ export function repoLabel(root) {
     return basename(root);
 }
 /**
- * Write the interactive page for this radius: the same viewer `graft viz` serves,
+ * Write the interactive page for this radius: the same viewer `grafly viz` serves,
  * with the blast graph as its Context tab.
  *
  * Done here rather than in `viz` because the radius is what a reviewer opened the

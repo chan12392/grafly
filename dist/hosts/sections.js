@@ -1,11 +1,11 @@
 /**
- * Marker-fenced section upsert. Graft owns exactly the region between the
+ * Marker-fenced section upsert. Grafly owns exactly the region between the
  * markers; everything else in the file belongs to the user and is preserved.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
-export const START = '<!-- graft:start -->';
-export const END = '<!-- graft:end -->';
+export const START = '<!-- grafly:start -->';
+export const END = '<!-- grafly:end -->';
 /**
  * A brain's rules go in their OWN fenced block, not inside the instruction
  * block above.
@@ -13,15 +13,23 @@ export const END = '<!-- graft:end -->';
  * They have to be separately addressable: the instruction body is static and
  * rewritten by `init`, while rules change whenever the brain does and are
  * refreshed on their own. One pair of markers for both would mean every rules
- * refresh rewrites the instructions too, and `graft uninstall` could not remove
+ * refresh rewrites the instructions too, and `grafly uninstall` could not remove
  * one without the other.
  */
-export const BRAIN_START = '<!-- graft:brain:start -->';
-export const BRAIN_END = '<!-- graft:brain:end -->';
+export const BRAIN_START = '<!-- grafly:brain:start -->';
+export const BRAIN_END = '<!-- grafly:brain:end -->';
+/** Pre-rename fences. Upserts find-and-replace them with the canonical pair so
+ * a refreshed block migrates in place; retract strips either spelling. */
+const LEGACY_START = '<!-- graft:start -->';
+const LEGACY_END = '<!-- graft:end -->';
+const LEGACY_BRAIN_START = '<!-- graft:brain:start -->';
+const LEGACY_BRAIN_END = '<!-- graft:brain:end -->';
 export const GRAFT_MARKERS = { start: START, end: END };
 export const BRAIN_MARKERS = { start: BRAIN_START, end: BRAIN_END };
-/** Every managed region graft may own in a user-owned file. */
-export const ALL_MARKERS = [GRAFT_MARKERS, BRAIN_MARKERS];
+const LEGACY_GRAFT_MARKERS = { start: LEGACY_START, end: LEGACY_END };
+const LEGACY_BRAIN_MARKERS = { start: LEGACY_BRAIN_START, end: LEGACY_BRAIN_END };
+/** Every managed region grafly may own in a user-owned file. */
+export const ALL_MARKERS = [GRAFT_MARKERS, BRAIN_MARKERS, LEGACY_GRAFT_MARKERS, LEGACY_BRAIN_MARKERS];
 export function fencedBlock(body, eol = '\n', markers = GRAFT_MARKERS) {
     // Normalize any pre-existing '\r' out of the body first so callers passing
     // a CRLF (or stray-CR) body never get doubled '\r' when eol is '\r\n'.
@@ -57,8 +65,16 @@ export function upsertSection(filePath, body, markers = GRAFT_MARKERS) {
     // trailing-'\r' element sat next to a '\n' join, e.g. right after END, or
     // when the block was the entire file).
     const lines = text.split(/\r\n|\n/);
-    const s = markerLineIndex(lines, markers.start);
-    const e = s === -1 ? -1 : markerLineIndex(lines, markers.end, s + 1);
+    // Canonical fences win; a pre-rename `graft:` fence is replaced in place,
+    // migrating the block instead of appending a duplicate.
+    const candidates = [markers, markers === BRAIN_MARKERS ? LEGACY_BRAIN_MARKERS : LEGACY_GRAFT_MARKERS];
+    let s = -1, e = -1;
+    for (const m of candidates) {
+        s = markerLineIndex(lines, m.start);
+        e = s === -1 ? -1 : markerLineIndex(lines, m.end, s + 1);
+        if (s !== -1 && e !== -1)
+            break;
+    }
     if (s !== -1 && e !== -1) {
         const current = lines.slice(s, e + 1).join('\n');
         if (current === fencedBlock(body, '\n', markers))

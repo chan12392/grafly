@@ -16,7 +16,10 @@ import { contextDirFor } from "../context/node-file.js";
 import { loadGraphCached } from "../graph/load.js";
 import { checkoutPullRequest, redact } from "./checkout.js";
 /** Hidden marker: how the App finds the comment it owns, on every later push. */
-export const MARKER = "<!-- graft-blast-radius -->";
+export const MARKER = "<!-- grafly-blast-radius -->";
+/** Pre-rename marker, still matched so a comment left by a Graft build is
+ * edited in place rather than duplicated. */
+const LEGACY_MARKER = "<!-- graft-blast-radius -->";
 const DEPTH = 2;
 export async function reviewPullRequest(job, deps) {
     const log = deps.log ?? (() => { });
@@ -76,7 +79,7 @@ async function exportPage(report, contextDir, root, job) {
     const { mkdtempSync, readFileSync, rmSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
-    const out = mkdtempSync(join(tmpdir(), "graft-page-"));
+    const out = mkdtempSync(join(tmpdir(), "grafly-page-"));
     try {
         const res = exportViz({
             contextDir,
@@ -112,7 +115,7 @@ async function upsertComment(job, body, token, deps) {
         authorization: `token ${token}`,
         accept: "application/vnd.github+json",
         "content-type": "application/json",
-        "user-agent": "graft-app",
+        "user-agent": "grafly-app",
     };
     const existing = await findComment(base, headers, deps.fetch);
     const res = await deps.fetch(existing ? `${api}/repos/${job.owner}/${job.repo}/issues/comments/${existing}` : base, {
@@ -131,7 +134,7 @@ async function findComment(base, headers, fetchImpl) {
         if (!res.ok)
             return null;
         const items = JSON.parse(await res.text());
-        const mine = items.find((c) => c.body?.startsWith(MARKER));
+        const mine = items.find((c) => c.body?.startsWith(MARKER) || c.body?.startsWith(LEGACY_MARKER));
         if (mine)
             return mine.id;
         if (items.length < 100)

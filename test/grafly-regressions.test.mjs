@@ -66,3 +66,48 @@ test("Grafly skill uses only Grafly-facing commands", async () => {
 test("savings parser accepts Grafly output and legacy Graft output", () => {
   assert.equal(sumSavingsFooters("[grafly] tokens saved ≈ 1,200\n[graft] tokens saved ≈ 300"), 1500);
 });
+
+import { mkdirSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { resolveContextDir, readBuildConfig, writeBuildConfig } from "../dist/util/state.js";
+import { upsertSection } from "../dist/hosts/sections.js";
+import { instructionBody } from "../dist/hosts/instructions.js";
+
+test("resolveContextDir defaults to grafly, honors legacy graft and env override", () => {
+  const bare = mkdtempSync(join(tmpdir(), "grafly-bare-"));
+  assert.equal(resolveContextDir(bare), join(bare, "grafly"));
+  mkdirSync(join(bare, "graft"));
+  assert.equal(resolveContextDir(bare), join(bare, "graft"));
+  mkdirSync(join(bare, "grafly"));
+  assert.equal(resolveContextDir(bare), join(bare, "grafly"));
+  const prev = process.env.GRAFLY_DIR;
+  process.env.GRAFLY_DIR = "custom-ctx";
+  try { assert.equal(resolveContextDir(bare), join(bare, "custom-ctx")); }
+  finally { if (prev === undefined) delete process.env.GRAFLY_DIR; else process.env.GRAFLY_DIR = prev; }
+});
+
+test("build config writes .grafly and still reads legacy .graft", () => {
+  const d = mkdtempSync(join(tmpdir(), "grafly-cfg-"));
+  mkdirSync(join(d, ".graft"));
+  writeFileSync2(join(d, ".graft", "config.json"), JSON.stringify({ includeDirs: ["src"] }));
+  assert.deepEqual(readBuildConfig(d), { includeDirs: ["src"] });
+  writeBuildConfig(d, { includeDirs: ["lib"] });
+  assert.deepEqual(readBuildConfig(d), { includeDirs: ["lib"] });
+});
+
+test("upsertSection migrates a legacy graft-fenced block in place", () => {
+  const d = mkdtempSync(join(tmpdir(), "grafly-sect-"));
+  const p = join(d, "AGENTS.md");
+  writeFileSync2(p, "head\n<!-- graft:start -->\nold body\n<!-- graft:end -->\ntail\n");
+  const r = upsertSection(p, "new body");
+  assert.equal(r.action, "replaced");
+  const text = readFileSync(p, "utf8");
+  assert.match(text, /<!-- grafly:start -->\nnew body\n<!-- grafly:end -->/);
+  assert.doesNotMatch(text, /graft:start/);
+});
+
+test("instruction body is written with Grafly names only", () => {
+  const body = instructionBody();
+  assert.match(body, /## Grafly — repo context graph/);
+  assert.match(body, /`grafly ask/);
+  assert.doesNotMatch(body, /\bgraft\b/);
+});

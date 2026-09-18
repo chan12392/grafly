@@ -343,7 +343,7 @@ function saveCache(outDir, cache) {
 }
 /** Min interval between phase-1 cache flushes. Env seam for tests. */
 function summaryCheckpointMs() {
-    const raw = Number(process.env.GRAFT_SUMMARY_CHECKPOINT_MS);
+    const raw = Number(process.env.GRAFLY_SUMMARY_CHECKPOINT_MS ?? process.env.GRAFT_SUMMARY_CHECKPOINT_MS);
     return Number.isFinite(raw) && raw >= 0 ? raw : 15_000;
 }
 /** Run `fn` over `items` with at most `limit` in flight, preserving order. */

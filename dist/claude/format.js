@@ -22,9 +22,9 @@ export function freshnessSegment(s) {
 }
 export function renderStatusline(stats, session, ctx) {
     if (!stats) {
-        return [C.muted('◤ graft · not built · run ') + C.text('graft build')];
+        return [C.muted('◤ grafly · not built · run ') + C.text('grafly build')];
     }
-    const top = [C.muted('◤ ') + C.indigo('graft'), C.text(`${stats.nodeCount} nodes / ${stats.edgeCount} edges`)];
+    const top = [C.muted('◤ ') + C.indigo('grafly'), C.text(`${stats.nodeCount} nodes / ${stats.edgeCount} edges`)];
     top.push(freshnessSegment(stats));
     const saved = session?.savedTokens ?? 0;
     if (saved > 0) {
@@ -67,7 +67,7 @@ export function formatBlastRadius(w, filePath, cap = 8) {
         return ` • ${e.relation} ← ${label}`;
     });
     const more = edges.length > cap ? `\n • +${edges.length - cap} more` : '';
-    return `[graft] blast radius for ${basename(filePath)}, who depends on it:\n${items.join('\n')}${more}`;
+    return `[grafly] blast radius for ${basename(filePath)}, who depends on it:\n${items.join('\n')}${more}`;
 }
 function tokensOf(chars) { return Math.round(chars / 4); }
 /** The retrieval pack body — pointers, snippets, and (in --source mode) the
@@ -86,11 +86,11 @@ function retrievalBody(hits) {
     });
     // Two pack shapes: with inlined code the pack is substitutive (read here, don't
     // re-open); without code it is pointers-only — locators the agent may follow,
-    // pulling spans itself via `graft ask --source` (push→pull: per-prompt injected
+    // pulling spans itself via `grafly ask --source` (push→pull: per-prompt injected
     // tokens are always fresh full-price input, so the pack stays tiny).
     const header = hits.some((h) => h.code)
-        ? '[graft] retrieved context, read these spans; do not re-open the files:'
-        : '[graft] starting points for this task: pull the code inline with `graft ask "<what you need>" --source`, trace impact with `graft callers <symbol>`, or search with `graft grep "<literal>"`:';
+        ? '[grafly] retrieved context, read these spans; do not re-open the files:'
+        : '[grafly] starting points for this task: pull the code inline with `grafly ask "<what you need>" --source`, trace impact with `grafly callers <symbol>`, or search with `grafly grep "<literal>"`:';
     return `${header}\n${blocks.join('\n')}`;
 }
 /** Tokens saved (baseline − this pack), or 0 when no honest estimate applies. */
@@ -112,7 +112,7 @@ export function formatRetrieval(ask, cap = 5) {
         return body;
     const base = tokensOf(ask.saved.baselineChars);
     const pct = Math.round((saved / base) * 100);
-    return (`${body}\n[graft] tokens saved ≈ ${saved.toLocaleString()} (${pct}%); this pack ≈ ` +
+    return (`${body}\n[grafly] tokens saved ≈ ${saved.toLocaleString()} (${pct}%); this pack ≈ ` +
         `${tokensOf(body.length).toLocaleString()} tok vs reading the ${ask.saved.files} file(s) whole ≈ ` +
         `${base.toLocaleString()} tok (estimate).`);
 }
@@ -123,7 +123,7 @@ export function formatRetrieval(ask, cap = 5) {
  * it sat at 0.15, and a prompt measuring 0.165 / strong 0.033 cleared it by 0.015
  * and injected three test files for a question whose answer was elsewhere. The
  * comment it used to carry justified leaning low — "a wrongly-skipped pack is
- * recoverable, the agent pulls with `graft ask`" — and that assumption is exactly
+ * recoverable, the agent pulls with `grafly ask`" — and that assumption is exactly
  * what a traced session falsified: the agent did not pull. It grepped 38 times.
  */
 export const INJECT_MIN_COVERAGE = 0.15;
@@ -134,15 +134,15 @@ const INJECTED_POINTERS_CAP = 40;
  * wallpaper. */
 export const NUDGE_CAP = 2;
 /** The line injected instead of a weak pack: names the command, says why, once.
- * Deliberately not an imperative about graft in general — it's a fact about this
+ * Deliberately not an imperative about grafly in general — it's a fact about this
  * prompt's match quality plus the command that fixes it. */
 export function weakMatchNudge(s, strong) {
     const spent = s.nudges ?? 0;
     if (spent >= NUDGE_CAP)
         return null;
     s.nudges = spent + 1;
-    return (`[graft] no strong match for this prompt (name-field match ${strong.toFixed(2)}) — the graph ` +
-        `has more than this probe found. Run \`graft ask "<your task>" --source\` before grepping.`);
+    return (`[grafly] no strong match for this prompt (name-field match ${strong.toFixed(2)}) — the graph ` +
+        `has more than this probe found. Run \`grafly ask "<your task>" --source\` before grepping.`);
 }
 /**
  * The per-prompt injection gate. Returns the text to inject, or null to stay
@@ -184,28 +184,28 @@ export function relevantRetrieval(ask, s, cap = 3) {
     return txt;
 }
 export function formatOrientation(indexMd, budgetBytes = 1500, staleNote) {
-    // Always-on directive (cached, seen turn 0) so the agent reaches for graft's
+    // Always-on directive (cached, seen turn 0) so the agent reaches for grafly's
     // commands without waiting for the discretionary skill to load. This is the
     // reliable steering channel (fires every session, unlike the discretionary
     // skill): it carries a one-line description of each tool AND the call-discipline
     // that keeps the agent from over-tooling. Positive only, names the tools,
     // forbids nothing.
-    const directive = `[graft] This repo is indexed by graft. To find, understand, or change code, reach for graft first; it answers from a prebuilt graph with exact file:line, faster than grep/read. Pick the ONE tool that fits and act on its answer. Most tasks need a single call. If one isn't enough, switch to the tool that fits the next need; don't call the same tool again and again or re-ask a question reworded:\n` +
-        `  • graft ask "<task>" --source: locate + understand. Ranked nodes with the code inlined at each file:line (the ≤8-line crux; add --full for the whole span). The default for "how does X work" / "where is Y".\n` +
-        `  • graft grep "<literal>": exhaustive find. Every occurrence, grouped by enclosing symbol; use when you need them ALL (ask is ranked top-N and misses instances).\n` +
-        `  • graft skeleton <file>: a file's whole API in ~200 tokens, every signature + span, ~10x cheaper than reading the file.\n` +
-        `  • graft callers <sym> [--direction out] [--depth N|all]: exact edges. Who calls it (default), what it calls (--direction out), or the full blast radius (--depth 2, or --depth all for every connected source). Run before you change a symbol.\n` +
-        `  • graft map: orientation for an unfamiliar repo, directory clusters, hubs, hotspots. map alone is the answer; don't then skeleton every subsystem it names.\n` +
+    const directive = `[grafly] This repo is indexed by grafly. To find, understand, or change code, reach for grafly first; it answers from a prebuilt graph with exact file:line, faster than grep/read. Pick the ONE tool that fits and act on its answer. Most tasks need a single call. If one isn't enough, switch to the tool that fits the next need; don't call the same tool again and again or re-ask a question reworded:\n` +
+        `  • grafly ask "<task>" --source: locate + understand. Ranked nodes with the code inlined at each file:line (the ≤8-line crux; add --full for the whole span). The default for "how does X work" / "where is Y".\n` +
+        `  • grafly grep "<literal>": exhaustive find. Every occurrence, grouped by enclosing symbol; use when you need them ALL (ask is ranked top-N and misses instances).\n` +
+        `  • grafly skeleton <file>: a file's whole API in ~200 tokens, every signature + span, ~10x cheaper than reading the file.\n` +
+        `  • grafly callers <sym> [--direction out] [--depth N|all]: exact edges. Who calls it (default), what it calls (--direction out), or the full blast radius (--depth 2, or --depth all for every connected source). Run before you change a symbol.\n` +
+        `  • grafly map: orientation for an unfamiliar repo, directory clusters, hubs, hotspots. map alone is the answer; don't then skeleton every subsystem it names.\n` +
         `  In a monorepo, add --in <path>/ to ask/grep/callers to scope to one sub-project; hits are labeled [scope/].\n` +
-        `  Already know the file or symbol to change? Go straight to it: graft grep "<symbol>", read the span, edit. Save ask for when you don't yet know where the code lives.\n` +
-        `  Refactor, rename, or multi-file change? Run graft callers <sym> --depth all FIRST to map every connected file; editing the primary file and stopping is the classic miss (platform siblings, a new file to extract).\n` +
-        `Each tool opens its output with a "[graft] tokens saved ≈ N" line, sometimes with its dollar value; when you used graft this turn, close your reply with a one-line tally of the total saved, dollars included when given (e.g. 🌱 graft saved ~12k tokens (~$0.04) this turn, 3 calls). Never price tokens yourself; never pipe graft through head/tail — it is already capped, and clipping drops that line.\n`;
+        `  Already know the file or symbol to change? Go straight to it: grafly grep "<symbol>", read the span, edit. Save ask for when you don't yet know where the code lives.\n` +
+        `  Refactor, rename, or multi-file change? Run grafly callers <sym> --depth all FIRST to map every connected file; editing the primary file and stopping is the classic miss (platform siblings, a new file to extract).\n` +
+        `Each tool opens its output with a "[grafly] tokens saved ≈ N" line, sometimes with its dollar value; when you used grafly this turn, close your reply with a one-line tally of the total saved, dollars included when given (e.g. 🌱 grafly saved ~12k tokens (~$0.04) this turn, 3 calls). Never price tokens yourself; never pipe grafly through head/tail — it is already capped, and clipping drops that line.\n`;
     const banner = staleNote ? `${staleNote}\n\n` : "";
-    return `${banner}${directive}\nrepo map (graft/INDEX.md):\n${indexMd.slice(0, budgetBytes)}`;
+    return `${banner}${directive}\nrepo map (grafly/INDEX.md):\n${indexMd.slice(0, budgetBytes)}`;
 }
 export function renderSubagent(agentName, session) {
     const q = session?.perAgentQuery?.[agentName];
-    const tail = q ? SEP + C.muted('graft: ') + C.text(q) : '';
+    const tail = q ? SEP + C.muted('grafly: ') + C.text(q) : '';
     return C.muted('◤ ') + C.indigo(agentName) + tail;
 }
 //# sourceMappingURL=format.js.map

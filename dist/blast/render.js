@@ -27,7 +27,7 @@ function depthLabel(depth) {
     return Number.isFinite(depth) ? `depth ${depth}` : "full closure";
 }
 /**
- * Node colours, taken from `graft viz`'s own palette (viewer/style.css) so the two
+ * Node colours, taken from `grafly viz`'s own palette (viewer/style.css) so the two
  * pictures of the same graph read as one thing: teal is "depends on your change"
  * (`--k-method`), grey is the overflow circle (`--edge`). One hue for one kind of
  * thing, now that the diff itself is not drawn. Fill AND text colour are set
@@ -89,7 +89,7 @@ export function mermaidDiagram(r) {
 export function markdownReport(r, opts = {}) {
     const out = [];
     const symbols = r.modules.reduce((n, m) => n + m.symbols.length, 0);
-    out.push("### 🌱 graft blast radius");
+    out.push("### 🌱 grafly blast radius");
     out.push("");
     out.push(headline(r, symbols));
     const testLine = testHeadline(r);
@@ -127,7 +127,7 @@ export function markdownReport(r, opts = {}) {
             out.push(line);
     }
     out.push("");
-    out.push(`<sub>\`graft blast\` · ${r.basis} · ${depthLabel(r.depth)} · ${plural(r.changed.length, "changed file")}</sub>`);
+    out.push(`<sub>\`grafly blast\` · ${r.basis} · ${depthLabel(r.depth)} · ${plural(r.changed.length, "changed file")}</sub>`);
     return out.join("\n") + "\n";
 }
 function headline(r, symbols) {

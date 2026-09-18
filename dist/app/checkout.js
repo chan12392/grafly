@@ -89,7 +89,7 @@ const short = (sha) => sha.slice(0, 7);
  */
 export function checkoutPullRequest(req) {
     const host = (req.api ?? "https://github.com").replace(/\/$/, "");
-    const dir = mkdtempSync(join(tmpdir(), `graft-app-${req.owner}-${req.repo}-`));
+    const dir = mkdtempSync(join(tmpdir(), `grafly-app-${req.owner}-${req.repo}-`));
     const cleanup = () => rmSync(dir, { recursive: true, force: true });
     const log = req.log ?? (() => { });
     const tag = `${req.owner}/${req.repo}#${req.number}`;
@@ -152,7 +152,7 @@ export function checkoutPullRequest(req) {
  */
 export function checkoutRepository(req) {
     const host = (req.api ?? "https://github.com").replace(/\/$/, "");
-    const dir = mkdtempSync(join(tmpdir(), `graft-repo-${req.owner}-${req.repo}-`));
+    const dir = mkdtempSync(join(tmpdir(), `grafly-repo-${req.owner}-${req.repo}-`));
     const cleanup = () => rmSync(dir, { recursive: true, force: true });
     const log = req.log ?? (() => { });
     const tag = `${req.owner}/${req.repo}`;
@@ -160,7 +160,7 @@ export function checkoutRepository(req) {
         cleanup();
         throw new Error(`${tag}: ${step} failed: ${redact(err, req.token)}`);
     };
-    const init = git(dir, ["init", "--quiet", "--initial-branch=graft-tmp"]);
+    const init = git(dir, ["init", "--quiet", "--initial-branch=grafly-tmp"]);
     if (!init.ok)
         fail("init", init.err);
     const remote = git(dir, ["remote", "add", "origin", `${host}/${req.owner}/${req.repo}.git`]);

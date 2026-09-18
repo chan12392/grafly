@@ -70,7 +70,7 @@ export function writeFingerprint(outDir, entries, onlyDirs) {
 }
 /** `GRAFT_REFRESH=hash` — never trust a stat, confirm every file by its bytes. */
 export function alwaysHash() {
-    return process.env.GRAFT_REFRESH === "hash";
+    return (process.env.GRAFLY_REFRESH ?? process.env.GRAFT_REFRESH) === "hash";
 }
 /**
  * May a recorded `(size, mtimeMs, hash)` be trusted for the file `f` as it is on

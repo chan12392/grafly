@@ -11,7 +11,7 @@
  *   removed  a node in graph.json no longer exists in code       (run `graph`)
  *   changed  a node's body_hash differs from the committed one   (run `graph`)
  *   stale    a committed node's summary is flagged stale — its body changed
- *            since it was last summarized                         (run `graft build --deep`)
+ *            since it was last summarized                         (run `grafly build --deep`)
  *
  * `added`/`removed`/`changed` are structural: the graph no longer describes the
  * code. `stale` is a meaning-layer signal the last build already recorded.
@@ -30,7 +30,7 @@ import { readSourceFile } from "../util/source.js";
 // async: the breadth tier's WASM grammars load asynchronously and must be warmed
 // before the (synchronous) re-extraction below, exactly as buildGraph does — else
 // breadth-tier files (.rs, …) would re-extract as empty here and read as `removed`
-// against a graph that built them, so `graft check` would never report OK.
+// against a graph that built them, so `grafly check` would never report OK.
 export async function checkGraph(dir, opts = {}) {
     const root = resolve(dir);
     const outDir = contextDirFor(root, opts.contextDir);
@@ -59,7 +59,7 @@ export async function checkGraph(dir, opts = {}) {
     const sourceFiles = listSourceFiles(root, outDir, undefined, onlyDirs);
     await warmGenericGrammars(new Set(sourceFiles.map((f) => genericLangOf(f)?.name).filter((n) => !!n)));
     // Container-tier grammars need the same warmup as the generic ones, for the same
-    // reason: extraction below is synchronous. Missing this is what made `graft
+    // reason: extraction below is synchronous. Missing this is what made `grafly
     // check` report every `.vue` node as `removed` right after a clean build (#236)
     // — the tier extracted fine, and then the check had no branch that could see it.
     await warmContainerGrammars(new Set(sourceFiles.map((f) => containerLangOf(f)?.name).filter((n) => !!n)));
@@ -67,7 +67,7 @@ export async function checkGraph(dir, opts = {}) {
     for (const file of sourceFiles) {
         // The same three-way branch `buildGraph` uses, in the same order. The two must
         // stay in step: a tier the build extracts and the check cannot see reports as
-        // `removed` forever, and the `graft build` the check tells you to run can never
+        // `removed` forever, and the `grafly build` the check tells you to run can never
         // repair it.
         const lang = languageOf(file);
         const container = lang ? null : containerLangOf(file);
@@ -94,7 +94,7 @@ export async function checkGraph(dir, opts = {}) {
             // `generic!` that used to stand in this position threw a TypeError on a
             // container-tier file, the catch below swallowed it as a parse failure, and
             // a missing branch became a silent permanent `removed` (#236). Returning
-            // null here means the next tier graft gains fails loudly in the type
+            // null here means the next tier grafly gains fails loudly in the type
             // checker instead.
             if (extracted === null)
                 continue;
@@ -137,7 +137,7 @@ export async function checkGraph(dir, opts = {}) {
 /** Render a graph-check result as a human-readable report. */
 export function formatGraphCheckReport(r) {
     if (r.missing) {
-        return "graph check: NO GRAPH\n\nNo graft/.graph/wiring.json found. Run `graft build` first.";
+        return "graph check: NO GRAPH\n\nNo grafly/.graph/wiring.json found. Run `grafly build` first.";
     }
     if (r.ok) {
         // A share, not a bare count: "1203 not yet summarized" reads the same whether
@@ -170,9 +170,9 @@ export function formatGraphCheckReport(r) {
     }
     lines.push("");
     if (structural)
-        lines.push("Run `graft build` to rebuild the structure, then commit graft/.");
+        lines.push("Run `grafly build` to rebuild the structure, then commit grafly/.");
     if (r.stale.length)
-        lines.push("Run `graft build --deep` to refresh stale summaries.");
+        lines.push("Run `grafly build --deep` to refresh stale summaries.");
     return lines.join("\n");
 }
 /** Cap how many pending ids the OK-note lists so a large Tier-1 graph stays readable. */
@@ -187,7 +187,7 @@ function formatPendingNote(r, pct) {
     // dead-end here (#172): re-running the same command never cleared empty/failed
     // meaning replies, so name the nodes and point at the last build's errors.
     return (`meaning tier ${pct}% complete — ${r.pending} of ${r.nodes} node(s) pending${named}. ` +
-        `Run \`graft build --deep\` to summarize them; if a deep build already left these pending, ` +
+        `Run \`grafly build --deep\` to summarize them; if a deep build already left these pending, ` +
         `that meaning pass failed — see that build's errors (re-running alone will not clear them)`);
 }
 //# sourceMappingURL=check.js.map

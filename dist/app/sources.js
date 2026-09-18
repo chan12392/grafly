@@ -63,6 +63,7 @@ export function readAgentInstructions(root) {
         "AGENTS.md",
         "GEMINI.md",
         ".github/copilot-instructions.md",
+        ".windsurf/rules/grafly.md",
         ".windsurf/rules/graft.md",
         ...filesIn(root, ".cursor/rules", (n) => n.endsWith(".mdc") || n.endsWith(".md")),
     ];
@@ -77,7 +78,7 @@ export function readAgentInstructions(root) {
 /** Remove graft's own fenced regions, so the brain never learns graft from graft. */
 function stripManagedBlocks(text) {
     return text
-        .replace(/<!--\s*graft:(brain:)?start\s*-->[\s\S]*?<!--\s*graft:(brain:)?end\s*-->/g, "")
+        .replace(/<!--\s*(?:grafly|graft):(brain:)?start\s*-->[\s\S]*?<!--\s*(?:grafly|graft):(brain:)?end\s*-->/g, "")
         .trim();
 }
 /** Architecture decision records and the docs that read like them. */
@@ -237,7 +238,7 @@ const MAX_DECLINED = 40;
 export async function readDeclinedIssues(owner, repo, token, fetchImpl, api = "https://api.github.com", max = MAX_DECLINED) {
     try {
         const res = await fetchImpl(`${api}/repos/${owner}/${repo}/issues?state=closed&per_page=100&sort=updated`, {
-            headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "user-agent": "graft-app" },
+            headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "user-agent": "grafly-app" },
         });
         if (!res.ok)
             return [];
@@ -275,7 +276,7 @@ export async function readBranchProtection(owner, repo, branch, token, fetchImpl
         return [];
     try {
         const res = await fetchImpl(`${api}/repos/${owner}/${repo}/branches/${encodeURIComponent(branch)}/protection`, {
-            headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "user-agent": "graft-app" },
+            headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "user-agent": "grafly-app" },
         });
         // 404 simply means the branch is not protected, which is not a failure.
         if (!res.ok)

@@ -2,8 +2,8 @@
  * Workspace federation — a "workspace" is a parent directory that holds two or
  * more immediate git-repo children and has no source graph of its own. Instead
  * of one mega-graph pooling every repo, each child keeps its OWN committable
- * `graft/` (byte-identical to building that child standalone), and the parent
- * holds a single `graft/workspace.json` index:
+ * `grafly/` (byte-identical to building that child standalone), and the parent
+ * holds a single `grafly/workspace.json` index:
  *
  *   { "version": 1, "children": ["repoA", "repoB"] }
  *
@@ -41,7 +41,7 @@ import { formatGrepResult, zeroHitNote } from "../search/grep-cli.js";
 import { withSavings } from "../context/savings.js";
 import { splitWorkspaceScope } from "../compat/options.js";
 const WORKSPACE_FILE = "workspace.json";
-/** Absolute path to the workspace index for a parent root (`<dir>/graft/workspace.json`). */
+/** Absolute path to the workspace index for a parent root (`<dir>/grafly/workspace.json`). */
 export function workspacePath(root, override) {
     return join(contextDirFor(root, override), WORKSPACE_FILE);
 }
@@ -80,21 +80,21 @@ export function isWorkspaceBuildRoot(root, override) {
     return discoverWorkspaceChildren(root).length >= 2;
 }
 /** True when the parent has a mega-graph from an older single-graph build
- * (`graft/.graph/wiring.json`) — the thing a workspace build migrates away. */
+ * (`grafly/.graph/wiring.json`) — the thing a workspace build migrates away. */
 export function hasMegaGraph(root, override) {
     return existsSync(wiringPath(contextDirFor(root, override)));
 }
 /** The EXACT split warning printed once, when a mega-graph parent is first
  * built as a workspace. Templated on the child list so it names the real repos. */
 export function migrationNote(children) {
-    const dirs = children.map((c) => `${c}/graft/`).join(", ");
+    const dirs = children.map((c) => `${c}/grafly/`).join(", ");
     return (`⚠ this folder contains ${children.length} separate git repos — splitting: ` +
-        `each repo now gets its own committable graft/ (${dirs}); the combined graph ` +
+        `each repo now gets its own committable grafly/ (${dirs}); the combined graph ` +
         `here is replaced by a workspace index. Queries from here now search all repos, fairly.`);
 }
-/** Remove the parent's entire `graft/` tree — the mega-graph, its `.cache`, and
+/** Remove the parent's entire `grafly/` tree — the mega-graph, its `.cache`, and
  * any stale cards — so after `writeWorkspace` the parent holds ONLY
- * workspace.json. Child graphs live in sibling `<child>/graft/`, never under
+ * workspace.json. Child graphs live in sibling `<child>/grafly/`, never under
  * this dir, so they are untouched. */
 export function clearParentGraft(root, override) {
     rmSync(contextDirFor(root, override), { recursive: true, force: true });
@@ -398,7 +398,7 @@ export function federateAsk(root, override, query, opts = {}) {
             };
         }
         else {
-            result.note = `no matching nodes across ${wg.loaded.length} workspace repo(s) — try different words, or \`graft build\` at a child`;
+            result.note = `no matching nodes across ${wg.loaded.length} workspace repo(s) — try different words, or \`grafly build\` at a child`;
         }
         if (note)
             result.note = result.note ? `${result.note}\n${note}` : note;
@@ -444,7 +444,7 @@ export function federateAsk(root, override, query, opts = {}) {
         result.scopes = { federated, alsoMatched };
     }
     else {
-        result.note = `no matching nodes across ${wg.loaded.length} workspace repo(s) — try different words, or \`graft build\` at a child`;
+        result.note = `no matching nodes across ${wg.loaded.length} workspace repo(s) — try different words, or \`grafly build\` at a child`;
     }
     if (note)
         result.note = result.note ? `${result.note}\n${note}` : note;
@@ -492,7 +492,7 @@ export function federateGrep(root, override, pattern, opts = {}) {
     const result = { pattern, filesSearched, totalHits, groups, truncated, saved };
     return { result, coverage: coverageNote(wg) };
 }
-/** One `graft map` section per child (each child's own map, budget split evenly
+/** One `grafly map` section per child (each child's own map, budget split evenly
  * across the loaded children), joined under `<child>/` headers. */
 export function federateMap(root, override, opts = {}) {
     const wg = loadWorkspaceGraphs(root, override);
@@ -543,7 +543,7 @@ export async function federateCheck(root, override) {
     return { text: lines.join("\n") + "\n", ok };
 }
 /** Resolve a symbol across every child, grouped per child. Reuses the shared
- * traverse-cli formatters so each block reads exactly like `graft callers`. */
+ * traverse-cli formatters so each block reads exactly like `grafly callers`. */
 export function federateCallers(root, override, symbol, opts = {}) {
     const wg = loadWorkspaceGraphs(root, override);
     const allChildren = [...wg.loaded.map((l) => l.child), ...wg.missing];
@@ -610,12 +610,12 @@ export function federateCallers(root, override, symbol, opts = {}) {
 /**
  * Split a parent into a workspace: build each git child (via the supplied
  * `buildChild` callback, so this stays free of any engine/LLM dependency),
- * then REPLACE the parent's `graft/` with just `workspace.json`. `onStart`
+ * then REPLACE the parent's `grafly/` with just `workspace.json`. `onStart`
  * fires once — before any child is built — carrying whether this build is a
  * mega-graph migration, so the caller can print the one-time split warning
  * first, exactly as the spec requires.
  *
- * The child build writes into `<child>/graft/` and is byte-identical to
+ * The child build writes into `<child>/grafly/` and is byte-identical to
  * building that child standalone (`buildChild` is just `buildGraph(childDir)`),
  * because nothing about the parent path enters the child's build.
  */

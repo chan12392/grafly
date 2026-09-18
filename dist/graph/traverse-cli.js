@@ -1,5 +1,5 @@
 /**
- * CLI wiring for `graft callers` and its `--direction` / `--depth` flags.
+ * CLI wiring for `grafly callers` and its `--direction` / `--depth` flags.
  *
  * One command, one implementation: resolve a symbol via `resolveSymbol`, walk
  * edges via `edgeWalk` (incoming or outgoing, depth 1 or a BFS), and share the
@@ -7,8 +7,8 @@
  * cli.ts so that file stays thin (argument wiring only) and this logic stays
  * unit-testable without shelling out to the CLI on every case.
  *
- * `--direction out` subsumes the old `graft callees`; `--depth N` subsumes the
- * old `graft impact`. Exported formatters are reused by the MCP `graft_trace_calls`
+ * `--direction out` subsumes the old `grafly callees`; `--depth N` subsumes the
+ * old `grafly impact`. Exported formatters are reused by the MCP `grafly_trace_calls`
  * tool (`src/mcp/tools.ts`), so both surfaces render identical reports.
  */
 import { resolve, join } from "node:path";
@@ -70,14 +70,14 @@ export function sharedEdgeWalk(graph, adj, byId, node, direction, depth) {
     }
     return hits;
 }
-/** Exported so the MCP `graft_trace_calls` tool (`src/mcp/tools.ts`) can render the
+/** Exported so the MCP `grafly_trace_calls` tool (`src/mcp/tools.ts`) can render the
  * same human report format as the CLI, rather than re-implementing it — both
  * surfaces walk the same edges via the same `resolveSymbol` / `edgeWalk` core. */
 export function headerOf(n) {
     return `${n.name} · ${n.kind} · ${n.path}:${n.span}`;
 }
 /** `showDepth` is set for multi-hop walks (depth > 1), matching the old
- * `graft impact` output which tagged every hit with its BFS depth.
+ * `grafly impact` output which tagged every hit with its BFS depth.
  *
  * `quote`, when given, is the call site itself — the line inside the hit where it
  * references the symbol. An edge that says "total calls add" is a claim; the line
@@ -129,7 +129,7 @@ export function looseNoteFor(direction, name, candidateCount) {
     const ambiguity = candidateCount > 1
         ? ` ${candidateCount} definitions share the name "${name}"; a cross-file caller of an ambiguous name is dropped rather than guessed, so this may undercount.`
         : "";
-    return `  no indexed ${label} — the graph has no ${dir} call/reference edges for this symbol as written.${ambiguity} Check the name (try the bare symbol, or "Type.method"), or find its uses with graft grep "${name}". Fall back to raw grep -rn only for unindexed files`;
+    return `  no indexed ${label} — the graph has no ${dir} call/reference edges for this symbol as written.${ambiguity} Check the name (try the bare symbol, or "Type.method"), or find its uses with grafly grep "${name}". Fall back to raw grep -rn only for unindexed files`;
 }
 function symbolJson(n) {
     return { id: n.id, name: n.name, kind: n.kind, path: n.path, span: n.span };
@@ -164,7 +164,7 @@ export function runCallersCommand(query, dir, opts) {
     const contextDir = contextDirFor(root, opts.globalDir);
     const graph = loadGraphCached(contextDir);
     if (!graph) {
-        console.error(`✗ no graph found at ${contextDir} — run \`graft build\` first`);
+        console.error(`✗ no graph found at ${contextDir} — run \`grafly build\` first`);
         process.exit(1);
     }
     // `resolveSymbol` throws on an `--in` prefix that matches nothing indexed —
@@ -180,7 +180,7 @@ export function runCallersCommand(query, dir, opts) {
         return;
     }
     if (matches.length === 0) {
-        console.error(`✗ no symbol "${query}" in the graph — check spelling or run graft build`);
+        console.error(`✗ no symbol "${query}" in the graph — check spelling or run grafly build`);
         process.exit(1);
     }
     const direction = resolveDirection(opts.direction);
@@ -296,7 +296,7 @@ export function runCallersCommand(query, dir, opts) {
  * {circuit, features} — circuit = the verdict block also embedded in --json
  * output, features = the per-candidate vectors the log keeps for retraining
  * (capped at the top 50: the head is where the signal lives). Shared by the
- * CLI, the MCP graft_trace_calls tool, and the workspace federation path so
+ * CLI, the MCP grafly_trace_calls tool, and the workspace federation path so
  * every surface judges identically.
  */
 export function judgeAndRank(graph, query, matches, ctx) {

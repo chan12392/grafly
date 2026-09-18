@@ -63,19 +63,19 @@ export async function startVizServer(opts) {
         if (path === "/api/code-graph") {
             const file = join(opts.contextDir, ".graph", "wiring.json");
             if (!existsSync(file)) {
-                sendJson(res, 404, { error: "no wiring graph in this context dir — run `graft build` first" });
+                sendJson(res, 404, { error: "no wiring graph in this context dir — run `grafly build` first" });
                 return;
             }
             try {
                 const parsed = JSON.parse(readFileSync(file, "utf8"));
                 if (parsed?.meta?.version !== 1) {
-                    sendJson(res, 404, { error: "wiring.json has an unsupported version — regenerate with `graft build`" });
+                    sendJson(res, 404, { error: "wiring.json has an unsupported version — regenerate with `grafly build`" });
                     return;
                 }
                 sendJson(res, 200, parsed);
             }
             catch {
-                sendJson(res, 404, { error: "wiring.json is unreadable — regenerate with `graft build`" });
+                sendJson(res, 404, { error: "wiring.json is unreadable — regenerate with `grafly build`" });
             }
             return;
         }

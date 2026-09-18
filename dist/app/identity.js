@@ -54,7 +54,7 @@ export async function installationFor(creds, owner, repo, fetchImpl, nowMs = Dat
         headers: {
             authorization: `Bearer ${appJwt(creds, nowMs)}`,
             accept: "application/vnd.github+json",
-            "user-agent": "graft-app",
+            "user-agent": "grafly-app",
         },
     });
     if (res.status === 404)
@@ -71,7 +71,7 @@ export async function repoAccessGap(creds, owner, fetchImpl, nowMs = Date.now(),
     const headers = {
         authorization: `Bearer ${appJwt(creds, nowMs)}`,
         accept: "application/vnd.github+json",
-        "user-agent": "graft-app",
+        "user-agent": "grafly-app",
     };
     // An account is an org or a user and the endpoints differ, so try the org one
     // and fall back rather than making the caller know which it is.
@@ -100,7 +100,7 @@ async function ownerIdFor(owner, fetchImpl, api) {
         // Unauthenticated: a public account's id is public, and this runs on a path
         // where the App has no installation token to use anyway.
         const res = await fetchImpl(`${api}/users/${owner}`, {
-            headers: { accept: "application/vnd.github+json", "user-agent": "graft-app" },
+            headers: { accept: "application/vnd.github+json", "user-agent": "grafly-app" },
         });
         if (!res.ok)
             return null;
@@ -131,7 +131,7 @@ export class InstallationTokens {
             headers: {
                 authorization: `Bearer ${appJwt(this.creds, this.now())}`,
                 accept: "application/vnd.github+json",
-                "user-agent": "graft-app",
+                "user-agent": "grafly-app",
             },
         });
         const body = await res.text();

@@ -7,11 +7,11 @@ import { graftCliPath } from './paths.js';
 function realBuild(dir) {
     // GRAFT_TEST_CLI is the same seam hooks.ts's graftJson uses, so a test can
     // point this at a stub and inspect the exact argv it was invoked with.
-    const cliPath = process.env.GRAFT_TEST_CLI ?? graftCliPath();
+    const cliPath = process.env.GRAFLY_TEST_CLI ?? process.env.GRAFT_TEST_CLI ?? graftCliPath();
     const args = [cliPath, 'build', '.'];
-    // Mirrors `withContextDirArg` in hooks.ts: a no-op unless GRAFT_DIR is set, so an
+    // Mirrors `withContextDirArg` in hooks.ts: a no-op unless GRAFLY_DIR is set, so an
     // unconfigured repo's rebuild sees byte-identical argv to before this existed.
-    if (process.env.GRAFT_DIR)
+    if (process.env.GRAFLY_DIR ?? process.env.GRAFT_DIR)
         args.push('--dir', resolveContextDir(dir));
     execFileSync(process.execPath, args, { cwd: dir, stdio: 'ignore', timeout: 120000 });
 }

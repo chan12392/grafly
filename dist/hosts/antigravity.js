@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path';
 import { skillTemplate } from '../claude/skill-template.js';
 /** The skill file path, under the user's global Antigravity skills dir. */
 function skillPath(home) {
-    return join(home, '.gemini', 'skills', 'graft', 'SKILL.md');
+    return join(home, '.gemini', 'skills', 'grafly', 'SKILL.md');
 }
 /** The files installing Antigravity's global skill would touch — pure, no writes. */
 export function antigravitySkillTargets(home) {
@@ -23,11 +23,11 @@ export function antigravitySkillTargets(home) {
         {
             hostId: 'antigravity', id: 'antigravity-skill',
             path: skillPath(home),
-            scope: 'global', kind: 'skill', what: 'graft skill (shared)',
+            scope: 'global', kind: 'skill', what: 'grafly skill (shared)',
         },
     ];
 }
-/** Write graft's skill into `~/.gemini/skills/graft/SKILL.md`, idempotently. */
+/** Write grafly's skill into `~/.gemini/skills/grafly/SKILL.md`, idempotently. */
 export function installAntigravitySkill(home) {
     const path = skillPath(home);
     const content = skillTemplate();

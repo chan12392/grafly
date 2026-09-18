@@ -58,7 +58,7 @@ export function digestSources(sources) {
         .join("\n");
     return contentHash(lines);
 }
-/** Absolute path of the `graft/` directory for a repo root. Visible (not
+/** Absolute path of the `grafly/` directory for a repo root. Visible (not
  * dot-prefixed) on purpose: default ripgrep skips hidden dirs, so the agent's
  * grep/ls/find reflex must be able to land on the graph. */
 export function contextDirFor(root, override) {
@@ -67,7 +67,7 @@ export function contextDirFor(root, override) {
     return join(root, "grafly");
 }
 /**
- * Make sure the repo's root `.gitignore` ignores the graft output dir. The
+ * Make sure the repo's root `.gitignore` ignores the grafly output dir. The
  * graph is a local, regenerable cache (like `node_modules`), not a committed
  * artifact, so every `grafly build` adds the entry itself the first time — the
  * user never has to think about it. No-ops when the entry is already present
@@ -81,10 +81,10 @@ export function ensureGitignored(root, contextDir) {
     const rel = relPosix(root, contextDir);
     if (rel === "" || rel.startsWith(".."))
         return; // dir is at/above the repo root — nothing sane to ignore
-    const bare = stripTrailingSlashes(rel); // "graft" (or a `--dir` subpath like "tools/ctx")
-    // Root-ANCHORED, so it ignores exactly this repo's `graft/` and not a directory named
-    // `graft` at any depth. An unanchored `graft/` also matched `.claude/skills/graft/`, so
-    // committing the skill graft just wrote was silently dropped (#79). `rel` is always
+    const bare = stripTrailingSlashes(rel); // "grafly" (or a `--dir` subpath like "tools/ctx")
+    // Root-ANCHORED, so it ignores exactly this repo's `grafly/` and not a directory named
+    // `grafly` at any depth. An unanchored `grafly/` also matched `.claude/skills/grafly/`, so
+    // committing the skill grafly just wrote was silently dropped (#79). `rel` is always
     // repo-relative here, so a leading `/` is always safe (incl. a `--dir` subpath).
     const entry = `/${bare}/`;
     const path = join(root, ".gitignore");
@@ -93,7 +93,7 @@ export function ensureGitignored(root, contextDir) {
         current = readFileSync(path, "utf8");
     }
     catch { /* no .gitignore yet — we create one */ }
-    // Accept the anchored form AND the older unanchored `graft/` / `graft`, so existing
+    // Accept the anchored form AND the older unanchored `grafly/` / `grafly`, so existing
     // repos aren't double-appended and a hand-anchored entry survives the next build.
     const present = current.split("\n").some((l) => {
         const t = l.trim();
@@ -102,7 +102,7 @@ export function ensureGitignored(root, contextDir) {
     if (present)
         return;
     const gap = current === "" ? "" : current.endsWith("\n") ? "\n" : "\n\n";
-    const block = `${gap}# Grafly's local graph cache — regenerable, not committed (run \`graft build\`).\n${entry}\n`;
+    const block = `${gap}# Grafly's local graph cache — regenerable, not committed (run \`grafly build\`).\n${entry}\n`;
     try {
         writeFileSync(path, current + block);
     }
@@ -217,9 +217,9 @@ export function writeNode(dir, node) {
     return path;
 }
 /**
- * Stems of per-file wiring cards that sit at the graft/ top level — i.e. cards
+ * Stems of per-file wiring cards that sit at the grafly/ top level — i.e. cards
  * for source files in the repo root. Those cards share a directory with concept
- * nodes (`graft/<stem>.md`) but are recorded in `manifest.files`, not
+ * nodes (`grafly/<stem>.md`) but are recorded in `manifest.files`, not
  * `manifest.nodes`. Nested file cards live in subdirs and are never scanned here.
  *
  * Incomplete on its own (#261): the graph can write a root card for a source

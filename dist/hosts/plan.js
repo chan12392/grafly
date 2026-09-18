@@ -36,7 +36,7 @@ function instructionTarget(repo, host) {
         path: join(repo, host.relPath),
         scope: 'repo',
         kind: 'instruction',
-        what: host.kind === 'owned' ? 'graft-owned file' : 'fenced graft section',
+        what: host.kind === 'owned' ? 'grafly-owned file' : 'fenced grafly section',
     };
 }
 /**

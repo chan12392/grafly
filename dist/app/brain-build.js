@@ -7,7 +7,7 @@
  * work from the repository name alone.
  *
  * Runs in the app rather than in the platform because only the app has the
- * GitHub App credentials, only it can clone, and only graft can build a symbol
+ * GitHub App credentials, only it can clone, and only grafly can build a symbol
  * graph. What crosses back to the platform is a digest of messages and symbol
  * ids — never source.
  */
@@ -47,15 +47,15 @@ export async function buildRepoIntoBrain(job, deps) {
         // resolved here rather than guessed there.
         const gap = await repoAccessGap(deps.creds, job.owner, deps.fetch, (deps.now ?? Date.now)(), api);
         throw new RepoNotAccessibleError(gap.reason === "repo_not_selected"
-            ? `graft is installed on ${job.owner} but ${tag} is not in the list of repositories it can see`
-            : `graft is not installed on ${job.owner}`, gap);
+            ? `grafly is installed on ${job.owner} but ${tag} is not in the list of repositories it can see`
+            : `grafly is not installed on ${job.owner}`, gap);
     }
     const tokenRes = await deps.fetch(`${api}/app/installations/${installationId}/access_tokens`, {
         method: "POST",
         headers: {
             authorization: `Bearer ${appJwt(deps.creds, (deps.now ?? Date.now)())}`,
             accept: "application/vnd.github+json",
-            "user-agent": "graft-app",
+            "user-agent": "grafly-app",
         },
     });
     if (!tokenRes.ok) {
@@ -151,7 +151,7 @@ async function repoMeta(owner, repo, token, fetchImpl, api) {
             headers: {
                 authorization: `Bearer ${token}`,
                 accept: "application/vnd.github+json",
-                "user-agent": "graft-app",
+                "user-agent": "grafly-app",
             },
         });
         if (!res.ok)

@@ -30,7 +30,7 @@ import { writeOwned, isGraftEntry, readJsonObject } from './config-write.js';
 /** The Cursor hooks.json schema version graft writes. */
 const CURSOR_HOOKS_VERSION = 1;
 function shimPathFor(repo) {
-    return join(repo, '.cursor', 'hooks', 'graft-hooks.cjs');
+    return join(repo, '.cursor', 'hooks', 'grafly-hooks.cjs');
 }
 function configPathFor(repo) {
     return join(repo, '.cursor', 'hooks.json');

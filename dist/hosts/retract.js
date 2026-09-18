@@ -43,7 +43,13 @@ import { isGraftAllowEntry, isGraftFooterRegex } from '../claude/settings-merge.
  * This is where a *removed* host's file goes. Deleting an entry from `HOSTS`
  * without adding it here is what strands a file in every existing repo.
  */
-const LEGACY_TARGETS = [];
+const LEGACY_TARGETS = [
+    { relPath: join('.adal', 'skills', 'graft', 'SKILL.md'), what: 'legacy Graft skill', kind: 'owned' },
+    { relPath: join('.cursor', 'rules', 'graft.mdc'), what: 'legacy Graft cursor rule', kind: 'owned' },
+    { relPath: join('.grok', 'skills', 'graft', 'SKILL.md'), what: 'legacy Graft skill', kind: 'owned' },
+    { relPath: join('.kiro', 'steering', 'graft.md'), what: 'legacy Graft steering', kind: 'owned' },
+    { relPath: join('.windsurf', 'rules', 'graft.md'), what: 'legacy Graft rule', kind: 'owned' },
+];
 // ---------------------------------------------------------------------------
 // primitive operations
 // ---------------------------------------------------------------------------
@@ -397,8 +403,8 @@ function targets(repo, opts) {
             continue;
         const path = join(repo, host.relPath);
         add(host.kind === 'owned'
-            ? { hostId: host.id, path, what: 'graft-owned instruction file', scope: 'repo', run: (a) => removeFile(path, a) }
-            : { hostId: host.id, path, what: 'fenced graft section', scope: 'repo', run: (a) => stripSection(path, a) });
+            ? { hostId: host.id, path, what: 'grafly-owned instruction file', scope: 'repo', run: (a) => removeFile(path, a) }
+            : { hostId: host.id, path, what: 'fenced grafly section', scope: 'repo', run: (a) => stripSection(path, a) });
     }
     // 1b. Instruction files from hosts that no longer exist in the registry.
     for (const legacy of LEGACY_TARGETS) {
@@ -454,6 +460,8 @@ function targets(repo, opts) {
                     run: (a) => (t.path.endsWith('.json') ? stripCodexHooks(t.path, a) : removeFile(t.path, a)),
                 });
             }
+            const legacyCodexShim = join(home, '.codex', 'hooks', 'graft', 'graft-hooks.cjs');
+            add({ hostId: 'legacy', path: legacyCodexShim, what: 'legacy Graft Codex hook shim', scope: 'global', run: (a) => removeFile(legacyCodexShim, a) });
         }
         if (!exclude.has('antigravity')) {
             for (const t of antigravitySkillTargets(home)) {

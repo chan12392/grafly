@@ -29,7 +29,7 @@ const DEFAULT_CONCURRENCY = 5;
  * module load) so a test seam `GRAFT_CRUX_CHECKPOINT_MS=0` (flush on every completed
  * file) takes effect. */
 function checkpointMs() {
-    return Number(process.env.GRAFT_CRUX_CHECKPOINT_MS ?? 15000);
+    return Number(process.env.GRAFLY_CRUX_CHECKPOINT_MS ?? process.env.GRAFT_CRUX_CHECKPOINT_MS ?? 15000);
 }
 export async function enrichGraph(nodes, prior, sources, opts = {}) {
     const stats = {
