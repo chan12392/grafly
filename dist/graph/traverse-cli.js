@@ -218,6 +218,7 @@ export function runCallersCommand(query, dir, opts) {
         circuit = {
             verdict: judged.verdict,
             gap: judged.gap,
+            reason: judged.reason,
             top: judged.ranked[0].node.id,
             scores: judged.ranked.map((r) => ({ id: r.node.id, score: Number(r.score.toFixed(3)) })),
         };
@@ -248,6 +249,7 @@ export function runCallersCommand(query, dir, opts) {
             query, direction, depth: showDepth ? depth : 1, in: opts.in ?? null,
             top: opts.top ?? null, root,
             matchCount: matches.length, verdict: circuit.verdict, gap: circuit.gap,
+            reason: circuit.reason,
             cwd: [...cwdTokens].join("/") || null,
             scores: circuit.scores,
             features: circuitFeatures,
@@ -275,8 +277,8 @@ export function runCallersCommand(query, dir, opts) {
     if (circuit) {
         const c = circuit;
         lines.push(c.verdict === "abstain"
-            ? `⚖ circuit: ${matches.length} same-name matches — abstain (gap ${c.gap.toFixed(2)} < ${ABSTAIN_GAP}); best guess first`
-            : `⚖ circuit: ${matches.length} same-name matches — confident → ${c.top}`);
+            ? `⚖ circuit: ${matches.length} same-name matches — abstain (gap ${c.gap.toFixed(2)} < ${ABSTAIN_GAP}; ${reasonText(c.reason)}); best guess first`
+            : `⚖ circuit: ${matches.length} same-name matches — confident → ${c.top} (${reasonText(c.reason)})`);
         lines.push("");
     }
     if (truncated) {
@@ -299,6 +301,30 @@ export function runCallersCommand(query, dir, opts) {
     const body = lines.join("\n").replace(/\n+$/, "\n");
     process.stdout.write(withSavings(body, saved));
 }
+/** Human-readable expansion of the machine reason code — an LLM or human
+ * reading the verdict line gets WHY, not just WHAT. */
+function reasonText(reason) {
+    if (!reason)
+        return "";
+    const parts = reason.split("|");
+    const out = [];
+    for (const p of parts) {
+        if (p === "tie")
+            out.push("top-2 identical on all evidence");
+        else if (p === "weak_gap")
+            out.push("weak separation");
+        else if (p === "vendored_pool")
+            out.push("all candidates vendored — answer is library code");
+        else if (p === "unique")
+            out.push("unique match");
+        else if (p.startsWith("by:"))
+            out.push(`separated by ${p.slice(3).replace(/\+/g, ", ")}`);
+        else
+            out.push(p);
+    }
+    return out.join("; ");
+}
+
 /** Append one JSONL judgment record beside the graph. Logging is
  * best-effort — a failed write must never break a query. */
 function logCircuit(contextDir, record) {

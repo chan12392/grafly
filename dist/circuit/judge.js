@@ -179,7 +179,32 @@ export function judgeSymbols(graph, query, matches, ctx) {
         : Number.POSITIVE_INFINITY;
     const verdict = ranked.length === 1 || gap >= ABSTAIN_GAP
         ? "confident" : "abstain";
-    return { verdict, gap, ranked };
+    const reason = verdictReason(verdict, gap, ranked);
+    return { verdict, gap, ranked, reason };
+}
+
+/** Why the verdict came out this way — the part an LLM consumer needs to
+ * decide whether the ranking is trustworthy:
+ *  - confident: which features actually separated top-1 from top-2
+ *  - abstain:   tie (identical evidence) vs weak_gap (real but small
+ *               separation) — plus vendored_pool when every candidate
+ *               lives in vendored/generated paths, i.e. the "answer" is
+ *               library code, not project code. */
+function verdictReason(verdict, gap, ranked) {
+    if (ranked.length === 1)
+        return "unique";
+    const vendoredPool = ranked.every((r) => r.features.vendored === 1);
+    if (verdict === "confident") {
+        // |Δfeature × weight|, desc — the evidence that decided it.
+        const diffs = Object.keys(W)
+            .map((k) => [k, ((ranked[0].features[k] ?? 0) - (ranked[1].features[k] ?? 0)) * (W[k] ?? 0)])
+            .filter(([, d]) => d > 1e-9)
+            .sort((a, b) => b[1] - a[1]);
+        const by = diffs.slice(0, 3).map(([k]) => k).join("+") || "score";
+        return `by:${by}` + (vendoredPool ? "|vendored_pool" : "");
+    }
+    const cause = gap < 1e-6 ? "tie" : "weak_gap";
+    return cause + (vendoredPool ? "|vendored_pool" : "");
 }
 
 /**
