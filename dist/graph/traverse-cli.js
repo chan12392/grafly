@@ -12,7 +12,6 @@
  * tool (`src/mcp/tools.ts`), so both surfaces render identical reports.
  */
 import { resolve, join } from "node:path";
-import { appendFileSync } from "node:fs";
 import { fileReader, referenceLine, wordRe } from "../blast/evidence.js";
 import { contextDirFor } from "../context/node-file.js";
 import { withSavings, savingsFor } from "../context/savings.js";
@@ -20,6 +19,7 @@ import { loadGraphCached } from "./load.js";
 import { resolveSymbol } from "./traverse.js";
 import { WALK_RELATIONS } from "./relations.js";
 import { judgeSymbols, cwdContextTokens, ABSTAIN_GAP } from "../circuit/judge.js";
+import { appendCircuitRecord, jidFor, recordFollowup } from "../circuit/feedback.js";
 const ARROW = { in: "←", out: "→" };
 const DEFAULT_DEPTH = 1;
 /**
@@ -30,7 +30,7 @@ const DEFAULT_DEPTH = 1;
  * exactly this adjacency lookup at depth 1, and impactOfMany's BFS is the
  * same loop with frontier expansion.
  */
-function walkAdjacency(graph, direction) {
+export function walkAdjacency(graph, direction) {
     const adj = new Map();
     for (const e of graph.edges) {
         if (!WALK_RELATIONS.has(e.relation))
@@ -49,7 +49,7 @@ function symbolsInFile(graph, fileNode) {
     return graph.nodes.filter((n) => n.kind !== "file" && n.path === fileNode.path);
 }
 /** edgeWalk with shared adjacency — same seeds, same dedup, same hit order. */
-function sharedEdgeWalk(graph, adj, byId, node, direction, depth) {
+export function sharedEdgeWalk(graph, adj, byId, node, direction, depth) {
     const seeds = depth > 1 && node.kind === "file"
         ? [node, ...symbolsInFile(graph, node)] : [node];
     const visited = new Set(seeds.map((s) => s.id));
@@ -204,28 +204,20 @@ export function runCallersCommand(query, dir, opts) {
         }
     }
     const showDepth = depth > 1;
+    // Feedback BEFORE judging: this resolution may be the caller's verdict on
+    // a previous judgment (a strict-subset follow-up = adopt/reject label).
+    // Runs before this query's own judgment is appended so a query can never
+    // attribute to itself.
+    const logPath = circuitLogPath(contextDir);
+    recordFollowup(logPath, root, query, matches.map((n) => n.id));
     // Judge and --top BEFORE walking: the circuit order decides what to show,
     // then only the shown symbols get edge-walked over one shared adjacency.
     // Upstream walked every match — O(matches × edges) — which is what made
     // ambiguous queries on large graphs slow.
-    let circuit = null;
-    let circuitFeatures = null;
     const cwdTokens = cwdContextTokens(root, process.cwd());
-    if (matches.length > 1) {
-        const judged = judgeSymbols(graph, query, matches, { cwdTokens });
-        const order = new Map(judged.ranked.map((r, i) => [r.node.id, i]));
-        matches.sort((a, b) => order.get(a.id) - order.get(b.id));
-        circuit = {
-            verdict: judged.verdict,
-            gap: judged.gap,
-            reason: judged.reason,
-            top: judged.ranked[0].node.id,
-            scores: judged.ranked.map((r) => ({ id: r.node.id, score: Number(r.score.toFixed(3)) })),
-        };
-        // capped for the log: the head of the ranking is where retraining
-        // signal lives; the tail is noise.
-        circuitFeatures = judged.ranked.slice(0, 50).map((r) => ({ id: r.node.id, ...r.features }));
-    }
+    const judged = judgeAndRank(graph, query, matches, { cwdTokens });
+    const circuit = judged?.circuit ?? null;
+    const circuitFeatures = judged?.features ?? null;
     // --top N: emit only the circuit's best N matches — the answer an agent
     // would reach after reading all of them anyway, at a fraction of the
     // output tokens. Dropped matches stay visible via the verdict line /
@@ -245,11 +237,12 @@ export function runCallersCommand(query, dir, opts) {
     // graph it judged — the raw material for retraining weights and for
     // auditing bad rankings. GRAFLY_CIRCUIT_LOG=0 disables; =path redirects.
     if (circuit)
-        logCircuit(contextDir, { ts: new Date().toISOString(), cmd: "callers",
-            query, direction, depth: showDepth ? depth : 1, in: opts.in ?? null,
+        logCircuit(logPath, { ts: new Date().toISOString(), type: "judge", cmd: "callers",
+            query, direction, depth: !showDepth ? 1 : Number.isFinite(depth) ? depth : "all",
+            in: opts.in ?? null,
             top: opts.top ?? null, root,
             matchCount: matches.length, verdict: circuit.verdict, gap: circuit.gap,
-            reason: circuit.reason,
+            reason: circuit.reason, top1: circuit.top,
             cwd: [...cwdTokens].join("/") || null,
             scores: circuit.scores,
             features: circuitFeatures,
@@ -275,10 +268,7 @@ export function runCallersCommand(query, dir, opts) {
     }
     const lines = [];
     if (circuit) {
-        const c = circuit;
-        lines.push(c.verdict === "abstain"
-            ? `⚖ circuit: ${matches.length} same-name matches — abstain (gap ${c.gap.toFixed(2)} < ${ABSTAIN_GAP}; ${reasonText(c.reason)}); best guess first`
-            : `⚖ circuit: ${matches.length} same-name matches — confident → ${c.top} (${reasonText(c.reason)})`);
+        lines.push(circuitVerdictLine(circuit, matches.length));
         lines.push("");
     }
     if (truncated) {
@@ -301,6 +291,39 @@ export function runCallersCommand(query, dir, opts) {
     const body = lines.join("\n").replace(/\n+$/, "\n");
     process.stdout.write(withSavings(body, saved));
 }
+/**
+ * Judge same-name matches and sort `matches` best-first in place. Returns
+ * {circuit, features} — circuit = the verdict block also embedded in --json
+ * output, features = the per-candidate vectors the log keeps for retraining
+ * (capped at the top 50: the head is where the signal lives). Shared by the
+ * CLI, the MCP graft_trace_calls tool, and the workspace federation path so
+ * every surface judges identically.
+ */
+export function judgeAndRank(graph, query, matches, ctx) {
+    if (matches.length <= 1)
+        return null;
+    const judged = judgeSymbols(graph, query, matches, { cwdTokens: ctx?.cwdTokens });
+    const order = new Map(judged.ranked.map((r, i) => [r.node.id, i]));
+    matches.sort((a, b) => order.get(a.id) - order.get(b.id));
+    return {
+        circuit: {
+            verdict: judged.verdict,
+            gap: judged.gap,
+            reason: judged.reason,
+            top: judged.ranked[0].node.id,
+            scores: judged.ranked.map((r) => ({ id: r.node.id, score: Number(r.score.toFixed(3)) })),
+        },
+        features: judged.ranked.slice(0, 50).map((r) => ({ id: r.node.id, ...r.features })),
+    };
+}
+/** The ⚖ verdict line — one line of judgment before the match blocks, same
+ * text on CLI and MCP. Abstain names its best guess explicitly: an agent that
+ * reads only the header still learns which symbol the circuit preferred. */
+export function circuitVerdictLine(circuit, matchCount) {
+    return circuit.verdict === "abstain"
+        ? `⚖ circuit: ${matchCount} same-name matches — abstain (gap ${circuit.gap.toFixed(2)} < ${ABSTAIN_GAP}; ${reasonText(circuit.reason)}); best guess first: ${circuit.top}`
+        : `⚖ circuit: ${matchCount} same-name matches — confident → ${circuit.top} (${reasonText(circuit.reason)})`;
+}
 /** Human-readable expansion of the machine reason code — an LLM or human
  * reading the verdict line gets WHY, not just WHAT. */
 function reasonText(reason) {
@@ -315,6 +338,8 @@ function reasonText(reason) {
             out.push("weak separation");
         else if (p === "vendored_pool")
             out.push("all candidates vendored — answer is library code");
+        else if (p === "lone_source")
+            out.push("only project-source candidate — rest vendored/generated");
         else if (p === "unique")
             out.push("unique match");
         else if (p.startsWith("by:"))
@@ -325,16 +350,22 @@ function reasonText(reason) {
     return out.join("; ");
 }
 
-/** Append one JSONL judgment record beside the graph. Logging is
- * best-effort — a failed write must never break a query. */
-function logCircuit(contextDir, record) {
+/** Resolved circuit-log path for this context dir, or null when logging is
+ * off (GRAFLY_CIRCUIT_LOG=0/off). =path redirects — shared by the judgment
+ * writer and the feedback reader so both honor the same switch. */
+export function circuitLogPath(contextDir) {
     const cfg = process.env.GRAFLY_CIRCUIT_LOG;
     if (cfg === "0" || cfg === "off")
+        return null;
+    return cfg ? resolve(cfg) : join(contextDir, "circuit-log.jsonl");
+}
+/** Append one JSONL judgment record beside the graph — stamped with type and
+ * a content-derived jid so later adopt/reject events can name the decision
+ * they label. Best-effort: a failed write must never break a query. */
+export function logCircuit(logPath, record) {
+    if (!logPath)
         return;
-    const path = cfg ? resolve(cfg) : join(contextDir, "circuit-log.jsonl");
-    try {
-        appendFileSync(path, JSON.stringify(record) + "\n");
-    }
-    catch { /* logging never blocks the answer */ }
+    record.jid = jidFor(record);
+    appendCircuitRecord(logPath, record);
 }
 //# sourceMappingURL=traverse-cli.js.map

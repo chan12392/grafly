@@ -51,8 +51,9 @@ export function resolveSymbol(graph, query, opts = {}) {
  * silently hiding the `~2` duplicate from callers/ask/MCP lookups. The
  * ordinal can land on any segment, not just the tail (a reopened class shows
  * up as `C~2.m`), so this strips at every segment boundary (`.` or end of
- * string), not just the very end of the string. */
-function stripOrdinals(idTail) {
+ * string), not just the very end of the string. Exported for judge.js so the
+ * circuit's qualified_tail feature matches what resolveSymbol matched. */
+export function stripOrdinals(idTail) {
     return idTail.replace(/~\d+(?=\.|$)/g, "");
 }
 function symbolMatches(nodes, lowerQuery) {

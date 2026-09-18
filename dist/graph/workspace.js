@@ -28,8 +28,10 @@ import { checkGraph } from "./check.js";
 import { loadGraphCached } from "./load.js";
 import { buildRepoMap, formatRepoMap } from "./map.js";
 import { discoverWorkspaceChildren } from "./scopes.js";
-import { callersSavings, headerOf, hitLine, looseNoteFor, } from "./traverse-cli.js";
-import { edgeWalk, resolveSymbol } from "./traverse.js";
+import { callersSavings, headerOf, hitLine, looseNoteFor, judgeAndRank, circuitVerdictLine, circuitLogPath, logCircuit, walkAdjacency, sharedEdgeWalk, } from "./traverse-cli.js";
+import { resolveSymbol } from "./traverse.js";
+import { cwdContextTokens } from "../circuit/judge.js";
+import { recordFollowup } from "../circuit/feedback.js";
 import { wiringPath } from "./write.js";
 import { ask, } from "../ask/ask.js";
 import { fileFirstRoundRobin, roundRobinQueues, } from "../ask/file-selection.js";
@@ -543,13 +545,37 @@ export function federateCallers(root, override, symbol, opts = {}) {
     const showDepth = depth > 1;
     const blocks = [];
     let found = false;
+    const topN = typeof opts.top === 'number' && Number.isFinite(opts.top) && opts.top >= 1
+        ? Math.floor(opts.top) : null;
     for (const { child, graph } of wg.loaded) {
         const matches = resolveSymbol(graph, symbol, opts.in ? { in: opts.in } : {});
         if (matches.length === 0)
             continue;
         found = true;
-        const results = matches.map((m) => ({ symbol: m, hits: edgeWalk(graph, m, direction, depth) }));
+        // Same judgment as the single-repo path — per child, against that
+        // child's own context dir and log. Ambiguity is per-repo: a name
+        // confident in one child may abstain in another.
+        const childRoot = join(root, child);
+        const logPath = circuitLogPath(contextDirFor(childRoot));
+        recordFollowup(logPath, childRoot, symbol, matches.map((m) => m.id));
+        const judged = judgeAndRank(graph, symbol, matches, { cwdTokens: cwdContextTokens(childRoot, process.cwd()) });
+        const shown = topN !== null && matches.length > topN ? matches.slice(0, topN) : matches;
+        const adj = walkAdjacency(graph, direction);
+        const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+        const results = shown.map((m) => ({ symbol: m, hits: sharedEdgeWalk(graph, adj, byId, m, direction, depth) }));
+        if (judged)
+            logCircuit(logPath, { ts: new Date().toISOString(), type: 'judge', cmd: 'federated_callers',
+                query: symbol, direction, depth: Number.isFinite(depth) ? depth : 'all',
+                in: opts.in ?? null, top: topN, root: childRoot,
+                matchCount: matches.length, verdict: judged.circuit.verdict,
+                gap: judged.circuit.gap, reason: judged.circuit.reason,
+                top1: judged.circuit.top, scores: judged.circuit.scores,
+                features: judged.features, shown: shown.map((n) => n.id) });
         const lines = [`## ${child}/`];
+        if (judged)
+            lines.push(circuitVerdictLine(judged.circuit, matches.length));
+        if (shown.length < matches.length)
+            lines.push(`… top ${shown.length} of ${matches.length} matches (circuit-ranked)`);
         for (const { symbol: sym, hits } of results) {
             lines.push(headerOf(sym));
             if (hits.length === 0)

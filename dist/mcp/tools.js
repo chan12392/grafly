@@ -9,8 +9,10 @@ import { formatGraphCheckReport } from '../graph/check.js';
 import { loadGraphCached } from '../graph/load.js';
 import { ensureFreshChildren, ensureFreshGraph, refreshNote } from '../graph/refresh.js';
 import { contextDirFor } from '../context/node-file.js';
-import { resolveSymbol, edgeWalk } from '../graph/traverse.js';
-import { callersSavings, headerOf, hitLine, looseNoteFor } from '../graph/traverse-cli.js';
+import { resolveSymbol } from '../graph/traverse.js';
+import { callersSavings, headerOf, hitLine, looseNoteFor, judgeAndRank, circuitVerdictLine, circuitLogPath, logCircuit, walkAdjacency, sharedEdgeWalk } from '../graph/traverse-cli.js';
+import { cwdContextTokens } from '../circuit/judge.js';
+import { recordFollowup } from '../circuit/feedback.js';
 import { withSavings, setInputRate } from '../context/savings.js';
 import { sessionInputRate } from '../claude/session-metrics.js';
 import { grepGraph } from '../search/grep.js';
@@ -61,7 +63,7 @@ export const TOOLS = [
     },
     {
         name: 'graft_trace_calls',
-        description: 'Structural edges for a symbol, over call/reference/import/implements/extends ($0, no LLM). Defaults to direct callers (who depends on it). Set direction:"out" for callees (what it calls); set depth>1 (or depth:"all" for the full closure) to walk transitively for the full blast radius — every source that breaks if it changes. Run before a multi-file refactor to find ALL affected files.',
+        description: 'Structural edges for a symbol, over call/reference/import/implements/extends ($0, no LLM). Defaults to direct callers (who depends on it). Set direction:"out" for callees (what it calls); set depth>1 (or depth:"all" for the full closure) to walk transitively for the full blast radius — every source that breaks if it changes. Run before a multi-file refactor to find ALL affected files. Same-name matches are circuit-ranked and carry a verdict line: "confident" names the winner, "abstain" marks genuine ambiguity with the best guess first.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -73,6 +75,7 @@ export const TOOLS = [
                 },
                 depth: { description: 'transitive walk depth for blast radius (default 1 = direct edges only); pass "all" for the full connected closure — every source that would be affected' },
                 in: { type: 'string', description: 'narrow matches to nodes at or under this repo-relative path prefix, e.g. server/src' },
+                top: { type: 'number', description: 'with multiple same-name matches, show only the circuit-ranked top N — the dropped ids stay in the verdict line' },
             },
             required: ['symbol'],
         },
@@ -106,13 +109,13 @@ export const TOOLS = [
  * note), one block per match, joined with a blank line — the same grouping
  * `graft callers` uses for multi-match symbols. `showDepth` tags each hit with
  * its BFS depth (for transitive `depth>1` walks). */
-function renderMatches(direction, showDepth, matches, hitsFor) {
+function renderMatches(direction, showDepth, matches, hitsFor, candidateCount = matches.length) {
     return matches
         .map((m) => {
         const hits = hitsFor(m);
         const lines = [headerOf(m)];
         if (hits.length === 0)
-            lines.push(looseNoteFor(direction, m.name, matches.length));
+            lines.push(looseNoteFor(direction, m.name, candidateCount));
         else
             for (const h of hits)
                 lines.push(hitLine(direction, h, showDepth));
@@ -143,6 +146,7 @@ async function callWorkspaceTool(root, dirOverride, name, args) {
                 direction: args.direction === 'out' ? 'out' : 'in',
                 depth: typeof args.depth === 'number' && Number.isFinite(args.depth) ? args.depth : undefined,
                 in: typeof args.in === 'string' && args.in ? args.in : undefined,
+                top: typeof args.top === 'number' && Number.isFinite(args.top) ? args.top : undefined,
             });
             return { text, isError: !found };
         }
@@ -246,7 +250,8 @@ async function callSingleTool(root, name, args, dirOverride) {
             const symbol = String(args.symbol ?? args.file ?? '');
             if (!symbol)
                 return { text: 'graft_trace_calls requires a symbol', isError: true };
-            const w = loadGraphCached(contextDirFor(root, dirOverride));
+            const contextDir = contextDirFor(root, dirOverride);
+            const w = loadGraphCached(contextDir);
             if (!w)
                 return { text: NO_GRAPH, isError: true };
             const inOpt = typeof args.in === 'string' && args.in ? { in: args.in } : {};
@@ -261,9 +266,31 @@ async function callSingleTool(root, name, args, dirOverride) {
                 : typeof args.depth === 'number' && Number.isFinite(args.depth) && args.depth >= 1
                     ? Math.floor(args.depth)
                     : 1;
-            const results = matches.map((m) => ({ symbol: m, hits: edgeWalk(w, m, direction, depth) }));
-            const byId = new Map(results.map((r) => [r.symbol.id, r.hits]));
-            const body = renderMatches(direction, depth > 1, matches, (m) => byId.get(m.id) ?? []);
+            // Same judgment the CLI prints: a same-name match set is exactly
+            // the ambiguity the circuit exists for, and the LLM is the consumer
+            // who most needs the verdict. Follow-up attribution runs first so a
+            // query can never label its own judgment.
+            const logPath = circuitLogPath(contextDir);
+            recordFollowup(logPath, root, symbol, matches.map((m) => m.id));
+            const judged = judgeAndRank(w, symbol, matches, { cwdTokens: cwdContextTokens(root, process.cwd()) });
+            const topN = typeof args.top === 'number' && Number.isFinite(args.top) && args.top >= 1
+                ? Math.floor(args.top) : null;
+            const shown = topN !== null && matches.length > topN ? matches.slice(0, topN) : matches;
+            const adj = walkAdjacency(w, direction);
+            const nodesById = new Map(w.nodes.map((n) => [n.id, n]));
+            const results = shown.map((m) => ({ symbol: m, hits: sharedEdgeWalk(w, adj, nodesById, m, direction, depth) }));
+            if (judged)
+                logCircuit(logPath, { ts: new Date().toISOString(), type: 'judge', cmd: 'mcp_trace',
+                    query: symbol, direction, depth: Number.isFinite(depth) ? depth : 'all',
+                    in: inOpt.in ?? null, top: topN, root,
+                    matchCount: matches.length, verdict: judged.circuit.verdict,
+                    gap: judged.circuit.gap, reason: judged.circuit.reason,
+                    top1: judged.circuit.top, scores: judged.circuit.scores,
+                    features: judged.features, shown: shown.map((n) => n.id) });
+            const hitsById = new Map(results.map((r) => [r.symbol.id, r.hits]));
+            const body = (judged ? circuitVerdictLine(judged.circuit, matches.length) + '\n\n' : '')
+                + (shown.length < matches.length ? `… top ${shown.length} of ${matches.length} matches (circuit-ranked; pass top:${matches.length} for all)\n\n` : '')
+                + renderMatches(direction, depth > 1, shown, (m) => hitsById.get(m.id) ?? [], matches.length);
             const text = withSavings(body, callersSavings(w, results));
             return { text, isError: false };
         }

@@ -17,6 +17,13 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, sep } from "node:path";
+import { stripOrdinals } from "../graph/traverse.js";
+
+/** Feature keys the circuit produces — the converter (scripts/npz-to-weights.mjs)
+ * validates a retrained artifact against this list: a weight for a name not
+ * here is dead, a name here missing from the artifact scores 0. */
+export const FEATURE_KEYS = ["qualified_tail", "exact_name", "path_overlap",
+    "degree", "kind_hint", "vendored", "test_path", "cwd_affinity", "bias"];
 
 /** Weights are an ARTIFACT, not code: circuit/weights.json carries the
  * feature weights + abstain gap so a retrained circuit ships as a JSON
@@ -79,7 +86,11 @@ export function matchFeatures(graph, query, node, deg, cwdTokens) {
     const tail = hasQualifier ? q.slice(dot + 1) : q;
     const prefix = hasQualifier ? q.slice(0, dot) : "";
 
-    const lowerId = node.id.toLowerCase();
+    // Strip mint-time `~N` ordinals like resolveSymbol does, so a `C.m`
+    // query scores `#C~2.m` the same as `#C.m` — it resolved, it should feature.
+    const hashIdx = node.id.indexOf("#");
+    const lowerId = (hashIdx === -1 ? node.id : node.id.slice(0, hashIdx + 1) +
+        stripOrdinals(node.id.slice(hashIdx + 1))).toLowerCase();
     const qualifiedTail = hasQualifier &&
         (lowerId.endsWith("#" + q) || lowerId.endsWith("." + q));
     const exactName = node.name.toLowerCase() === tail;
@@ -187,13 +198,19 @@ export function judgeSymbols(graph, query, matches, ctx) {
  * decide whether the ranking is trustworthy:
  *  - confident: which features actually separated top-1 from top-2
  *  - abstain:   tie (identical evidence) vs weak_gap (real but small
- *               separation) — plus vendored_pool when every candidate
- *               lives in vendored/generated paths, i.e. the "answer" is
- *               library code, not project code. */
+ *               separation)
+ *  - pool flags (either verdict): vendored_pool when every candidate lives
+ *    in vendored/generated paths; lone_source when exactly one candidate is
+ *    project source — the top-1 then won by elimination, not by preferred
+ *    evidence, which is a different kind of "confident" the consumer should
+ *    see. Measured on merlection: `render`/`__eq__` picked a lone test
+ *    symbol over 40-270 vendored duplicates this way. */
 function verdictReason(verdict, gap, ranked) {
     if (ranked.length === 1)
         return "unique";
     const vendoredPool = ranked.every((r) => r.features.vendored === 1);
+    const nonVendored = vendoredPool ? 0 : ranked.filter((r) => r.features.vendored === 0).length;
+    const poolFlag = vendoredPool ? "|vendored_pool" : nonVendored === 1 ? "|lone_source" : "";
     if (verdict === "confident") {
         // |Δfeature × weight|, desc — the evidence that decided it.
         const diffs = Object.keys(W)
@@ -201,10 +218,10 @@ function verdictReason(verdict, gap, ranked) {
             .filter(([, d]) => d > 1e-9)
             .sort((a, b) => b[1] - a[1]);
         const by = diffs.slice(0, 3).map(([k]) => k).join("+") || "score";
-        return `by:${by}` + (vendoredPool ? "|vendored_pool" : "");
+        return `by:${by}` + poolFlag;
     }
     const cause = gap < 1e-6 ? "tie" : "weak_gap";
-    return cause + (vendoredPool ? "|vendored_pool" : "");
+    return cause + poolFlag;
 }
 
 /**
