@@ -1,7 +1,7 @@
 {
   "name": "grafly",
   "version": "0.1.0",
-  "description": "graft + local judgment circuit: repo context graph with same-name disambiguation and abstain scoring",
+  "description": "Grafly: local repository context graph with ambiguity-aware symbol ranking",
   "keywords": [
     "ai",
     "agents",
@@ -9,7 +9,7 @@
     "context",
     "codebase",
     "llm",
-    "graft"
+    "grafly"
   ],
   "license": "MIT",
   "repository": {
@@ -31,21 +31,21 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "grafly": "dist/cli.js",
-    "graft": "dist/cli.js"
+    "grafly": "dist/cli.js"
   },
   "files": [
     "dist",
     "scripts",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "TELEMETRY.md"
   ],
   "scripts": {
     "test": "node scripts/run-tests.mjs",
     "postinstall": "node scripts/postinstall.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12.0"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",

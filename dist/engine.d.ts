@@ -2,8 +2,8 @@
  * The Context Graph Engine.
  *
  * Two operations, no database:
- *   - {@link Graft.init}  build `.context/` from a code repo.
- *   - {@link Graft.check} report whether `.context/` is still in
+ *   - {@link Grafly.init}  build `.context/` from a code repo.
+ *   - {@link Grafly.check} report whether `.context/` is still in
  *     sync with the code (for CI).
  *
  * The graph is a folder of linked markdown files committed to the repo; git is
@@ -42,7 +42,7 @@ export interface GraphRunOptions {
     onlyDirs?: string[];
     onProgress?: GraphBuildOptions["onProgress"];
 }
-export declare class Graft {
+export declare class Grafly {
     private cfg;
     constructor(config?: EngineConfig);
     /** Build the `.context/` graph from the repo at `dir`. */
@@ -59,7 +59,7 @@ export declare class Graft {
      */
     graph(dir: string, opts?: GraphRunOptions): Promise<GraphBuildResult>;
     /**
-     * Answer a plain-words query from the committed `graft/` graph — the active
+     * Answer a plain-words query from the local `grafly/` graph — the active
      * channel. Deterministic and $0: routes structural queries to the wiring
      * edges and everything else to a lexical rank over concepts + symbols.
      */
@@ -80,4 +80,6 @@ export declare class Graft {
     /** Human label for the active model, recorded in the manifest. */
     private modelLabel;
 }
-//# sourceMappingURL=engine.d.ts.map
+
+/** @deprecated Compatibility alias for pre-Grafly integrations. */
+export declare const Graft: typeof Grafly;

@@ -39,6 +39,7 @@ import { fuseScopes, STRONG_FLOOR, HIGH_FLOOR } from "../ask/fuse.js";
 import { grepGraph } from "../search/grep.js";
 import { formatGrepResult, zeroHitNote } from "../search/grep-cli.js";
 import { withSavings } from "../context/savings.js";
+import { splitWorkspaceScope } from "../compat/options.js";
 const WORKSPACE_FILE = "workspace.json";
 /** Absolute path to the workspace index for a parent root (`<dir>/graft/workspace.json`). */
 export function workspacePath(root, override) {
@@ -116,14 +117,14 @@ export function loadWorkspaceGraphs(root, override) {
     }
     return { loaded, missing };
 }
-/** "2 of 3 workspace repos have graphs; run graft build to cover repoC" — the
+/** "2 of 3 workspace repos have graphs; run grafly build to cover repoC" — the
  * coverage line federated commands append when some listed child is unbuilt.
  * Empty string when every child has a graph. */
 export function coverageNote(g) {
     if (g.missing.length === 0)
         return "";
     const total = g.loaded.length + g.missing.length;
-    return `${g.loaded.length} of ${total} workspace repos have graphs; run graft build to cover ${g.missing.join(", ")}`;
+    return `${g.loaded.length} of ${total} workspace repos have graphs; run grafly build to cover ${g.missing.join(", ")}`;
 }
 /** Prefix a hit pointer with its child dir so a `path:span` (or concept path
  * list) opens correctly from the parent. Leaves free-text fragments alone. */
@@ -454,6 +455,8 @@ export function federateAsk(root, override, query, opts = {}) {
  * In-degree stays each child's own — it comes from that child's graph. */
 export function federateGrep(root, override, pattern, opts = {}) {
     const wg = loadWorkspaceGraphs(root, override);
+    const allChildren = [...wg.loaded.map((l) => l.child), ...wg.missing];
+    const { onlyChild, childIn } = splitWorkspaceScope(opts.in, allChildren);
     const groups = [];
     let filesSearched = 0;
     let totalHits = 0;
@@ -461,9 +464,12 @@ export function federateGrep(root, override, pattern, opts = {}) {
     let savedFiles = 0;
     let savedChars = 0;
     for (const { child, graph } of wg.loaded) {
+        if (onlyChild && child !== onlyChild)
+            continue;
         const r = grepGraph(graph, join(root, child), pattern, {
             ignoreCase: opts.ignoreCase,
             fixed: opts.fixed,
+            in: childIn,
         });
         filesSearched += r.filesSearched;
         totalHits += r.totalHits;
@@ -530,7 +536,7 @@ export async function federateCheck(root, override) {
         }
     }
     for (const child of wg.missing)
-        lines.push(`${child}/: not built (run graft build)`);
+        lines.push(`${child}/: not built (run grafly build)`);
     const cov = coverageNote(wg);
     if (cov)
         lines.push("", cov);
@@ -540,6 +546,8 @@ export async function federateCheck(root, override) {
  * traverse-cli formatters so each block reads exactly like `graft callers`. */
 export function federateCallers(root, override, symbol, opts = {}) {
     const wg = loadWorkspaceGraphs(root, override);
+    const allChildren = [...wg.loaded.map((l) => l.child), ...wg.missing];
+    const { onlyChild, childIn } = splitWorkspaceScope(opts.in, allChildren);
     const direction = opts.direction ?? "in";
     const depth = opts.depth && opts.depth >= 1 ? Math.floor(opts.depth) : 1;
     const showDepth = depth > 1;
@@ -548,7 +556,9 @@ export function federateCallers(root, override, symbol, opts = {}) {
     const topN = typeof opts.top === 'number' && Number.isFinite(opts.top) && opts.top >= 1
         ? Math.floor(opts.top) : null;
     for (const { child, graph } of wg.loaded) {
-        const matches = resolveSymbol(graph, symbol, opts.in ? { in: opts.in } : {});
+        if (onlyChild && child !== onlyChild)
+            continue;
+        const matches = resolveSymbol(graph, symbol, childIn ? { in: childIn } : {});
         if (matches.length === 0)
             continue;
         found = true;
@@ -589,7 +599,7 @@ export function federateCallers(root, override, symbol, opts = {}) {
     }
     const cov = coverageNote(wg);
     if (!found) {
-        const base = `no symbol "${symbol}" in any of the ${wg.loaded.length} workspace repo(s) — check spelling or run graft build`;
+        const base = `no symbol "${symbol}" in any of the ${wg.loaded.length} workspace repo(s) — check spelling or run grafly build`;
         return { text: cov ? `${base}\n${cov}` : base, found: false };
     }
     let text = blocks.join("\n\n");
@@ -620,4 +630,3 @@ export async function splitWorkspace(root, override, buildChild, onStart) {
     return { children, migrated };
 }
 export { formatGrepResult, zeroHitNote };
-//# sourceMappingURL=workspace.js.map

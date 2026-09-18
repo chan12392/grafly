@@ -51,14 +51,14 @@ export declare const CACHE_DIR = ".cache";
 export declare function slugify(name: string): string;
 /** sha256 over the sorted `path:hash` lines of a set of sources. */
 export declare function digestSources(sources: SourceRef[]): string;
-/** Absolute path of the `graft/` directory for a repo root. Visible (not
+/** Absolute path of the `grafly/` directory for a repo root. Visible (not
  * dot-prefixed) on purpose: default ripgrep skips hidden dirs, so the agent's
  * grep/ls/find reflex must be able to land on the graph. */
 export declare function contextDirFor(root: string, override?: string): string;
 /**
- * Make sure the repo's root `.gitignore` ignores the graft output dir. The
+ * Make sure the repo's root `.gitignore` ignores the Grafly output dir. The
  * graph is a local, regenerable cache (like `node_modules`), not a committed
- * artifact, so every `graft build` adds the entry itself the first time — the
+ * artifact, so every `grafly build` adds the entry itself the first time — the
  * user never has to think about it. No-ops when the entry is already present
  * or the dir lives outside `root` (a custom `--dir` elsewhere, which can't be
  * expressed as a repo-relative ignore). Best-effort: an unwritable `.gitignore`

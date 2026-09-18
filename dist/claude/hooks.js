@@ -38,7 +38,8 @@ function projectDir(input) {
 }
 export function underGraft(dir, file) {
     const rel = file.startsWith(dir) ? file.slice(dir.length) : file;
-    return rel.replace(/^[/\\]+/, '').replace(/\\/g, '/').startsWith('graft/');
+    const normalized = rel.replace(/^[/\\]+/, '').replace(/\\/g, '/');
+    return normalized.startsWith('grafly/') || normalized.startsWith('graft/');
 }
 /** Default budget for a graft child process invoked from a hook, matching the 8s
  * the installed hook entries carry. */
@@ -92,7 +93,7 @@ function hookTimeoutIn(file, event) {
             return null;
         for (const block of blocks) {
             for (const h of block?.hooks ?? []) {
-                if (typeof h?.command === 'string' && h.command.includes('graft-hooks.cjs') && typeof h.timeout === 'number') {
+                if (typeof h?.command === 'string' && /(?:grafly|graft)-hooks\.cjs/.test(h.command) && typeof h.timeout === 'number') {
                     return h.timeout;
                 }
             }
@@ -134,7 +135,7 @@ function installedHookTimeout(dir, event) {
  * byte-identical argv to before this existed.
  */
 function withContextDirArg(dir, args) {
-    return process.env.GRAFT_DIR ? [...args, '--dir', resolveContextDir(dir)] : args;
+    return (process.env.GRAFLY_DIR ?? process.env.GRAFT_DIR) ? [...args, '--dir', resolveContextDir(dir)] : args;
 }
 function graftJson(dir, args, timeout = CHILD_TIMEOUT_MS) {
     try {
@@ -142,7 +143,7 @@ function graftJson(dir, args, timeout = CHILD_TIMEOUT_MS) {
         // tests can point the prompt hook's `graft ask`/`graft check` calls at a stub
         // script and observe the exact args it was invoked with, instead of shelling
         // out to the real CLI (which isn't built relative to the TS source under test).
-        const cliPath = process.env.GRAFT_TEST_CLI ?? graftCliPath();
+        const cliPath = process.env.GRAFLY_TEST_CLI ?? process.env.GRAFT_TEST_CLI ?? graftCliPath();
         const out = execFileSync(process.execPath, [cliPath, ...args], { cwd: dir, encoding: 'utf8', timeout, stdio: ['ignore', 'pipe', 'ignore'] });
         return JSON.parse(out);
     }
@@ -229,19 +230,19 @@ export function lastFileScopeHint(dir, lastFile) {
             return null; // single-scope: no hint, no --in
         const matches = (w.nodes ?? []).filter((n) => n.kind === 'file' && (n.path === lastFile || n.path.endsWith(`/${lastFile}`)));
         if (matches.length === 0) {
-            console.error(`[graft] prompt hook: lastFile "${lastFile}" not found in the graph — skipping scope hint`);
+            console.error(`[grafly] prompt hook: lastFile "${lastFile}" not found in the graph — skipping scope hint`);
             return null;
         }
         const prefixes = new Set(matches.map((n) => scopeOf(n.path, scopes).prefix));
         if (prefixes.size > 1) {
-            console.error(`[graft] prompt hook: lastFile "${lastFile}" matches more than one scope — skipping scope hint`);
+            console.error(`[grafly] prompt hook: lastFile "${lastFile}" matches more than one scope — skipping scope hint`);
             return null;
         }
         const [prefix] = prefixes;
         return prefix === '' ? null : prefix; // root scope: nothing to narrow
     }
     catch (e) {
-        console.error(`[graft] prompt hook: scope hint lookup failed (${e?.message ?? e}) — skipping`);
+        console.error(`[grafly] prompt hook: scope hint lookup failed (${e?.message ?? e}) — skipping`);
         return null;
     }
 }
@@ -253,11 +254,11 @@ export function lastFileScopeHint(dir, lastFile) {
  *      read (Read/Grep/Glob) and bump the session's `graftReads`/`sourceReads`.
  *      Until this ran, those counters were never incremented, so
  *      `session_summary` telemetry shipped 0/0 for every session.
- *   2. Sum any `[graft] tokens saved ≈ N` footers in the output into the running
+ *   2. Sum any `[grafly] tokens saved ≈ N` footers in the output into the running
  *      `savedTokens` total, so the statusline's `~N tok saved` reflects the
  *      session across CLI and MCP.
  *
- * A `[graft]` footer is itself proof graft ran, so it also counts as a graft
+ * A `[grafly]` footer is itself proof graft ran, so it also counts as a graft
  * read even when the tool name alone (a bare `Bash`) couldn't say so. A graft use
  * also flags the turn (`turnUsedGraft`) so the Stop hook's tally can resolve
  * whether the reply told the user what it saved. Stays a no-op on the
@@ -271,7 +272,7 @@ function handleToolUse(input, dir) {
  * Classify a tool use and, only when it could carry a graft footer, parse the
  * savings out of its (lazily-serialised) output.
  *
- * Source reads (Read/Grep/Glob) never print a `[graft]` footer, and their output
+ * Source reads (Read/Grep/Glob) never print a `[grafly]` footer, and their output
  * is a whole file or every match — serialising and regexing that on every read
  * is the expensive, pointless case the widened PostToolUse matcher would
  * otherwise hit. So skip `payload()` entirely for them. For anything else, a
@@ -392,7 +393,7 @@ function handleStop(input, dir) {
     // if the package is somehow incomplete, skip rather than wedge on syncing:true.
     // GRAFT_TEST_SYNC_RUN is a test seam (mirrors GRAFT_TEST_STDIN) so tests can point
     // this at a stub file inside their own sandbox instead of writing into src/claude/.
-    const syncRun = process.env.GRAFT_TEST_SYNC_RUN ?? claudeScriptPath('sync-run.js');
+    const syncRun = process.env.GRAFLY_TEST_SYNC_RUN ?? process.env.GRAFT_TEST_SYNC_RUN ?? claudeScriptPath('sync-run.js');
     if (!existsSync(syncRun))
         return;
     const stats = readStats(dir);
@@ -491,4 +492,3 @@ export async function main(event) {
         writeSession(dir, id, s);
     }
 }
-//# sourceMappingURL=hooks.js.map

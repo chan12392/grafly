@@ -21,7 +21,6 @@
  */
 import { formatCruxMiss } from "../ai/crux.js";
 import { LlmFailureGate } from "../ai/failure.js";
-import { isTrivialNode, localCruxEntry } from "../circuit/judge.js";
 /** Cap on the stored crux: an over-long pick is trimmed to its leading slice. */
 const MAX_CRUX_LINES = 12;
 /** Files summarized at once. Each is an independent LLM call; order is preserved. */
@@ -196,19 +195,9 @@ function cruxMissMessage(summarizer, fallback) {
  */
 async function collectFileCrux(summarizer, path, source, refs) {
     const results = new Map();
-    // Circuit gate: nodes the model's own trivial rule makes predictable
-    // (short, no control flow, or declarative kinds — answered with a
-    // one-liner + crux 0/0 anyway) are written locally, so the LLM call only
-    // ever carries symbols whose summary actually needs judgment. Same entry
-    // shape, zero round-trip; anything ambiguous stays in the batch.
-    const sourceLines = source.split("\n");
-    let missing = [];
-    for (const r of refs) {
-        if (isTrivialNode(r, sourceLines))
-            results.set(r.id, localCruxEntry(r));
-        else
-            missing.push(r);
-    }
+    // Never infer semantic triviality from line count or regexes. Every dirty
+    // symbol is offered to the summarizer; only the model may return crux 0/0.
+    let missing = refs;
     let error;
     for (let attempt = 0; attempt < 2 && missing.length > 0; attempt++) {
         try {
@@ -216,7 +205,7 @@ async function collectFileCrux(summarizer, path, source, refs) {
             for (const r of list)
                 if (!results.has(r.id))
                     results.set(r.id, r);
-            missing = missing.filter((r) => !results.has(r.id));
+            missing = refs.filter((r) => !results.has(r.id));
         }
         catch (err) {
             error = err instanceof Error ? err.message : String(err);
@@ -263,4 +252,3 @@ function spanLines(span, fileLines) {
     const end = Math.max(start, Math.min(Number(m[2]), fileLines));
     return [start, end];
 }
-//# sourceMappingURL=enrich.js.map

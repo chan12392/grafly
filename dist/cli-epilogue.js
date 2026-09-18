@@ -31,8 +31,8 @@ export function formatInitEpilogue(opts) {
         wordmark[STATS_LINE_INDEX] += tty ? muted(stats) : stats;
     }
     const steps = [
-        ...(graphBuilt ? [] : [{ label: "build the graph", command: "graft build" }]),
-        { label: "restart your agent", command: "a new session picks up graft automatically" },
+        ...(graphBuilt ? [] : [{ label: "build the graph", command: "grafly build" }]),
+        { label: "restart your agent", command: "a new session picks up Grafly automatically" },
         {
             label: "code as usual",
             command: "ask your agent to fix a bug or explain a flow —",
@@ -40,7 +40,7 @@ export function formatInitEpilogue(opts) {
         },
         {
             label: "explore by hand",
-            command: 'graft ask "where is auth handled?" · graft callers <fn> · graft viz',
+            command: 'grafly ask "where is auth handled?" · grafly callers <fn> · grafly viz',
         },
     ];
     const indent = "  ";
@@ -55,7 +55,6 @@ export function formatInitEpilogue(opts) {
             stepLines.push(" ".repeat(columnWidth) + extra);
         }
     });
-    const closing = `${indent}share it: git add .claude && git commit — teammates run \`graft build\` for their own local graph`;
+    const closing = `${indent}share it: git add .claude && git commit — teammates run \`grafly build\` for their own local graph`;
     return [...wordmark, "", ...stepLines, "", closing].join("\n");
 }
-//# sourceMappingURL=cli-epilogue.js.map

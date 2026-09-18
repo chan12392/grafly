@@ -2,8 +2,8 @@
  * The Context Graph Engine.
  *
  * Two operations, no database:
- *   - {@link Graft.init}  build `.context/` from a code repo.
- *   - {@link Graft.check} report whether `.context/` is still in
+ *   - {@link Grafly.init}  build `.context/` from a code repo.
+ *   - {@link Grafly.check} report whether `.context/` is still in
  *     sync with the code (for CI).
  *
  * The graph is a folder of linked markdown files committed to the repo; git is
@@ -21,7 +21,7 @@ import { buildGraph } from "./graph/build.js";
 import { checkGraph } from "./graph/check.js";
 import { ask } from "./ask/ask.js";
 export { CODE_EXTENSIONS };
-export class Graft {
+export class Grafly {
     cfg;
     constructor(config = {}) {
         this.cfg = resolveConfig(config);
@@ -64,7 +64,7 @@ export class Graft {
         });
     }
     /**
-     * Answer a plain-words query from the committed `graft/` graph — the active
+     * Answer a plain-words query from the local `grafly/` graph — the active
      * channel. Deterministic and $0: routes structural queries to the wiring
      * edges and everything else to a lexical rank over concepts + symbols.
      */
@@ -86,7 +86,7 @@ export class Graft {
         if (this._chatModel)
             return this._chatModel;
         if (!this.cfg.apiKey) {
-            throw new Error("No API key. Set GRAFT_API_KEY (and GRAFT_PROVIDER / GRAFT_BASE_URL / GRAFT_MODEL " +
+            throw new Error("No API key. Set GRAFLY_API_KEY (and GRAFLY_PROVIDER / GRAFLY_BASE_URL / GRAFLY_MODEL " +
                 "for your provider) to build or summarize the graph.");
         }
         this._chatModel = createChatModel({
@@ -117,4 +117,5 @@ export class Graft {
         return `${this.cfg.provider}:${this.cfg.model}`;
     }
 }
-//# sourceMappingURL=engine.js.map
+/** @deprecated Compatibility alias for pre-Grafly integrations. */
+export const Graft = Grafly;

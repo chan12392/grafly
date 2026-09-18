@@ -2,7 +2,7 @@
  * The MCP tools, as pure functions over the existing engine.
  * `callTool` never throws — hosts get soft errors as isError content.
  */
-import { Graft } from '../engine.js';
+import { Grafly } from '../engine.js';
 import { formatAsk, skeleton, formatSkeleton } from '../ask/ask.js';
 import { formatCheckReport } from '../context/check.js';
 import { formatGraphCheckReport } from '../graph/check.js';
@@ -20,13 +20,14 @@ import { formatGrepResult, zeroHitNote } from '../search/grep-cli.js';
 import { buildRepoMap, formatRepoMap } from '../graph/map.js';
 import { federateAsk, federateCallers, federateCheck, federateGrep, federateMap, readWorkspace, } from '../graph/workspace.js';
 import { canonicalToolName } from './tool-names.js';
-const NO_GRAPH = 'no graph found — run `graft build` first';
+import { normalizeTraceDepth } from '../compat/options.js';
+const NO_GRAPH = 'no graph found — run `grafly build` first';
 function unknownSymbolText(query) {
-    return `no symbol "${query}" in the graph — check spelling or run \`graft build\``;
+    return `no symbol "${query}" in the graph — check spelling or run \`grafly build\``;
 }
 export const TOOLS = [
     {
-        name: 'graft_find_code',
+        name: 'grafly_find_code',
         description: 'Query the repo context graph in plain words. Returns ranked nodes with exact file:line spans and the relevant source inlined — usually the full answer, no file reads needed.',
         inputSchema: {
             type: 'object',
@@ -46,7 +47,7 @@ export const TOOLS = [
         },
     },
     {
-        name: 'graft_file_api',
+        name: 'grafly_file_api',
         description: "Signatures-only view of one file — every definition's signature + line span, ~10× cheaper than reading the file ($0, no LLM).",
         inputSchema: {
             type: 'object',
@@ -57,12 +58,12 @@ export const TOOLS = [
         },
     },
     {
-        name: 'graft_check_freshness',
+        name: 'grafly_check_freshness',
         description: 'Report whether the committed graph is in sync with the code (drift check).',
         inputSchema: { type: 'object', properties: {} },
     },
     {
-        name: 'graft_trace_calls',
+        name: 'grafly_trace_calls',
         description: 'Structural edges for a symbol, over call/reference/import/implements/extends ($0, no LLM). Defaults to direct callers (who depends on it). Set direction:"out" for callees (what it calls); set depth>1 (or depth:"all" for the full closure) to walk transitively for the full blast radius — every source that breaks if it changes. Run before a multi-file refactor to find ALL affected files. Same-name matches are circuit-ranked and carry a verdict line: "confident" names the winner, "abstain" marks genuine ambiguity with the best guess first.',
         inputSchema: {
             type: 'object',
@@ -81,7 +82,7 @@ export const TOOLS = [
         },
     },
     {
-        name: 'graft_find_all',
+        name: 'grafly_find_all',
         description: 'Regex search over the graph\'s indexed files, hits grouped by innermost enclosing symbol and ranked by incoming-edge count (coupling) — which hit matters, not just where it is.',
         inputSchema: {
             type: 'object',
@@ -95,7 +96,7 @@ export const TOOLS = [
         },
     },
     {
-        name: 'graft_repo_map',
+        name: 'grafly_repo_map',
         description: 'Token-budgeted repo orientation — directory clusters, per-directory hubs, and global hotspots computed purely from the wiring graph ($0, no LLM). Use this to get oriented in an unfamiliar repo before diving into files.',
         inputSchema: {
             type: 'object',
@@ -107,7 +108,7 @@ export const TOOLS = [
 ];
 /** Render every resolved match's header + edge report (or the loud zero-edge
  * note), one block per match, joined with a blank line — the same grouping
- * `graft callers` uses for multi-match symbols. `showDepth` tags each hit with
+ * `grafly callers` uses for multi-match symbols. `showDepth` tags each hit with
  * its BFS depth (for transitive `depth>1` walks). */
 function renderMatches(direction, showDepth, matches, hitsFor, candidateCount = matches.length) {
     return matches
@@ -129,43 +130,44 @@ function renderMatches(direction, showDepth, matches, hitsFor, candidateCount = 
  * falls through to the normal single-graph path. */
 async function callWorkspaceTool(root, dirOverride, name, args) {
     switch (name) {
-        case 'graft_find_code': {
+        case 'grafly_find_code': {
             const query = String(args.query ?? '');
             if (!query)
-                return { text: 'graft_find_code requires a query', isError: true };
+                return { text: 'grafly_find_code requires a query', isError: true };
             const limit = typeof args.limit === 'number' ? args.limit : 5;
             const inArg = typeof args.in === 'string' && args.in ? args.in : undefined;
             const r = federateAsk(root, dirOverride, query, { limit, source: true, full: args.full === true, in: inArg });
             return { text: formatAsk(r), isError: false };
         }
-        case 'graft_trace_calls': {
+        case 'grafly_trace_calls': {
             const symbol = String(args.symbol ?? args.file ?? '');
             if (!symbol)
-                return { text: 'graft_trace_calls requires a symbol', isError: true };
+                return { text: 'grafly_trace_calls requires a symbol', isError: true };
             const { text, found } = federateCallers(root, dirOverride, symbol, {
                 direction: args.direction === 'out' ? 'out' : 'in',
-                depth: typeof args.depth === 'number' && Number.isFinite(args.depth) ? args.depth : undefined,
+                depth: normalizeTraceDepth(args.depth),
                 in: typeof args.in === 'string' && args.in ? args.in : undefined,
                 top: typeof args.top === 'number' && Number.isFinite(args.top) ? args.top : undefined,
             });
             return { text, isError: !found };
         }
-        case 'graft_find_all': {
+        case 'grafly_find_all': {
             const pattern = String(args.pattern ?? '');
             if (!pattern)
-                return { text: 'graft_find_all requires a pattern', isError: true };
+                return { text: 'grafly_find_all requires a pattern', isError: true };
             const { result, coverage } = federateGrep(root, dirOverride, pattern, {
                 ignoreCase: typeof args.ignore_case === 'boolean' ? args.ignore_case : undefined,
                 fixed: typeof args.fixed === 'boolean' ? args.fixed : undefined,
+                in: typeof args.in === 'string' && args.in ? args.in : undefined,
             });
             const text = result.totalHits === 0 ? zeroHitNote(result) : formatGrepResult(result);
             return { text: coverage ? `${text}\n${coverage}` : text, isError: false };
         }
-        case 'graft_repo_map': {
+        case 'grafly_repo_map': {
             const maxDirs = typeof args.max_dirs === 'number' && Number.isFinite(args.max_dirs) && args.max_dirs > 0 ? args.max_dirs : undefined;
             return { text: federateMap(root, dirOverride, { maxDirs }), isError: false };
         }
-        case 'graft_check_freshness': {
+        case 'grafly_check_freshness': {
             const { text } = await federateCheck(root, dirOverride);
             return { text, isError: false };
         }
@@ -174,8 +176,8 @@ async function callWorkspaceTool(root, dirOverride, name, args) {
     }
 }
 /** Tools whose whole job is to REPORT drift. Rebuilding first would make
- * `graft_check_freshness` answer about a graph it just fixed, i.e. always "OK". */
-const NO_REFRESH_TOOLS = new Set(['graft_check_freshness']);
+ * `grafly_check_freshness` answer about a graph it just fixed, i.e. always "OK". */
+const NO_REFRESH_TOOLS = new Set(['grafly_check_freshness']);
 /**
  * The pre-0.8.1 tool names, still accepted, live in the dependency-free
  * `tool-names.ts` (shared with the engine-free session hooks). The names were the
@@ -214,25 +216,25 @@ export async function callTool(root, requestedName, args, dirOverride) {
 /** The single-graph path: every tool, answered from one repo's graph. */
 async function callSingleTool(root, name, args, dirOverride) {
     switch (name) {
-        case 'graft_find_code': {
+        case 'grafly_find_code': {
             const query = String(args.query ?? '');
             if (!query)
-                return { text: 'graft_find_code requires a query', isError: true };
+                return { text: 'grafly_find_code requires a query', isError: true };
             const limit = typeof args.limit === 'number' ? args.limit : 5;
-            const engine = new Graft({ contextDir: dirOverride });
+            const engine = new Grafly({ contextDir: dirOverride });
             const inArg = typeof args.in === 'string' && args.in ? args.in : undefined;
             const r = engine.ask(root, query, { limit, source: true, full: args.full === true, in: inArg });
             return { text: formatAsk(r), isError: false };
         }
-        case 'graft_file_api': {
+        case 'grafly_file_api': {
             const file = String(args.file ?? '');
             if (!file)
-                return { text: 'graft_file_api requires a file', isError: true };
+                return { text: 'grafly_file_api requires a file', isError: true };
             const r = skeleton(root, file, { contextDir: dirOverride });
             return { text: formatSkeleton(r), isError: !r.entries.length && !!r.note };
         }
-        case 'graft_check_freshness': {
-            const engine = new Graft({ contextDir: dirOverride });
+        case 'grafly_check_freshness': {
+            const engine = new Grafly({ contextDir: dirOverride });
             const r = engine.check(root);
             const g = await engine.checkGraph(root);
             const parts = [formatCheckReport(r)];
@@ -240,7 +242,7 @@ async function callSingleTool(root, name, args, dirOverride) {
                 parts.push(formatGraphCheckReport(g));
             return { text: parts.join('\n\n'), isError: false };
         }
-        case 'graft_trace_calls': {
+        case 'grafly_trace_calls': {
             // One tool covers callers (direction:in, the default), callees
             // (direction:out), and blast radius (depth>1). edgeWalk handles the
             // file-seed aggregation that the old graft_blast_radius did: for a
@@ -249,7 +251,7 @@ async function callSingleTool(root, name, args, dirOverride) {
             // never the FILE id) aren't silently dropped.
             const symbol = String(args.symbol ?? args.file ?? '');
             if (!symbol)
-                return { text: 'graft_trace_calls requires a symbol', isError: true };
+                return { text: 'grafly_trace_calls requires a symbol', isError: true };
             const contextDir = contextDirFor(root, dirOverride);
             const w = loadGraphCached(contextDir);
             if (!w)
@@ -261,11 +263,7 @@ async function callSingleTool(root, name, args, dirOverride) {
             const direction = args.direction === 'out' ? 'out' : 'in';
             // `depth: "all"` (or a huge number) walks the full transitive closure —
             // every connected source — terminating when no new node is reached.
-            const depth = args.depth === 'all' || args.depth === 'full'
-                ? Number.POSITIVE_INFINITY
-                : typeof args.depth === 'number' && Number.isFinite(args.depth) && args.depth >= 1
-                    ? Math.floor(args.depth)
-                    : 1;
+            const depth = normalizeTraceDepth(args.depth);
             // Same judgment the CLI prints: a same-name match set is exactly
             // the ambiguity the circuit exists for, and the LLM is the consumer
             // who most needs the verdict. Follow-up attribution runs first so a
@@ -294,10 +292,10 @@ async function callSingleTool(root, name, args, dirOverride) {
             const text = withSavings(body, callersSavings(w, results));
             return { text, isError: false };
         }
-        case 'graft_find_all': {
+        case 'grafly_find_all': {
             const pattern = String(args.pattern ?? '');
             if (!pattern)
-                return { text: 'graft_find_all requires a pattern', isError: true };
+                return { text: 'grafly_find_all requires a pattern', isError: true };
             const w = loadGraphCached(contextDirFor(root, dirOverride));
             if (!w)
                 return { text: NO_GRAPH, isError: true };
@@ -310,7 +308,7 @@ async function callSingleTool(root, name, args, dirOverride) {
                 return { text: zeroHitNote(result), isError: false };
             return { text: formatGrepResult(result), isError: false };
         }
-        case 'graft_repo_map': {
+        case 'grafly_repo_map': {
             const w = loadGraphCached(contextDirFor(root, dirOverride));
             if (!w)
                 return { text: NO_GRAPH, isError: true };
@@ -322,4 +320,3 @@ async function callSingleTool(root, name, args, dirOverride) {
             return { text: `unknown tool: ${name}`, isError: true };
     }
 }
-//# sourceMappingURL=tools.js.map

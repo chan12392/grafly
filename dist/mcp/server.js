@@ -5,7 +5,7 @@
 import { createInterface } from 'node:readline';
 import { TOOLS, callTool } from './tools.js';
 import { mcpInstructions } from './instructions.js';
-import { hasGraftIndex } from '../graph/root.js';
+import { hasGraflyIndex } from '../graph/root.js';
 import { mainWorktreeRoot } from '../graph/seed.js';
 import { runUpkeep } from '../upkeep-run.js';
 import { runningVersion } from '../upkeep.js';
@@ -17,12 +17,12 @@ import { maybeFlushInBackground, track } from '../telemetry/index.js';
  * `ask` means the same thing in both.
  */
 const TOOL_COMMAND = {
-    graft_find_code: 'ask',
-    graft_find_all: 'grep',
-    graft_trace_calls: 'callers',
-    graft_file_api: 'skeleton',
-    graft_repo_map: 'map',
-    graft_check_freshness: 'check',
+    grafly_find_code: 'ask',
+    grafly_find_all: 'grep',
+    grafly_trace_calls: 'callers',
+    grafly_file_api: 'skeleton',
+    grafly_repo_map: 'map',
+    grafly_check_freshness: 'check',
 };
 function send(msg) {
     process.stdout.write(`${JSON.stringify(msg)}\n`);
@@ -54,10 +54,10 @@ function replyError(id, code, message) {
 function advertised(root, dirOverride) {
     if (dirOverride !== undefined)
         return TOOLS;
-    if (hasGraftIndex(root))
+    if (hasGraflyIndex(root))
         return TOOLS;
     const main = mainWorktreeRoot(root);
-    return main && hasGraftIndex(main) ? TOOLS : [];
+    return main && hasGraflyIndex(main) ? TOOLS : [];
 }
 /**
  * `version` is threaded in from the CLI rather than read here: `readCurrentVersion`
@@ -102,7 +102,7 @@ export function startMcpServer(root, dirOverride, version = '0') {
                 reply(id, {
                     protocolVersion: params?.protocolVersion ?? '2024-11-05',
                     capabilities: { tools: {} },
-                    serverInfo: { name: 'graft', version },
+                    serverInfo: { name: 'grafly', version },
                     // The one channel that survives tool deferral — see ./instructions.ts.
                     instructions: upkeep.length ? `${upkeep.join('\n')}\n\n${mcpInstructions()}` : mcpInstructions(),
                 });
@@ -148,4 +148,3 @@ export function startMcpServer(root, dirOverride, version = '0') {
     });
     process.stdin.on('end', () => process.exit(0));
 }
-//# sourceMappingURL=server.js.map

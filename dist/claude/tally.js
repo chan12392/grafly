@@ -37,7 +37,7 @@ const TAIL_BYTES = 1024 * 1024;
  * whether the user was told. Anchored on "graft saved" + a number + "tokens" so
  * ordinary prose about graft can't trip it.
  */
-const TALLY = /graft\s+saved\s*[~≈]?\s*[\d,.]+\s*[km]?\s*(?:tok|tokens)/i;
+const TALLY = /(?:grafly|graft)\s+saved\s*[~≈]?\s*[\d,.]+\s*[km]?\s*(?:tok|tokens)/i;
 /** Did this reply tell the user what graft saved? */
 export function hasSavingsTally(text) {
     return TALLY.test(text);
@@ -208,4 +208,3 @@ export function lastTurnBilling(transcriptPath) {
         return null;
     return { uuid, costMicros, tokens };
 }
-//# sourceMappingURL=tally.js.map

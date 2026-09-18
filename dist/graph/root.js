@@ -1,10 +1,10 @@
 /**
  * Where "here" is when a query names no directory. An agent session — or a plain
  * shell — started in a subdirectory of an indexed repo should still find the
- * graph, so the implicit root is the nearest ANCESTOR holding a graft index:
- * either a repo's own wiring graph (`graft/.graph/wiring.json`) or a workspace
- * parent's children index (`graft/workspace.json`). Nothing indexed anywhere
- * above → the start dir itself, so `graft build` in a fresh repo still means
+ * graph, so the implicit root is the nearest ANCESTOR holding a Grafly index:
+ * either a repo's own wiring graph (`grafly/.graph/wiring.json`) or a workspace
+ * parent's children index (`grafly/workspace.json`). Nothing indexed anywhere
+ * above → the start dir itself, so `grafly build` in a fresh repo still means
  * "here" and no command silently retargets a sibling tree.
  *
  * Only the IMPLICIT case walks. An explicit `[dir]` argument is taken at face
@@ -19,17 +19,17 @@ import { contextDirFor } from "../context/node-file.js";
 import { wiringPath } from "./write.js";
 import { workspacePath } from "./workspace.js";
 /** True when `dir` is a graft root of either shape — a built repo or a workspace parent. */
-export function hasGraftIndex(dir) {
+export function hasGraflyIndex(dir) {
     return existsSync(wiringPath(contextDirFor(dir))) || existsSync(workspacePath(dir));
 }
-/** The nearest ancestor of `start` (inclusive) that holds a graft index, else `start`. */
-export function nearestGraftRoot(start, override) {
+/** The nearest ancestor of `start` (inclusive) that holds a Grafly index, else `start`. */
+export function nearestGraflyRoot(start, override) {
     const from = resolve(start);
     if (override)
         return { root: from, levels: 0 };
     let dir = from;
     for (let levels = 0;; levels++) {
-        if (hasGraftIndex(dir))
+        if (hasGraflyIndex(dir))
             return { root: dir, levels };
         const up = dirname(dir);
         if (up === dir)
@@ -37,4 +37,6 @@ export function nearestGraftRoot(start, override) {
         dir = up;
     }
 }
-//# sourceMappingURL=root.js.map
+/** @deprecated compatibility aliases. */
+export const hasGraftIndex = hasGraflyIndex;
+export const nearestGraftRoot = nearestGraflyRoot;

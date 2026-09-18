@@ -156,12 +156,14 @@ function removeJsonKey(path, topKey, apply) {
     if (typeof bucket !== 'object' || bucket === null || Array.isArray(bucket))
         return 'absent';
     const map = bucket;
-    if (!('graft' in map))
+    const owned = ['grafly', 'graft'].filter((key) => key in map);
+    if (owned.length === 0)
         return 'absent';
     if (!apply) {
-        return Object.keys(map).length === 1 && Object.keys(root).length === 1 ? 'deleted' : 'removed';
+        return Object.keys(map).length === owned.length && Object.keys(root).length === 1 ? 'deleted' : 'removed';
     }
-    delete map.graft;
+    for (const key of owned)
+        delete map[key];
     if (Object.keys(map).length === 0)
         delete root[topKey];
     if (Object.keys(root).length === 0)
@@ -210,7 +212,7 @@ function stripClaudeSettings(path, apply) {
     if (typeof root !== 'object' || root === null || Array.isArray(root))
         return 'skipped-unparseable';
     const before = JSON.stringify(root);
-    const isGraftCmd = (v) => JSON.stringify(v ?? '').includes('graft-statusline.cjs');
+    const isGraftCmd = (v) => /(?:grafly|graft)-statusline\.cjs/.test(JSON.stringify(v ?? ''));
     for (const key of ['statusLine', 'subagentStatusLine']) {
         if (root[key] !== undefined && isGraftCmd(root[key]))
             delete root[key];
@@ -220,7 +222,7 @@ function stripClaudeSettings(path, apply) {
             const prior = root.hooks[event];
             if (!Array.isArray(prior))
                 continue;
-            const kept = prior.filter((e) => !JSON.stringify(e ?? '').includes('graft-hooks.cjs'));
+            const kept = prior.filter((e) => !/(?:grafly|graft)-hooks\.cjs/.test(JSON.stringify(e ?? '')));
             if (kept.length === 0)
                 delete root.hooks[event];
             else
@@ -275,7 +277,7 @@ function stripCodexHooks(path, apply) {
         const prior = root.hooks[event];
         if (!Array.isArray(prior))
             continue;
-        const kept = prior.filter((e) => !JSON.stringify(e ?? '').includes('graft-hooks.cjs'));
+        const kept = prior.filter((e) => !/(?:grafly|graft)-hooks\.cjs/.test(JSON.stringify(e ?? '')));
         if (kept.length === 0)
             delete root.hooks[event];
         else
@@ -307,7 +309,7 @@ function stripIgnoreEntries(path, entries, apply) {
         .split('\n')
         .filter((l) => {
         const t = l.trim();
-        if (t.startsWith('#') && t.includes('graft'))
+        if (t.startsWith('#') && (t.toLowerCase().includes('grafly') || t.includes('graft')))
             return false;
         return !entries.some((re) => re.test(t));
     })
@@ -424,8 +426,11 @@ function targets(repo, opts) {
             { hostId: 'claude', path: settings, what: 'statusline + hooks + allowlist + footer regex', scope: 'repo', run: (a) => stripClaudeSettings(settings, a) },
             { hostId: 'claude', path: statusline, what: 'statusline shim', scope: 'repo', run: (a) => removeFile(statusline, a) },
             { hostId: 'claude', path: hooks, what: 'hooks shim', scope: 'repo', run: (a) => removeFile(hooks, a) },
-            { hostId: 'claude', path: skill, what: 'graft skill', scope: 'repo', run: (a) => removeFile(skill, a) },
-            { hostId: 'claude', path: mcp, what: 'mcpServers.graft', scope: 'repo', run: (a) => removeJsonKey(mcp, 'mcpServers', a) },
+            { hostId: 'claude', path: skill, what: 'Grafly skill', scope: 'repo', run: (a) => removeFile(skill, a) },
+            { hostId: 'claude', path: mcp, what: 'mcpServers.grafly', scope: 'repo', run: (a) => removeJsonKey(mcp, 'mcpServers', a) },
+            { hostId: 'legacy', path: join(repo, '.claude', 'helpers', 'graft-statusline.cjs'), what: 'legacy Graft statusline shim', scope: 'repo', run: (a) => removeFile(join(repo, '.claude', 'helpers', 'graft-statusline.cjs'), a) },
+            { hostId: 'legacy', path: join(repo, '.claude', 'helpers', 'graft-hooks.cjs'), what: 'legacy Graft hooks shim', scope: 'repo', run: (a) => removeFile(join(repo, '.claude', 'helpers', 'graft-hooks.cjs'), a) },
+            { hostId: 'legacy', path: join(repo, '.claude', 'skills', 'graft', 'SKILL.md'), what: 'legacy Graft skill', scope: 'repo', run: (a) => removeFile(join(repo, '.claude', 'skills', 'graft', 'SKILL.md'), a) },
         ])
             add(t);
     }
@@ -438,6 +443,7 @@ function targets(repo, opts) {
                 { hostId: 'claude', path: shim.path, what: shim.what, scope: 'global', run: (a) => removeFile(shim.path, a) },
                 { hostId: 'claude', path: settings.path, what: settings.what, scope: 'global', run: (a) => stripClaudeSettings(settings.path, a) },
                 { hostId: 'claude', path: mcp.path, what: mcp.what, scope: 'global', run: (a) => removeJsonKey(mcp.path, 'mcpServers', a) },
+                { hostId: 'legacy', path: join(home, '.claude', 'helpers', 'graft-hooks.cjs'), what: 'legacy Graft user hooks shim', scope: 'global', run: (a) => removeFile(join(home, '.claude', 'helpers', 'graft-hooks.cjs'), a) },
             ])
                 add(t);
         }
@@ -458,13 +464,15 @@ function targets(repo, opts) {
     // 5. The graph cache and the ignore entries that admit it. Last, so a failure
     //    here can't strand the wiring half-retracted.
     if (opts.cache !== false) {
-        const cache = join(repo, 'graft');
+        const cache = join(repo, 'grafly');
+        const legacyCache = join(repo, 'graft');
         const gitignore = join(repo, '.gitignore');
         const ignore = join(repo, '.ignore');
         for (const t of [
             { hostId: 'graph', path: cache, what: 'local graph cache', scope: 'repo', run: (a) => removeDir(cache, a) },
-            { hostId: 'graph', path: gitignore, what: 'graft/ ignore entry', scope: 'repo', run: (a) => stripIgnoreEntries(gitignore, [/^\/?graft\/?$/], a) },
-            { hostId: 'graph', path: ignore, what: 'graft/ search re-admit entries', scope: 'repo', run: (a) => stripIgnoreEntries(ignore, [/^!?graft\/?$/, /^graft\/\.(cache|graph)\/?$/], a) },
+            { hostId: 'graph', path: legacyCache, what: 'legacy graph cache', scope: 'repo', run: (a) => removeDir(legacyCache, a) },
+            { hostId: 'graph', path: gitignore, what: 'Grafly ignore entries', scope: 'repo', run: (a) => stripIgnoreEntries(gitignore, [/^\/?grafly\/?$/, /^\/?graft\/?$/], a) },
+            { hostId: 'graph', path: ignore, what: 'Grafly search re-admit entries', scope: 'repo', run: (a) => stripIgnoreEntries(ignore, [/^!?grafly\/?$/, /^grafly\/\.(cache|graph)\/?$/, /^!?graft\/?$/, /^graft\/\.(cache|graph)\/?$/], a) },
         ])
             add(t);
     }
@@ -490,4 +498,3 @@ export function runRetract(repo, opts = {}) {
 export function changed(retractions) {
     return retractions.filter((r) => r.action !== 'absent');
 }
-//# sourceMappingURL=retract.js.map

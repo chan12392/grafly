@@ -32,7 +32,8 @@ export function writeOwned(id, path, content, mode) {
  *  `?? ''` guards a stray `undefined` entry: `JSON.stringify(undefined)` is
  *  `undefined`, whose `.includes` would throw. */
 export function isGraftEntry(entry) {
-    return JSON.stringify(entry ?? '').includes('graft-hooks.cjs');
+    const raw = JSON.stringify(entry ?? '');
+    return raw.includes('grafly-hooks.cjs') || raw.includes('graft-hooks.cjs');
 }
 /**
  * Load a JSON config that graft is about to merge into, distinguishing the three
@@ -60,4 +61,3 @@ export function readJsonObject(path) {
         return 'unparseable';
     return { root: root, existed: true };
 }
-//# sourceMappingURL=config-write.js.map

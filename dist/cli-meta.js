@@ -1,5 +1,5 @@
 /**
- * `graft version` / `graft --version` / `graft upgrade` support.
+ * `grafly version` / `grafly --version` / `grafly upgrade` support.
  *
  * Split out of cli.ts so the formatting helpers can be unit-tested with
  * injected results instead of hitting the network from tests.
@@ -9,7 +9,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { toPosixPath } from "./util/paths.js";
-const PKG_NAME = "@nanonets/graft";
+const PKG_NAME = process.env.GRAFLY_NPM_PACKAGE ?? "";
 /** Locates package.json relative to a module URL (works for both `dist/cli.js`
  * running one level under the published package root, and `src/cli.ts` running
  * one level under the repo root via tsx). */
@@ -41,6 +41,8 @@ export function isRunningViaNpx(moduleUrl) {
 /** `npm view <pkg> version`, offline-safe: any failure (no npm, no network,
  * timeout) resolves to `{ ok: false }` rather than throwing. */
 export function getNpmViewVersion(pkgName = PKG_NAME, timeoutMs = 2000) {
+    if (!pkgName)
+        return { ok: false };
     try {
         const res = spawnSync("npm", ["view", pkgName, "version"], {
             encoding: "utf8",
@@ -60,7 +62,7 @@ export function getNpmViewVersion(pkgName = PKG_NAME, timeoutMs = 2000) {
 }
 /** Pure formatter for `graft version` — no I/O, easy to unit-test. */
 export function formatVersionReport(current, latest) {
-    const lines = [`graft ${current}`];
+    const lines = [`grafly ${current}`];
     if (!latest.ok || !latest.version) {
         lines.push("latest: unreachable (offline?)");
     }
@@ -68,7 +70,7 @@ export function formatVersionReport(current, latest) {
         lines.push(`latest on npm: ${current} ✓ up to date`);
     }
     else {
-        lines.push(`latest on npm: ${latest.version} — run graft upgrade`);
+        lines.push(`latest on npm: ${latest.version} — run grafly upgrade`);
     }
     return lines.join("\n");
 }
@@ -107,19 +109,22 @@ export function readGlobalInstalledVersion(pkgName = PKG_NAME) {
 /** Pure formatter for a finished upgrade — no I/O, easy to unit-test. */
 export function formatUpgradeReport(result) {
     if (!result.ran) {
-        return ("running via npx — npx already fetches the latest graft on every run.\n" +
-            "For a permanent install: npm install -g @nanonets/graft");
+        if (result.reason === "unconfigured")
+            return "upgrade: disabled for this private Grafly fork — update from the Git repository instead.";
+        return "running via npx — use your configured Grafly package source for upgrades.";
     }
     if (!result.ok) {
         return `✗ npm install -g ${PKG_NAME}@latest failed${result.errorMessage ? `: ${result.errorMessage}` : ""}`;
     }
-    return `graft ${result.oldVersion ?? "?"} → ${result.newVersion ?? result.oldVersion ?? "?"}`;
+    return `grafly ${result.oldVersion ?? "?"} → ${result.newVersion ?? result.oldVersion ?? "?"}`;
 }
 /** Runs `npm install -g @nanonets/graft@latest` (inheriting stdio so the user
  * sees npm's own progress/errors), then re-reads the freshly installed
  * version. No-ops with guidance when running via npx. */
 export function runUpgrade(moduleUrl) {
     const oldVersion = readCurrentVersion(moduleUrl);
+    if (!PKG_NAME)
+        return { ran: false, ok: false, oldVersion, reason: "unconfigured" };
     if (isRunningViaNpx(moduleUrl)) {
         return { ran: false, ok: true, oldVersion };
     }
@@ -130,4 +135,3 @@ export function runUpgrade(moduleUrl) {
     const newVersion = readGlobalInstalledVersion(PKG_NAME) ?? getNpmViewVersion(PKG_NAME).version ?? oldVersion;
     return { ran: true, ok: true, oldVersion, newVersion };
 }
-//# sourceMappingURL=cli-meta.js.map

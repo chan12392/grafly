@@ -4,7 +4,7 @@
  * Pure I/O + hashing: no LLM, no network, milliseconds. It re-hashes the source
  * files the manifest recorded and compares. Meant to run in CI: exit 0 when the
  * graph is fresh, 1 when it has drifted (so a PR that changed code but not the
- * graph fails until `graft build --deep` is re-run and committed).
+ * graph fails until `grafly build --deep` is re-run and committed).
  *
  * Drift categories:
  *   content     a recorded source file's bytes changed
@@ -98,7 +98,7 @@ export function checkContext(dir, opts = {}) {
  * check (stat, never a read or a hash), safe to call on a hot path like session
  * start. This catches the common "index built on a different tree" case: a
  * branch switch, a `git checkout` to an older commit, an unpulled move — states
- * where graft would otherwise confidently point at files that aren't there and
+ * where grafly would otherwise confidently point at files that aren't there and
  * send the agent chasing them. Returns null when there's no graph at all.
  */
 export function indexFreshness(dir, opts = {}) {
@@ -120,18 +120,18 @@ export function indexFreshness(dir, opts = {}) {
 export function staleBanner(f) {
     if (!f || f.missing === 0)
         return null;
-    return (`⚠ graft's index may be ahead of your working tree: ${f.missing} of ${f.total} indexed ` +
-        `files are not on disk (branch switch or uncommitted move?). If graft names a path that ` +
-        `isn't there, don't chase it — \`graft grep\` the symbol to find where it lives now; run \`graft build\` to refresh.`);
+    return (`⚠ grafly's index may be ahead of your working tree: ${f.missing} of ${f.total} indexed ` +
+        `files are not on disk (branch switch or uncommitted move?). If grafly names a path that ` +
+        `isn't there, don't chase it — \`grafly grep\` the symbol to find where it lives now; run \`grafly build\` to refresh.`);
 }
 /** Render a check result as a human-readable report. */
 export function formatCheckReport(r) {
     if (r.missing) {
-        return "graft check: NO GRAPH\n\nNo graft/manifest.json found. Run `graft build --deep` first.";
+        return "grafly check: NO GRAPH\n\nNo grafly/manifest.json found. Run `grafly build --deep` first.";
     }
     if (r.ok)
-        return "graft check: OK — the graph is in sync with the code.";
-    const lines = ["graft check: STALE", ""];
+        return "grafly check: OK — the graph is in sync with the code.";
+    const lines = ["grafly check: STALE", ""];
     if (r.contentDrift.length) {
         lines.push(`changed (${r.contentDrift.length}):`);
         for (const c of r.contentDrift)
@@ -152,10 +152,9 @@ export function formatCheckReport(r) {
         for (const s of r.indexDrift)
             lines.push(`  ! ${s}`);
     }
-    lines.push("", "Run `graft build --deep` to regenerate, then commit graft/.");
+    lines.push("", "Run `grafly build --deep` to regenerate, then commit grafly/.");
     return lines.join("\n");
 }
 function short(hash) {
     return hash.slice(0, 8);
 }
-//# sourceMappingURL=check.js.map

@@ -1,17 +1,16 @@
 import { isGraftEntry } from '../hosts/config-write.js';
-const SL_CMD = 'node "${CLAUDE_PROJECT_DIR:-.}/.claude/helpers/graft-statusline.cjs"';
+const SL_CMD = 'node "${CLAUDE_PROJECT_DIR:-.}/.claude/helpers/grafly-statusline.cjs"';
 /** Stable marker for "this statusLine is Graft's", not the full command string —
  * an older shim path or a GRAFT_DIR wrapper still names this file. */
-const GRAFT_STATUSLINE_HELPER = 'graft-statusline.cjs';
-const FOOTER = 'graft/[\\w./-]+\\.md';
+const GRAFLY_STATUSLINE_HELPER = 'grafly-statusline.cjs';
+const LEGACY_GRAFT_STATUSLINE_HELPER = 'graft-statusline.cjs';
+const FOOTER = 'grafly/[\\w./-]+\\.md';
 // Every form graft is actually invoked as. 'graft:*' covers a global install;
 // the other two cover a repo working on graft itself (or any consumer running it
 // from a checkout), where the binary is not on PATH under that name. A retrieval
 // call that raises a permission prompt loses to grep, which never does.
 const ALLOW_ENTRIES = [
-    'Bash(graft:*)',
-    'Bash(npx graft:*)',
-    'Bash(graft-dev:*)',
+    'Bash(grafly:*)',
     'Bash(node dist/cli.js:*)',
 ];
 /** Where the repo-level install's shims sit, relative to whatever project is open. */
@@ -24,7 +23,7 @@ const REPO_HELPERS = '${CLAUDE_PROJECT_DIR:-.}/.claude/helpers';
  * global copy exists to cover, so it cannot reuse the repo form.
  */
 function hookCmd(arg, helpers = REPO_HELPERS) {
-    return `node "${helpers}/graft-hooks.cjs" ${arg}`;
+    return `node "${helpers}/grafly-hooks.cjs" ${arg}`;
 }
 function graftBlocks(helpers) {
     return {
@@ -37,7 +36,7 @@ function graftBlocks(helpers) {
             // `graft stats` and the `session_summary` graft-vs-grep ratio. Broad matcher,
             // but the handler no-ops instantly unless there is something to record, so an
             // unrelated Bash or a plain Read costs only a stdin read.
-            { matcher: 'Bash|mcp__graft__|Read|Grep|Glob', hooks: [{ type: 'command', command: hookCmd('tool-savings', helpers), timeout: 8000 }] },
+            { matcher: 'Bash|mcp__grafly__|mcp__graft__|Read|Grep|Glob', hooks: [{ type: 'command', command: hookCmd('tool-savings', helpers), timeout: 8000 }] },
         ],
         // Longer budget than the other hooks: its `graft ask` is a real query, and a
         // query now brings the graph up to date first (graph/refresh.ts) — usually
@@ -61,14 +60,15 @@ function graftBlocks(helpers) {
  * upgrade instead of accumulating beside its replacement.
  */
 export function isGraftAllowEntry(entry) {
-    return /^Bash\((?:graft|npx graft|graft-dev|node dist\/cli\.js)(?::|\))/.test(String(entry));
+    return /^Bash\((?:grafly|graft|npx graft|graft-dev|node dist\/cli\.js)(?::|\))/.test(String(entry));
 }
 /** Is this footer regex graft's? It points at the card tree, which is graft's alone. */
 export function isGraftFooterRegex(re) {
-    return String(re).includes('graft/');
+    const value = String(re);
+    return value.includes('grafly/') || value.includes('graft/');
 }
 function envNoStatusline() {
-    const v = process.env.GRAFT_NO_STATUSLINE;
+    const v = process.env.GRAFLY_NO_STATUSLINE ?? process.env.GRAFT_NO_STATUSLINE;
     return v !== undefined && v !== '' && v !== '0' && v !== 'false';
 }
 /** True when init should write (or refresh) Graft's Claude Code statusLine. */
@@ -79,7 +79,8 @@ function isGraftStatusline(value) {
     if (!value || typeof value !== 'object')
         return false;
     const command = value.command;
-    return typeof command === 'string' && command.includes(GRAFT_STATUSLINE_HELPER);
+    return typeof command === 'string' &&
+        (command.includes(GRAFLY_STATUSLINE_HELPER) || command.includes(LEGACY_GRAFT_STATUSLINE_HELPER));
 }
 function applyStatusline(merged, key, warnings, wanted, foreignWarning) {
     const current = merged[key];
@@ -101,7 +102,7 @@ export function mergeGraftSettings(existing, opts = {}) {
     const merged = { ...(existing ?? {}) };
     const warnings = [];
     const wanted = statuslineWanted(opts);
-    applyStatusline(merged, 'statusLine', warnings, wanted, 'Existing statusLine left untouched (a session allows only one). To use Graft, point it at .claude/helpers/graft-statusline.cjs.');
+    applyStatusline(merged, 'statusLine', warnings, wanted, 'Existing statusLine left untouched (a session allows only one). To use Grafly, point it at .claude/helpers/grafly-statusline.cjs.');
     applyStatusline(merged, 'subagentStatusLine', warnings, wanted, 'Existing subagentStatusLine left untouched.');
     merged.hooks = { ...(merged.hooks ?? {}) };
     for (const [event, blocks] of Object.entries(graftBlocks())) {
@@ -148,4 +149,3 @@ export function mergeGraftHooks(existing, helpers) {
     }
     return { merged };
 }
-//# sourceMappingURL=settings-merge.js.map

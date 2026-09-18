@@ -1,5 +1,5 @@
 /**
- * Register the graft MCP server in each host's config.
+ * Register the Grafly MCP server in each host's config.
  * JSON hosts get a keyed merge (other servers preserved; unparseable files
  * are never rewritten). The TOML host gets an append-if-absent section.
  *
@@ -12,42 +12,11 @@ import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { readJsonObject } from './config-write.js';
-/**
- * How to launch the MCP server, decided once at init time.
- *
- * `npx -y` resolves the package before it can serve: measured at a 211 ms
- * spawn→`initialize` handshake against 80 ms for the installed binary, five runs
- * each. The harness registers a server's tools only once that handshake lands, and
- * a slow one can miss the first request entirely — in a traced session graft's
- * tools arrived 13.9 s in, four model turns too late to shape the approach. (That
- * 13.9 s is NOT explained by 130 ms; the gap's cause is still unknown. This is the
- * cheap half of the fix, not the whole of it.)
- *
- * Deliberately a bare command name, never an absolute path: these files get
- * committed and shared, and this repo already carries the scar of the alternative —
- * a checked-in hook shim with another machine's home directory baked into it. A
- * bare `graft` works on any machine that has it installed; `npx` remains the
- * fallback for machines that don't.
- */
-const NPX_LAUNCH = { command: 'npx', args: ['-y', '@nanonets/graft', 'mcp'] };
-const BIN_LAUNCH = { command: 'graft', args: ['mcp'] };
-function graftOnPath() {
-    const r = spawnSync('graft', ['--version'], { stdio: 'ignore', timeout: 5000 });
-    return r.status === 0;
-}
-/**
- * JSON hosts: `{ command, args }`.
- *
- * `GRAFT_MCP_NPX=1` forces the `npx` form — the escape hatch for a machine whose
- * global install is stale or shadowed, and what the tests set so their expectations
- * don't depend on whether the machine running them happens to have graft installed.
- * `opts.onPath` is the same override for direct unit tests of both branches.
- */
+/** Canonical MCP launch. Never fall back to the upstream Graft package. */
+const BIN_LAUNCH = { command: 'grafly', args: ['mcp'] };
 export function serverEntry(opts = {}) {
-    const forced = process.env.GRAFT_MCP_NPX;
-    if (forced !== undefined && forced !== '' && forced !== '0' && forced !== 'false')
-        return NPX_LAUNCH;
-    return (opts.onPath ?? graftOnPath()) ? BIN_LAUNCH : NPX_LAUNCH;
+    void opts;
+    return BIN_LAUNCH;
 }
 function opencodeEntry() {
     const { command, args } = serverEntry();
@@ -70,18 +39,21 @@ export function mergeJsonKey(id, path, topKey, entry) {
     if (typeof bucket !== 'object' || bucket === null || Array.isArray(bucket)) {
         return { id, path, action: 'skipped-unparseable' };
     }
-    if (JSON.stringify(bucket.graft) === JSON.stringify(entry))
+    if (JSON.stringify(bucket.grafly) === JSON.stringify(entry) && !('graft' in bucket))
         return { id, path, action: 'unchanged' };
     const action = existed ? 'updated' : 'created';
-    bucket.graft = entry;
+    bucket.grafly = entry;
+    if ('graft' in bucket)
+        delete bucket.graft;
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, `${JSON.stringify(root, null, 2)}\n`);
     return { id, path, action };
 }
-/** The `[mcp_servers.graft]` table header, as written and as matched. */
-const TOML_HEADER = '[mcp_servers.graft]';
+/** Canonical and legacy MCP table headers. */
+const TOML_HEADER = '[mcp_servers.grafly]';
+const LEGACY_TOML_HEADER = '[mcp_servers.graft]';
 /**
- * Remove the `[mcp_servers.graft]` table from a TOML config, returning the rest.
+ * Remove either Grafly's canonical table or the legacy Graft table.
  *
  * Line-based on purpose: a real parse-and-reserialize would reformat the user's
  * whole file. The table runs from its header to the next `[`-header or EOF, which
@@ -90,7 +62,10 @@ const TOML_HEADER = '[mcp_servers.graft]';
  */
 export function stripTomlSection(text) {
     const lines = text.split('\n');
-    const start = lines.findIndex((l) => l.trim() === TOML_HEADER);
+    const start = lines.findIndex((l) => {
+        const t = l.trim();
+        return t === TOML_HEADER || t === LEGACY_TOML_HEADER;
+    });
     if (start === -1)
         return { rest: text, found: false };
     let end = start + 1;
@@ -103,7 +78,7 @@ export function stripTomlSection(text) {
     return { rest, found: true };
 }
 /**
- * Register graft in a TOML config, replacing any section a previous version left.
+ * Register Grafly in a TOML config, replacing any section a previous version left.
  *
  * The old behaviour was to skip entirely once the header existed, which froze the
  * launch command at whatever the first init wrote: a repo wired when graft wasn't
@@ -133,7 +108,7 @@ function appendSection(text, section) {
     return `${text}${sep}${section}`;
 }
 function jsonTarget(hostId, id, path, topKey, entry, scope = 'repo') {
-    return { hostId, id, path, scope, kind: 'mcp', what: `${topKey}.graft`, format: 'json', topKey, entry };
+    return { hostId, id, path, scope, kind: 'mcp', what: `${topKey}.grafly`, format: 'json', topKey, entry };
 }
 /**
  * The MCP config files selecting these hosts would touch — pure, no writes.
@@ -167,7 +142,7 @@ export function mcpTargets(repo, ids, opts = {}) {
                 // the same TOML shape Codex uses at ~/.codex/config.toml.
                 out.push({
                     hostId: id, id: 'grok', path: join(repo, '.grok', 'config.toml'),
-                    scope: 'repo', kind: 'mcp', what: '[mcp_servers.graft]', format: 'toml',
+                    scope: 'repo', kind: 'mcp', what: '[mcp_servers.grafly]', format: 'toml',
                 });
                 break;
             case 'agents':
@@ -176,7 +151,7 @@ export function mcpTargets(repo, ids, opts = {}) {
                 if (dirExists(join(home, '.codex'))) {
                     out.push({
                         hostId: id, id: 'codex', path: join(home, '.codex', 'config.toml'),
-                        scope: 'global', kind: 'mcp', what: '[mcp_servers.graft]', format: 'toml',
+                        scope: 'global', kind: 'mcp', what: '[mcp_servers.grafly]', format: 'toml',
                     });
                 }
                 if (dirExists(join(home, '.config', 'opencode'))) {
@@ -196,4 +171,3 @@ export function registerMcpConfigs(repo, ids, opts = {}) {
         ? upsertCodexToml(t.id, t.path)
         : mergeJsonKey(t.id, t.path, t.topKey, t.entry));
 }
-//# sourceMappingURL=mcp-config.js.map

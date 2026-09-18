@@ -169,12 +169,22 @@ for (const [name, buf] of members) {
         console.error(`⚠ ${name}: ${err.message} — skipped`);
     }
 }
-const features = arrays.get("features")?.data;
+let features = arrays.get("features")?.data;
+if ((!Array.isArray(features) || typeof features[0] !== "string") && Array.isArray(arrays.get("features_json")?.data)) {
+    try {
+        const parsed = JSON.parse(Buffer.from(arrays.get("features_json").data).toString("utf8"));
+        if (Array.isArray(parsed) && parsed.every((x) => typeof x === "string"))
+            features = parsed;
+    }
+    catch { /* validated below */ }
+}
 const linear = (arrays.get("linear") ?? arrays.get("weights") ?? arrays.get("coef"))?.data;
 if (!Array.isArray(features) || typeof features[0] !== "string")
-    fail("npz has no `features` string array — expected the channel's feature-name list");
+    fail("npz has no usable `features` or `features_json` feature-name list");
 if (!Array.isArray(linear) || typeof linear[0] !== "number")
     fail("npz has no `linear`/`weights`/`coef` numeric array — nothing to convert");
+if (!linear.every((v) => Number.isFinite(v)))
+    fail("weight array contains non-finite values");
 if (features.length !== linear.length)
     fail(`features (${features.length}) and linear (${linear.length}) length mismatch`);
 
@@ -196,6 +206,8 @@ for (const k of FEATURE_KEYS)
 
 const npzAbstain = (arrays.get("abstain_gap") ?? arrays.get("abstain"))?.data?.[0];
 const abstain = abstainOverride ?? (Number.isFinite(npzAbstain) ? npzAbstain : 0.5);
+if (!Number.isFinite(abstain) || abstain <= 0)
+    fail("abstain threshold must be a positive calibrated value");
 const artifact = {
     version: 1,
     source: `npz:${basename(input)}`,

@@ -1,33 +1,10 @@
-/**
- * grafly circuit feedback — turns the judgment log into a label source.
- *
- * A `judge` record says what the circuit believed. What it can't say is
- * whether the caller agreed. The follow-up query CAN: when a `callers`
- * (CLI or MCP graft_trace_calls) call resolves to a strict subset of an
- * earlier judgment's candidate set, the caller deliberately narrowed —
- * to the circuit's top-1 (adopt) or away from it (reject). That pair is
- * the retraining label the seed weights never had.
- *
- *   {type:"judge",  jid, query, scores:[{id,score}], ...}   — the decision
- *   {type:"adopt",  jid, query, picked, matched}            — top-1 in subset
- *   {type:"reject", jid, query, picked, matched}            — top-1 not in it
- *
- * Attribution rules (all required):
- *   - the follow-up's matched ids are a STRICT subset of the judgment's
- *     candidates — a repeated full-set query is a re-ask, not a choice
- *   - the judgment is the most recent one covering the subset, within
- *     ADOPT_WINDOW and for the same root
- *   - first signal wins: a jid already carrying adopt/reject is not
- *     re-labelled by later exploration
- *
- * Pure JS, append-only, best-effort — a log failure never breaks a query.
- */
+/** Grafly neutral navigation observations. Narrowing is not a training label. */
 import { appendFileSync, closeSync, openSync, readSync, renameSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 
 /** A follow-up counts as a verdict on judgments this recent — same sitting,
  * not last week's unrelated query. */
-const ADOPT_WINDOW_MS = 2 * 60 * 60 * 1000;
+const NARROW_WINDOW_MS = 2 * 60 * 60 * 1000;
 /** Tail slice read per lookup and record cap — feedback lookup stays O(KB)
  * even on a log that was never rotated. */
 const TAIL_BYTES = 96 * 1024;
@@ -101,51 +78,35 @@ export function appendCircuitRecord(path, record) {
     }
 }
 
-/**
- * Attribute a follow-up resolution to a recent judgment and append the
- * adopt/reject event when it qualifies. `matchedIds` = the ids the current
- * query resolved to (post-`--in` filter — the caller's narrowing IS the
- * signal). No-op when the log is off, unreadable, or no recent judgment's
- * candidate set strictly covers the match.
- */
+/** Record a strict-subset follow-up as neutral navigation only. */
 export function recordFollowup(logPath, root, query, matchedIds) {
     if (!logPath || matchedIds.length === 0)
         return null;
     const records = readLogTail(logPath);
     if (records.length === 0)
         return null;
-    const cutoff = Date.now() - ADOPT_WINDOW_MS;
-    const labelled = new Set();
-    for (const r of records)
-        if (r.type === "adopt" || r.type === "reject")
-            labelled.add(r.jid);
-    const matched = new Set(matchedIds);
+    const cutoff = Date.now() - NARROW_WINDOW_MS;
     for (let i = records.length - 1; i >= 0; i--) {
         const r = records[i];
         const isJudge = r.type === "judge" || (!r.type && Array.isArray(r.scores));
-        if (!isJudge || r.root !== root || labelled.has(r.jid ?? jidFor(r)))
+        if (!isJudge || r.root !== root)
             continue;
         const ts = Date.parse(r.ts);
         if (!Number.isFinite(ts) || ts < cutoff)
-            continue; // corrupt or outside the window — keep scanning:
-            // order is append order, not ts order, so a stale record does
-            // not guarantee every earlier record is stale too
-        const candIds = (r.scores ?? []).map((s) => s.id);
-        if (candIds.length <= matched.size || !matchedIds.every((id) => candIds.includes(id)))
             continue;
-        const jid = r.jid ?? jidFor(r);
-        const top1 = r.top1 ?? candIds[0];
-        const adopted = matchedIds.includes(top1);
+        const candIds = (r.scores ?? []).map((x) => x.id);
+        if (candIds.length <= matchedIds.length || !matchedIds.every((id) => candIds.includes(id)))
+            continue;
+        const top1 = r.top1 ?? candIds[0] ?? null;
         const event = {
             ts: new Date().toISOString(),
-            type: adopted ? "adopt" : "reject",
-            jid,
+            type: "narrow",
+            jid: r.jid ?? jidFor(r),
             root,
             query,
-            // the single symbol the caller committed to — null when the
-            // narrowing kept several (a softer, still-positive signal)
-            picked: matchedIds.length === 1 ? matchedIds[0] : (adopted ? top1 : null),
             matched: matchedIds,
+            selected: matchedIds.length === 1 ? matchedIds[0] : null,
+            includes_top1: top1 ? matchedIds.includes(top1) : null,
         };
         return appendCircuitRecord(logPath, event) ? event : null;
     }

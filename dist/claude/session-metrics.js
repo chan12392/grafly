@@ -26,7 +26,7 @@
  * MCP tool names arrive host-prefixed in different shapes (`graft_find_code`,
  * `MCP:graft_find_code`, `mcp__graft__graft_find_code`). {@link isGraftMcpTool}
  * strips the prefix to the last delimited segment and checks it against the real
- * name list (`GRAFT_MCP_TOOL_NAMES`), so a graft tool is recognised across every
+ * name list (`GRAFLY_MCP_TOOL_NAMES`), so a graft tool is recognised across every
  * host format while a third-party tool that merely contains "graft" is not.
  */
 import { statSync } from 'node:fs';
@@ -34,7 +34,7 @@ import { join } from 'node:path';
 import { sumSavingsFooters } from '../context/savings.js';
 import { dollarsSaved, formatDollars } from '../context/price.js';
 import { readSession, writeSession, sessionDir, listSessionIds } from './state.js';
-import { GRAFT_MCP_TOOL_NAMES } from '../mcp/tool-names.js';
+import { GRAFLY_MCP_TOOL_NAMES } from '../mcp/tool-names.js';
 /** Native tools that mean "the agent went to read source itself" — the grep/read
  *  path graft is meant to replace. These are the host tool NAMES (Claude Code and
  *  Cursor both use Read/Grep/Glob; Cursor adds Search); shell builtins like `ls`
@@ -63,7 +63,7 @@ export function isMcpToolName(toolName) {
 export function isGraftMcpTool(toolName) {
     const t = toolName.toLowerCase();
     const bare = t.split(/[:./]|__/).pop() ?? t;
-    return GRAFT_MCP_TOOL_NAMES.has(bare);
+    return GRAFLY_MCP_TOOL_NAMES.has(bare);
 }
 /** Whether a shell command line invokes the graft CLI (any of its install shapes). */
 export function commandInvokesGraft(command) {
@@ -72,7 +72,7 @@ export function commandInvokesGraft(command) {
         return true; // running from a source checkout
     // `graft …`, `graft-dev …`, `npx [-y] [@nanonets/]graft …`, at the start of the
     // line or of a &&/;/| segment — not "mygraft" or a path that merely contains it.
-    return /(^|[|&;]\s*)(npx\s+(-y\s+)?(@nanonets\/)?)?graft(-dev)?\b/i.test(c);
+    return /(^|[|&;]\s*)(?:grafly\b|(?:npx\s+(-y\s+)?(@nanonets\/)?)?graft(-dev)?\b)/i.test(c);
 }
 /**
  * Classify one tool use as a graft retrieval, a source read, or neither
@@ -179,16 +179,16 @@ export function sessionInputRate(dir) {
 }
 export function formatSessionStats(s) {
     if (s === null) {
-        return 'graft stats: no session recorded yet — use graft in an agent session, then look again.';
+        return 'grafly stats: no session recorded yet — use grafly in an agent session, then look again.';
     }
     const graft = s.graftReads ?? 0;
     const source = s.sourceReads ?? 0;
     const saved = s.savedTokens ?? 0;
     const total = graft + source;
-    const mix = total === 0 ? 'no retrieval yet' : `${Math.round((graft / total) * 100)}% graft`;
+    const mix = total === 0 ? 'no retrieval yet' : `${Math.round((graft / total) * 100)}% grafly`;
     const lines = [
-        `graft stats — session ${s.id}`,
-        `  graft reads:   ${graft}`,
+        `grafly stats — session ${s.id}`,
+        `  grafly reads:  ${graft}`,
         `  source reads:  ${source}   (Read / Grep / Glob)`,
         `  mix:           ${mix}`,
         `  tokens saved:  ~${saved.toLocaleString()}`,
@@ -203,4 +203,3 @@ export function formatSessionStats(s) {
         lines.push(`  last query:    ${s.lastQuery}`);
     return lines.join('\n');
 }
-//# sourceMappingURL=session-metrics.js.map

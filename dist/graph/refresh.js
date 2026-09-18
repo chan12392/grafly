@@ -2,7 +2,7 @@
  * `ensureFreshGraph` — the pre-query gate that keeps retrieval honest.
  *
  * Freshness used to be someone else's job: the Claude Code `Stop` hook spawned a
- * background `graft build` *after* the turn ended, so every query an agent made
+ * background `grafly build` *after* the turn ended, so every query an agent made
  * between its first edit and the end of the turn answered from a graph that no
  * longer matched the file it had just changed. Worse, an edit made outside the
  * agent (your editor, a branch switch, a stash) set no `dirty` flag at all, so
@@ -21,7 +21,7 @@
  *   rebuilds on top of each other.
  * - **Writes only what a query reads** (`graphOnly`): the graph, the `ask` sidecar,
  *   the freshness record. Not the markdown cards, not `INDEX.md`, not `.gitignore`.
- *   Those belong to an explicit `graft build` — which the `Stop` hook already runs
+ *   Those belong to an explicit `grafly build` — which the `Stop` hook already runs
  *   at the end of a turn — so retrieval stays cheap and a read stays a read. It
  *   also leaves `stats.json` alone, so that same `Stop` hook still sees `dirty` and
  *   still rebuilds the passive surface.
@@ -49,7 +49,7 @@ const LOCK_POLL_MS = 50;
 const CLEAN = { refreshed: false };
 /** Env kill switch, for CI or anyone who wants queries to never write. */
 function envDisabled() {
-    const v = process.env.GRAFT_NO_REFRESH;
+    const v = process.env.GRAFLY_NO_REFRESH ?? process.env.GRAFT_NO_REFRESH;
     return v !== undefined && v !== "" && v !== "0" && v !== "false";
 }
 function sleep(ms) {
@@ -243,12 +243,11 @@ export async function ensureFreshChildren(root, children, opts = {}) {
  * Null when there's nothing to say (the overwhelmingly common case). */
 export function refreshNote(r) {
     if (!r.refreshed)
-        return r.note ? `[graft] ${r.note}` : null;
+        return r.note ? `[grafly] ${r.note}` : null;
     const n = r.drift ? driftCount(r.drift) : 0;
     const built = `refreshed the graph (${n || "?"} file${n === 1 ? "" : "s"} changed) before answering`;
     // Both facts, when a worktree was seeded *and* the copy needed repairing: the
     // count is the interesting half (it's the branch diff), the provenance explains
     // where a graph came from in a directory the user knows they never built.
-    return r.note ? `[graft] ${built} — ${r.note}` : `[graft] ${built}`;
+    return r.note ? `[grafly] ${built} — ${r.note}` : `[grafly] ${built}`;
 }
-//# sourceMappingURL=refresh.js.map

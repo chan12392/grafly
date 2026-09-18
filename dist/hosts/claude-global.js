@@ -2,7 +2,7 @@
  * User-level install for Claude Code: the copy of graft's wiring that lives
  * outside every repo.
  *
- * Why this exists. Everything `graft init` writes for Claude Code lands *in* the
+ * Why this exists. Everything `grafly init` writes for Claude Code lands *in* the
  * repo — `.mcp.json` and `.claude/settings.json`. A `.gitignore` is free to ignore
  * both, and `git worktree add` checks out tracked files only, so a worktree of such
  * a repo starts with graft's shims present and neither of the two files that *point
@@ -51,9 +51,9 @@ export function globalHelpersDir(home) {
 export function claudeGlobalTargets(home) {
     const g = (id, path, kind, what) => ({ hostId: 'claude', id, path, scope: 'global', kind, what });
     return [
-        g('claude-global-shim', join(globalHelpersDir(home), 'graft-hooks.cjs'), 'hook', 'hooks shim (user level)'),
+        g('claude-global-shim', join(globalHelpersDir(home), 'grafly-hooks.cjs'), 'hook', 'hooks shim (user level)'),
         g('claude-global-hooks', join(home, '.claude', 'settings.json'), 'hook', 'SessionStart / UserPromptSubmit / PostToolUse / Stop'),
-        g('claude-global-mcp', join(home, '.claude.json'), 'mcp', 'mcpServers.graft'),
+        g('claude-global-mcp', join(home, '.claude.json'), 'mcp', 'mcpServers.grafly'),
     ];
 }
 /** Merge graft's hook blocks into a settings file, preserving everything else. */
@@ -81,7 +81,7 @@ function upsertGlobalHooks(id, path, helpers) {
  * package's `dist/`, exactly as the Codex install does.
  *
  * Best-effort by contract, like every other writer here: a failure is reported as an
- * action, never raised, so a bad `~/.claude.json` can't fail a `graft init`.
+ * action, never raised, so a bad `~/.claude.json` can't fail a `grafly init`.
  */
 export function installClaudeGlobal(home) {
     const [shim, settings, mcp] = claudeGlobalTargets(home);
@@ -98,8 +98,8 @@ export function installClaudeGlobal(home) {
     if (out[0].action !== 'skipped-unparseable') {
         try {
             // Posix form in the command string: `join` gives backslashes on Windows and
-            // the template appends `/graft-hooks.cjs`, so the raw path produces a mixed
-            // `C:\Users\…\helpers/graft-hooks.cjs`. Node accepts forward slashes on
+            // the template appends `/grafly-hooks.cjs`, so the raw path produces a mixed
+            // `C:\Users\…\helpers/grafly-hooks.cjs`. Node accepts forward slashes on
             // Windows, so one separator throughout is both correct and readable.
             out.push(upsertGlobalHooks(settings.id, settings.path, toPosixPath(globalHelpersDir(home))));
         }
@@ -115,4 +115,3 @@ export function installClaudeGlobal(home) {
     }
     return out;
 }
-//# sourceMappingURL=claude-global.js.map

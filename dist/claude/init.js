@@ -8,7 +8,7 @@ import { statuslineShim, hooksShim } from './shim-template.js';
 import { skillTemplate } from './skill-template.js';
 import { claudeDistDir } from './paths.js';
 import { mergeJsonKey, serverEntry } from '../hosts/mcp-config.js';
-import { hasGraftIndex } from '../graph/root.js';
+import { hasGraflyIndex } from '../graph/root.js';
 /**
  * The files `runInit` writes — pure, no writes, so `--dry-run` and the picker
  * can report them up front. All repo-local: the Claude Code layer never writes
@@ -17,25 +17,25 @@ import { hasGraftIndex } from '../graph/root.js';
 export function claudeTargets(dir) {
     const t = (path, what, kind = 'claude') => ({ hostId: 'claude', id: 'claude', path, scope: 'repo', kind, what });
     return [
-        t(join(dir, '.claude', 'settings.json'), 'graft statusline + hook blocks'),
-        t(join(dir, '.claude', 'helpers', 'graft-statusline.cjs'), 'statusline shim'),
-        t(join(dir, '.claude', 'helpers', 'graft-hooks.cjs'), 'hooks shim'),
-        t(join(dir, '.claude', 'skills', 'graft', 'SKILL.md'), 'graft skill'),
+        t(join(dir, '.claude', 'settings.json'), 'Grafly statusline + hook blocks'),
+        t(join(dir, '.claude', 'helpers', 'grafly-statusline.cjs'), 'statusline shim'),
+        t(join(dir, '.claude', 'helpers', 'grafly-hooks.cjs'), 'hooks shim'),
+        t(join(dir, '.claude', 'skills', 'grafly', 'SKILL.md'), 'Grafly skill'),
         // Tagged 'mcp' so the picker doesn't label Claude Code as having no MCP.
-        t(join(dir, '.mcp.json'), 'mcpServers.graft', 'mcp'),
+        t(join(dir, '.mcp.json'), 'mcpServers.grafly', 'mcp'),
     ];
 }
 /**
  * Build the graph if it isn't there yet. Not Claude-specific: the wiring for any
- * host points at `graft/`, so `graft init` builds whichever hosts were selected —
+ * host points at `grafly/`, so `grafly init` builds whichever hosts were selected —
  * this lives beside `runInit` only because that's the caller that owns `built`.
- * Best-effort; the user can always run `graft build` (the epilogue says so).
+ * Best-effort; the user can always run `grafly build` (the epilogue says so).
  */
 export function buildGraphIfMissing(dir, opts) {
     // `hasGraftIndex`, not just wiring.json: a workspace parent's graph IS its
     // `workspace.json` (nodes live in the children), so testing for wiring.json
     // alone would call it unbuilt and rebuild every child on each init.
-    if (opts.build === false || !opts.cliPath || hasGraftIndex(dir))
+    if (opts.build === false || !opts.cliPath || hasGraflyIndex(dir))
         return false;
     try {
         execFileSync(process.execPath, [opts.cliPath, 'build', '.'], { cwd: dir, stdio: 'inherit', timeout: 300000 });
@@ -64,13 +64,13 @@ export function runInit(dir, opts = {}) {
     chmodSync(sl, 0o755);
     writeFileSync(hk, hooksShim(bakedDir));
     chmodSync(hk, 0o755);
-    // Install the graft skill — the piece that redirects the agent to graft/ before it
-    // greps source. Overwritten each run (graft owns this file), like the shims above.
+    // Install the Grafly skill — the piece that redirects the agent to grafly/ before it
+    // greps source. Overwritten each run (Grafly owns this file), like the shims above.
     const skillPath = skill;
     mkdirSync(dirname(skillPath), { recursive: true });
     writeFileSync(skillPath, skillTemplate());
-    // Register the graft MCP server in the project's .mcp.json so Claude Code
-    // exposes graft_find_code/graft_trace_calls/etc. as tools — the same keyed merge the
+    // Register the Grafly MCP server in the project's .mcp.json so Claude Code
+    // exposes grafly_find_code/grafly_trace_calls/etc. as tools — the same keyed merge the
     // other hosts use (existing servers preserved; unparseable files skipped).
     const mcp = mergeJsonKey('claude', mcpTarget, 'mcpServers', serverEntry());
     // The same wiring again, one level up in `~/.claude`, because everything above
@@ -82,4 +82,3 @@ export function runInit(dir, opts = {}) {
     const built = buildGraphIfMissing(dir, opts);
     return { settingsPath, shims: [sl, hk], skill: skillPath, mcp, global, warnings, built };
 }
-//# sourceMappingURL=init.js.map

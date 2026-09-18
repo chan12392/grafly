@@ -45,7 +45,7 @@ import { GRAPH_DIR, wiringPath } from "./write.js";
 const GITDIR_KEY = "gitdir:";
 /** Env kill switch, mirroring `GRAFT_NO_REFRESH` in ./refresh.ts. */
 export function seedDisabled() {
-    const v = process.env.GRAFT_NO_SEED;
+    const v = process.env.GRAFLY_NO_SEED ?? process.env.GRAFT_NO_SEED;
     return v !== undefined && v !== "" && v !== "0" && v !== "false";
 }
 /**
@@ -116,7 +116,7 @@ const NOT_SEEDED = { seeded: false };
  * **Deliberately absent: the cards and `INDEX.md`.** They would land as this
  * checkout's documentation while describing the *parent's* branch, and nothing on the
  * query path rewrites them (`writeCards`/`writeIndex` sit behind `!graphOnly`), so they
- * would stay wrong indefinitely. An explicit `graft build` regenerates them from this
+ * would stay wrong indefinitely. An explicit `grafly build` regenerates them from this
  * checkout's own graph — and prunes the ones that no longer apply — which is both
  * correct and nearly free once the graph is here.
  *
@@ -223,4 +223,3 @@ export function seedGraph(root, opts = {}) {
         return NOT_SEEDED;
     }
 }
-//# sourceMappingURL=seed.js.map
