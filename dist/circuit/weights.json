@@ -9,6 +9,8 @@
     "degree": 0.9,
     "kind_hint": 0.8,
     "vendored": -2.0,
+    "test_path": -0.8,
+    "cwd_affinity": 1.5,
     "bias": -0.3
   }
 }

@@ -16,7 +16,7 @@
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 
 /** Weights are an ARTIFACT, not code: circuit/weights.json carries the
  * feature weights + abstain gap so a retrained circuit ships as a JSON
@@ -33,7 +33,8 @@ function loadWeights() {
     catch { /* absent/corrupt artifact → seeds */ }
     return {
         W: { qualified_tail: 1.9, exact_name: 1.6, path_overlap: 1.4,
-             degree: 0.9, kind_hint: 0.8, vendored: -2.0, bias: -0.3 },
+             degree: 0.9, kind_hint: 0.8, vendored: -2.0,
+             test_path: -0.8, cwd_affinity: 1.5, bias: -0.3 },
         abstain: 0.5,
     };
 }
@@ -68,8 +69,10 @@ function degreeMap(graph) {
     return m;
 }
 
-/** Per-candidate feature vector for (query, node) over the graph. */
-export function matchFeatures(graph, query, node, deg) {
+/** Per-candidate feature vector for (query, node) over the graph.
+ * cwdTokens = tokens of the caller's cwd dir relative to the repo root
+ * (empty Set when cwd is outside the repo — feature stays 0 for all). */
+export function matchFeatures(graph, query, node, deg, cwdTokens) {
     const q = query.toLowerCase();
     const dot = q.lastIndexOf(".");
     const hasQualifier = dot > 0;
@@ -107,6 +110,23 @@ export function matchFeatures(graph, query, node, deg) {
     // outranks vendored duplicates of the same name.
     const vendored = VENDORED_PATH.test(node.path) ? 1 : 0;
 
+    // Test files answer "how is X exercised" queries; for a bare symbol
+    // query the production definition is usually the intent. Mild penalty —
+    // unlike vendored, a test match can still be the right answer.
+    const testPath = TEST_PATH.test(node.path) ? 1 : 0;
+
+    // cwd affinity: running `callers close` from inside rhino_plugin/
+    // almost certainly means ChatSection.close, not a distant file's.
+    // The caller's location IS query context — bare names carry no other.
+    let cwdAffinity = 0;
+    if (cwdTokens?.size) {
+        const dir = node.path.slice(0, node.path.lastIndexOf("/"));
+        const dTokens = new Set(tokens(dir));
+        let hit = 0;
+        for (const t of cwdTokens) if (dTokens.has(t)) hit++;
+        cwdAffinity = hit / cwdTokens.size;
+    }
+
     return {
         qualified_tail: qualifiedTail ? 1 : 0,
         exact_name: exactName ? 1 : 0,
@@ -114,28 +134,43 @@ export function matchFeatures(graph, query, node, deg) {
         degree: Math.min(Math.log1p(degree) / 3, 1),
         kind_hint: kindHit,
         vendored,
+        test_path: testPath,
+        cwd_affinity: cwdAffinity,
         bias: 1,
     };
 }
 
 /** Dependency/artifact trees whose symbols are copies, not the answer. */
 const VENDORED_PATH = /site-packages|dist-packages|node_modules|__pycache__|\/vendor\/|_vendor|third_party|\.venv|\/venv\/|qa-artifacts|frozen-gate|\/staging\/|backup/i;
+/** Test files — penalized mildly for bare-name intent. */
+const TEST_PATH = /(^|\/)test[s]?_|_test\.|(^|\/)tests?\/|\.test\.|\.spec\.|test_[^/]*\.py$/i;
 
-export function scoreMatch(graph, query, node, deg) {
-    const f = matchFeatures(graph, query, node, deg);
+export function scoreMatch(graph, query, node, deg, cwdTokens) {
+    const f = matchFeatures(graph, query, node, deg, cwdTokens);
     return Object.keys(W).reduce((s, k) => s + W[k] * (f[k] ?? 0), 0);
+}
+
+/** Tokens of `cwd` relative to `root` — the caller's location as query
+ * context. Empty when cwd is outside the repo (feature-neutral). */
+export function cwdContextTokens(root, cwd) {
+    const rel = relative(root, cwd).split(sep).join("/");
+    if (!rel || rel.startsWith(".."))
+        return new Set();
+    return new Set(tokens(rel));
 }
 
 /**
  * Judge same-name matches. Returns {verdict, gap, ranked} where ranked is
  * matches scored and sorted desc; verdict is "confident" when a single
  * match exists or the top-two gap clears ABSTAIN_GAP, else "abstain".
+ * ctx.cwdTokens (optional) supplies the cwd-affinity feature.
  */
-export function judgeSymbols(graph, query, matches) {
+export function judgeSymbols(graph, query, matches, ctx) {
+    const cwdTokens = ctx?.cwdTokens;
     const deg = degreeMap(graph);
     const ranked = matches
         .map((node) => {
-            const f = matchFeatures(graph, query, node, deg);
+            const f = matchFeatures(graph, query, node, deg, cwdTokens);
             const score = Object.keys(W).reduce((s, k) => s + W[k] * (f[k] ?? 0), 0);
             return { node, score, features: f };
         })

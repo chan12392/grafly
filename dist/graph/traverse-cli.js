@@ -19,7 +19,7 @@ import { withSavings, savingsFor } from "../context/savings.js";
 import { loadGraphCached } from "./load.js";
 import { resolveSymbol } from "./traverse.js";
 import { WALK_RELATIONS } from "./relations.js";
-import { judgeSymbols, ABSTAIN_GAP } from "../circuit/judge.js";
+import { judgeSymbols, cwdContextTokens, ABSTAIN_GAP } from "../circuit/judge.js";
 const ARROW = { in: "←", out: "→" };
 const DEFAULT_DEPTH = 1;
 /**
@@ -210,8 +210,9 @@ export function runCallersCommand(query, dir, opts) {
     // ambiguous queries on large graphs slow.
     let circuit = null;
     let circuitFeatures = null;
+    const cwdTokens = cwdContextTokens(root, process.cwd());
     if (matches.length > 1) {
-        const judged = judgeSymbols(graph, query, matches);
+        const judged = judgeSymbols(graph, query, matches, { cwdTokens });
         const order = new Map(judged.ranked.map((r, i) => [r.node.id, i]));
         matches.sort((a, b) => order.get(a.id) - order.get(b.id));
         circuit = {
@@ -247,6 +248,7 @@ export function runCallersCommand(query, dir, opts) {
             query, direction, depth: showDepth ? depth : 1, in: opts.in ?? null,
             top: opts.top ?? null, root,
             matchCount: matches.length, verdict: circuit.verdict, gap: circuit.gap,
+            cwd: [...cwdTokens].join("/") || null,
             scores: circuit.scores,
             features: circuitFeatures,
             shown: shown.map((n) => n.id) });
