@@ -33,7 +33,7 @@ function loadWeights() {
     catch { /* absent/corrupt artifact → seeds */ }
     return {
         W: { qualified_tail: 1.9, exact_name: 1.6, path_overlap: 1.4,
-             degree: 0.9, kind_hint: 0.8, bias: -0.3 },
+             degree: 0.9, kind_hint: 0.8, vendored: -2.0, bias: -0.3 },
         abstain: 0.5,
     };
 }
@@ -100,15 +100,26 @@ export function matchFeatures(graph, query, node, deg) {
         }
     }
 
+    // Vendored/artifact paths systematically win a degree-only ranking —
+    // libraries are the most-connected code. Measured on merlection_3d:
+    // 38/40 ambiguous bare-name queries ranked a site-packages or
+    // qa-artifacts symbol top-1. The penalty exists so project source
+    // outranks vendored duplicates of the same name.
+    const vendored = VENDORED_PATH.test(node.path) ? 1 : 0;
+
     return {
         qualified_tail: qualifiedTail ? 1 : 0,
         exact_name: exactName ? 1 : 0,
         path_overlap: pathOverlap,
         degree: Math.min(Math.log1p(degree) / 3, 1),
         kind_hint: kindHit,
+        vendored,
         bias: 1,
     };
 }
+
+/** Dependency/artifact trees whose symbols are copies, not the answer. */
+const VENDORED_PATH = /site-packages|dist-packages|node_modules|__pycache__|\/vendor\/|_vendor|third_party|\.venv|\/venv\/|qa-artifacts|frozen-gate|\/staging\/|backup/i;
 
 export function scoreMatch(graph, query, node, deg) {
     const f = matchFeatures(graph, query, node, deg);
@@ -123,7 +134,11 @@ export function scoreMatch(graph, query, node, deg) {
 export function judgeSymbols(graph, query, matches) {
     const deg = degreeMap(graph);
     const ranked = matches
-        .map((node) => ({ node, score: scoreMatch(graph, query, node, deg) }))
+        .map((node) => {
+            const f = matchFeatures(graph, query, node, deg);
+            const score = Object.keys(W).reduce((s, k) => s + W[k] * (f[k] ?? 0), 0);
+            return { node, score, features: f };
+        })
         .sort((a, b) => b.score - a.score);
     const gap = ranked.length > 1 ? ranked[0].score - ranked[1].score
         : Number.POSITIVE_INFINITY;

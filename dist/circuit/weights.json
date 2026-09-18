@@ -8,6 +8,7 @@
     "path_overlap": 1.4,
     "degree": 0.9,
     "kind_hint": 0.8,
+    "vendored": -2.0,
     "bias": -0.3
   }
 }

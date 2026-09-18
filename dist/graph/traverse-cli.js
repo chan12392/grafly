@@ -11,7 +11,8 @@
  * old `graft impact`. Exported formatters are reused by the MCP `graft_trace_calls`
  * tool (`src/mcp/tools.ts`), so both surfaces render identical reports.
  */
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import { appendFileSync } from "node:fs";
 import { fileReader, referenceLine, wordRe } from "../blast/evidence.js";
 import { contextDirFor } from "../context/node-file.js";
 import { withSavings, savingsFor } from "../context/savings.js";
@@ -208,6 +209,7 @@ export function runCallersCommand(query, dir, opts) {
     // Upstream walked every match — O(matches × edges) — which is what made
     // ambiguous queries on large graphs slow.
     let circuit = null;
+    let circuitFeatures = null;
     if (matches.length > 1) {
         const judged = judgeSymbols(graph, query, matches);
         const order = new Map(judged.ranked.map((r, i) => [r.node.id, i]));
@@ -218,6 +220,9 @@ export function runCallersCommand(query, dir, opts) {
             top: judged.ranked[0].node.id,
             scores: judged.ranked.map((r) => ({ id: r.node.id, score: Number(r.score.toFixed(3)) })),
         };
+        // capped for the log: the head of the ranking is where retraining
+        // signal lives; the tail is noise.
+        circuitFeatures = judged.ranked.slice(0, 50).map((r) => ({ id: r.node.id, ...r.features }));
     }
     // --top N: emit only the circuit's best N matches — the answer an agent
     // would reach after reading all of them anyway, at a fraction of the
@@ -234,6 +239,17 @@ export function runCallersCommand(query, dir, opts) {
     const byId = new Map(graph.nodes.map((n) => [n.id, n]));
     const results = shown.map((symbol) => ({ symbol, hits: sharedEdgeWalk(graph, adj, byId, symbol, direction, depth) }));
     const saved = callersSavings(graph, results);
+    // Judgment log: what the circuit saw and decided, as JSONL next to the
+    // graph it judged — the raw material for retraining weights and for
+    // auditing bad rankings. GRAFLY_CIRCUIT_LOG=0 disables; =path redirects.
+    if (circuit)
+        logCircuit(contextDir, { ts: new Date().toISOString(), cmd: "callers",
+            query, direction, depth: showDepth ? depth : 1, in: opts.in ?? null,
+            top: opts.top ?? null, root,
+            matchCount: matches.length, verdict: circuit.verdict, gap: circuit.gap,
+            scores: circuit.scores,
+            features: circuitFeatures,
+            shown: shown.map((n) => n.id) });
     if (opts.json) {
         const payload = {
             query,
@@ -280,5 +296,17 @@ export function runCallersCommand(query, dir, opts) {
     }
     const body = lines.join("\n").replace(/\n+$/, "\n");
     process.stdout.write(withSavings(body, saved));
+}
+/** Append one JSONL judgment record beside the graph. Logging is
+ * best-effort — a failed write must never break a query. */
+function logCircuit(contextDir, record) {
+    const cfg = process.env.GRAFLY_CIRCUIT_LOG;
+    if (cfg === "0" || cfg === "off")
+        return;
+    const path = cfg ? resolve(cfg) : join(contextDir, "circuit-log.jsonl");
+    try {
+        appendFileSync(path, JSON.stringify(record) + "\n");
+    }
+    catch { /* logging never blocks the answer */ }
 }
 //# sourceMappingURL=traverse-cli.js.map
