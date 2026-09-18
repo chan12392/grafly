@@ -14,18 +14,34 @@
  * disambiguation outcomes before trusting absolute values. Pure JS, no
  * model files, no network.
  */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
-const W = {
-    qualified_tail: 1.9,  // query's qualified tail honored by candidate id
-    exact_name: 1.6,      // bare exact name equality
-    path_overlap: 1.4,    // query prefix tokens appear in candidate path
-    degree: 0.9,          // well-connected symbol is likelier the intent
-    kind_hint: 0.8,       // query kind word matches node.kind
-    bias: -0.3,
-};
+/** Weights are an ARTIFACT, not code: circuit/weights.json carries the
+ * feature weights + abstain gap so a retrained circuit ships as a JSON
+ * drop-in — no JS edits. Built-in seeds cover an absent/unparseable file.
+ * GRAFLY_WEIGHTS points at an alternate artifact. */
+function loadWeights() {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const path = process.env.GRAFLY_WEIGHTS ?? join(here, "weights.json");
+    try {
+        const d = JSON.parse(readFileSync(path, "utf8"));
+        if (d?.weights && typeof d.weights === "object")
+            return { W: d.weights, abstain: Number(d.abstain_gap ?? 0.5) };
+    }
+    catch { /* absent/corrupt artifact → seeds */ }
+    return {
+        W: { qualified_tail: 1.9, exact_name: 1.6, path_overlap: 1.4,
+             degree: 0.9, kind_hint: 0.8, bias: -0.3 },
+        abstain: 0.5,
+    };
+}
+const _lw = loadWeights();
+const W = _lw.W;
 
 /** Score-gap dial: top-two gap below this ⇒ abstain. GRAFLY_ABSTAIN tunes it. */
-export const ABSTAIN_GAP = Number(process.env.GRAFLY_ABSTAIN ?? 0.5);
+export const ABSTAIN_GAP = Number(process.env.GRAFLY_ABSTAIN ?? _lw.abstain);
 
 const KIND_WORDS = {
     method: ["method", "methods"],
@@ -96,7 +112,7 @@ export function matchFeatures(graph, query, node, deg) {
 
 export function scoreMatch(graph, query, node, deg) {
     const f = matchFeatures(graph, query, node, deg);
-    return Object.keys(W).reduce((s, k) => s + W[k] * f[k], 0);
+    return Object.keys(W).reduce((s, k) => s + W[k] * (f[k] ?? 0), 0);
 }
 
 /**
