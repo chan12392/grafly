@@ -317,7 +317,28 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
                     : e.file.endsWith(".java")
                         ? ["class", "struct", "enum", "interface"]
                         : ["function"]);
-            let hit = resolveName(e.name, e.file, callKinds, perFileName, globalName);
+            let hit = null;
+            if (e.specifier) {
+                // The import statement already names the module — resolve
+                // inside it only (the references branch above does the same).
+                // Ctor-call kinds are widened in: `import {Widget}` then
+                // `new Widget()` must find a class, not just a function.
+                const targetFile = e.file.endsWith(".php")
+                    ? resolvePhpUse(e.specifier, phpFilesBySuffix)
+                    : resolveImport(e.specifier, e.file, byId);
+                if (!byId.has(targetFile))
+                    continue; // external/unresolved module — not in-repo
+                const importKinds = [...new Set([...callKinds, "class", "struct", "enum"])];
+                const candidates = (perFileName.get(targetFile)?.get(e.name) ?? []).filter((n) => importKinds.includes(n.kind));
+                if (candidates.length === 1) {
+                    add(e.source, candidates[0].id, "calls", "extracted");
+                    continue;
+                }
+                // Module resolved but the name isn't found uniquely inside —
+                // `export *` re-export chains hide it from perFileName, so
+                // fall through to bare-name resolution rather than force a drop.
+            }
+            hit = resolveName(e.name, e.file, callKinds, perFileName, globalName);
             // Python is the Java case without the `new` to mark it: `Widget()` is an
             // ordinary call node, so a constructor edge dies against the function-only
             // index. Java can widen to types outright; Python has free functions, so
@@ -332,6 +353,12 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
             }
             if (hit)
                 add(e.source, hit.id, "calls", hit.confidence); // drop unresolved calls (too noisy)
+            else if (opts.dropped && nameCandidateCount(e.name, e.file, callKinds, perFileName, globalName) > 1)
+                // Dropped for ambiguity, not absence — the call site named a
+                // symbol that exists in several places. The edge stays out of
+                // `out` (never guessed) but the site itself is worth reporting
+                // to a `callers` query so the undercount stops being silent.
+                opts.dropped.push({ source: e.source, name: e.name });
         }
     }
     return out;
@@ -370,6 +397,14 @@ function resolveName(name, file, kinds, perFileName, globalName) {
     if (global.length === 1)
         return { id: global[0].id, confidence: "inferred" };
     return null;
+}
+/** How many in-language candidates a bare name has, with the same scoping
+ * rules as resolveName — >1 means a null from resolveName was ambiguity (a
+ * real but unattributable reference), not absence of the name. */
+function nameCandidateCount(name, file, kinds, perFileName, globalName) {
+    const local = (perFileName.get(file)?.get(name) ?? []).filter((n) => kinds.includes(n.kind)).length;
+    const global = (globalName.get(name) ?? []).filter((n) => kinds.includes(n.kind) && reachable(file, n.path)).length;
+    return local + global;
 }
 /**
  * Resolve a typed member call (`recvType.name`) against the owner-qualified method

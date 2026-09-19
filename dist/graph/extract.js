@@ -582,6 +582,18 @@ function walk(node, ctx, out, edges, minted) {
                 file: ctx.rel,
                 ...(callee.kinds ? { kinds: callee.kinds } : {}),
             };
+            // A bare call to an imported binding already knows its module —
+            // stamp the specifier and the EXPORTED name (`import {work as w5}`
+            // then `w5()` calls `a.js#work`). Resolve then looks inside that
+            // file only, which also rescues names that are ambiguous repo-wide
+            // but unique inside the imported module.
+            if (!callee.viaMember) {
+                const imported = ctx.importedSymbols.get(callee.name);
+                if (imported) {
+                    callEdge.name = imported.name;
+                    callEdge.specifier = imported.specifier;
+                }
+            }
             // Overloading languages: the call site's argument count, to pick the right
             // overload (see RawEdge.argCount).
             const argCount = ctx.lang === "java" ? javaArgCount(node) : ctx.lang === "swift" ? swiftArgCount(node) : undefined;

@@ -213,7 +213,8 @@ export async function buildGraph(dir, opts = {}) {
         ...emptyExtractCache(),
         files: entries,
     });
-    const edges = resolveEdges(nodes, rawEdges, { goModules: readGoModules(root, repoFiles) });
+    const ambiguousCalls = [];
+    const edges = resolveEdges(nodes, rawEdges, { goModules: readGoModules(root, repoFiles), dropped: ambiguousCalls });
     // Guard 5 (minimum-substance): node counts aren't known until nodes are
     // assembled, so the merge-tiny-scopes-into-root guard runs here.
     const scopes = applyMinSubstanceGuard(discoveredScopes, nodes);
@@ -231,6 +232,10 @@ export async function buildGraph(dir, opts = {}) {
         },
         nodes,
         edges,
+        // Call sites dropped because the bare name resolves ambiguously — kept
+        // OUT of edges (precision) but recorded so `callers` can surface the
+        // undercount instead of reporting "no indexed callers" in silence.
+        ...(ambiguousCalls.length ? { ambiguousCalls } : {}),
     };
     // graph.json is its own Tier-2 cache: fold in the prior meaning layer so an
     // unchanged body is never re-summarized (and a Tier-1-only run never wipes it).

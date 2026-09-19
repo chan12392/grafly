@@ -221,10 +221,15 @@ export function runCallersCommand(query, dir, opts) {
     // --top N: emit only the circuit's best N matches — the answer an agent
     // would reach after reading all of them anyway, at a fraction of the
     // output tokens. Dropped matches stay visible via the verdict line /
-    // circuit.scores so nothing is hidden.
+    // circuit.scores so nothing is hidden. Exception: never truncate past an
+    // abstain — when the circuit says it cannot separate the matches, cutting
+    // would hide the very ambiguity it just surfaced. Only a confident
+    // ranking earns the right to cut.
     let truncated = null;
     const topN = opts.top !== undefined ? Math.max(1, Math.floor(Number(opts.top) || 1)) : null;
-    const shown = topN !== null && matches.length > topN ? matches.slice(0, topN) : matches;
+    const shown = topN !== null && matches.length > topN && circuit?.verdict !== "abstain"
+        ? matches.slice(0, topN)
+        : matches;
     if (shown.length < matches.length) {
         truncated = { shown: shown.length, total: matches.length,
             omitted: matches.slice(shown.length).map((n) => n.id) };
@@ -232,6 +237,13 @@ export function runCallersCommand(query, dir, opts) {
     const adj = walkAdjacency(graph, direction);
     const byId = new Map(graph.nodes.map((n) => [n.id, n]));
     const results = shown.map((symbol) => ({ symbol, hits: sharedEdgeWalk(graph, adj, byId, symbol, direction, depth) }));
+    // Call sites that named one of these symbols but were dropped for
+    // ambiguity — recorded at build time (graph.ambiguousCalls) so the
+    // undercount is visible instead of silent. Incoming direction only.
+    const ambNames = new Set(matches.map((m) => m.name));
+    const ambiguous = direction === "in"
+        ? (graph.ambiguousCalls ?? []).filter((a) => ambNames.has(a.name))
+        : [];
     const saved = callersSavings(graph, results);
     // Judgment log: what the circuit saw and decided, as JSONL next to the
     // graph it judged — the raw material for retraining weights and for
@@ -263,6 +275,8 @@ export function runCallersCommand(query, dir, opts) {
             payload.circuit = circuit;
         if (truncated)
             payload.truncated = truncated;
+        if (ambiguous.length)
+            payload.ambiguousCalls = ambiguous;
         console.log(JSON.stringify(payload, null, 2));
         return;
     }
@@ -287,6 +301,15 @@ export function runCallersCommand(query, dir, opts) {
             for (const h of hits)
                 lines.push(hitLine(direction, h, showDepth, quoteFor(h, symbol.name, read)));
         lines.push("");
+    }
+    if (ambiguous.length) {
+        const preview = ambiguous.slice(0, 10);
+        const rest = ambiguous.length - preview.length;
+        lines.push(`· ${ambiguous.length} call site(s) invoke a name in this result set but can't be attributed — ambiguous, dropped rather than guessed (not counted above):`);
+        for (const a of preview)
+            lines.push(`    ${a.source}`);
+        if (rest > 0)
+            lines.push(`    … +${rest} more`);
     }
     const body = lines.join("\n").replace(/\n+$/, "\n");
     process.stdout.write(withSavings(body, saved));
