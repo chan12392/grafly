@@ -11,3 +11,6 @@ node_modules/
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
+
+# Baekho harness local state — managed by the harness repo, not committed here.
+/.baekho/
