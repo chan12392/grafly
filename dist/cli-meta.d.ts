@@ -36,8 +36,8 @@ export interface UpgradeResult {
 }
 /** Pure formatter for a finished upgrade — no I/O, easy to unit-test. */
 export declare function formatUpgradeReport(result: UpgradeResult): string;
-/** Runs `npm install -g @nanonets/graft@latest` (inheriting stdio so the user
- * sees npm's own progress/errors), then re-reads the freshly installed
- * version. No-ops with guidance when running via npx. */
+/** Runs `npm install -g <GRAFLY_NPM_PACKAGE>@latest` (inheriting stdio so the
+ * user sees npm's own progress/errors), then re-reads the freshly installed
+ * version. Disabled unless GRAFLY_NPM_PACKAGE is set; no-ops via npx. */
 export declare function runUpgrade(moduleUrl: string): UpgradeResult;
 //# sourceMappingURL=cli-meta.d.ts.map

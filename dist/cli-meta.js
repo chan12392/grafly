@@ -118,9 +118,9 @@ export function formatUpgradeReport(result) {
     }
     return `grafly ${result.oldVersion ?? "?"} → ${result.newVersion ?? result.oldVersion ?? "?"}`;
 }
-/** Runs `npm install -g @nanonets/graft@latest` (inheriting stdio so the user
- * sees npm's own progress/errors), then re-reads the freshly installed
- * version. No-ops with guidance when running via npx. */
+/** Runs `npm install -g <GRAFLY_NPM_PACKAGE>@latest` (inheriting stdio so the
+ * user sees npm's own progress/errors), then re-reads the freshly installed
+ * version. Disabled unless GRAFLY_NPM_PACKAGE is set; no-ops via npx. */
 export function runUpgrade(moduleUrl) {
     const oldVersion = readCurrentVersion(moduleUrl);
     if (!PKG_NAME)

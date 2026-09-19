@@ -151,7 +151,9 @@ export function maybeRefreshInBackground(home, now = Date.now()) {
  */
 export function maybeRefreshBrainRules(repo, now = Date.now()) {
     try {
-        if (!readLink(repo))
+        const link = readLink(repo);
+        // A local brain has nothing to fetch — its rules are notes in the cache.
+        if (!link || link.local)
             return false;
         const cache = readRulesCache(repo);
         if (!cacheIsStale(cache, now))

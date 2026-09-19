@@ -111,3 +111,122 @@ test("instruction body is written with Grafly names only", () => {
   assert.match(body, /`grafly ask/);
   assert.doesNotMatch(body, /\bgraft\b/);
 });
+
+import { connectBrain } from "../dist/brain/connect.js";
+import { readLink } from "../dist/brain/link.js";
+
+test("connectBrain persists GRAFLY_BRAIN_URL into the stored link", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "grafly-repo-"));
+  const home = mkdtempSync(join(tmpdir(), "grafly-home-"));
+  const prev = process.env.GRAFLY_BRAIN_URL;
+  process.env.GRAFLY_BRAIN_URL = "https://brain.example.test/grafly";
+  try {
+    const fetchImpl = async () => ({ ok: true, json: async () => ({ anchors: [] }) });
+    await connectBrain(repo, { brainId: "b_test", token: "bt_test" }, { home, fetchImpl });
+    const link = readLink(repo);
+    assert.equal(link.baseUrl, "https://brain.example.test/grafly");
+  } finally {
+    if (prev === undefined) delete process.env.GRAFLY_BRAIN_URL; else process.env.GRAFLY_BRAIN_URL = prev;
+  }
+});
+
+import { spawn } from "node:child_process";
+
+test("brain server serves the public brain API", async () => {
+  const server = join(process.cwd(), "service", "brain-server.mjs");
+  const data = mkdtempSync(join(tmpdir(), "grafly-brain-"));
+  const port = 24000 + Math.floor(Math.random() * 20000);
+  const env = { ...process.env, DATA_DIR: data, PORT: String(port) };
+  const mint = spawnSync(process.execPath, [server, "create-brain", "--name", "t"], { env, encoding: "utf8" });
+  const [brainId, token] = mint.stdout.trim().split(":");
+  assert.ok(brainId && token, mint.stderr);
+  const child = spawn(process.execPath, [server], { env, stdio: "ignore" });
+  try {
+    const base = `http://127.0.0.1:${port}`;
+    const auth = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+    for (let i = 0; i < 50; i++) {
+      try { const r = await fetch(`${base}/health`); if (r.ok) break; } catch {}
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    // No repo ingested yet: expected-repo check finds nothing, fails open.
+    const repoInfo = await (await fetch(`${base}/api/public/brains/${brainId}/repo`, { headers: auth })).json();
+    assert.equal(repoInfo.repo.slug, "");
+    // Ingest a minimal digest; mining is skipped without BRAIN_LLM_*.
+    const digest = { provider: "github", owner: "o", name: "r", head_sha: "x", default_branch: "main",
+      is_private: true, commits: [{ sha: "abc1234", subject: "s", body: "", files: [], symbols: [] }],
+      threads: [], symbols: [{ id: "f.js#fn", path: "f.js", name: "fn", kind: "function", signature: "", fingerprint: "h1" }],
+      sources: [], auto_approve: false };
+    const ing = await (await fetch(`${base}/api/public/brains/${brainId}/repo`, { method: "POST", headers: auth, body: JSON.stringify(digest) })).json();
+    assert.match(ing.job_id, /^j_/);
+    // A draft rule is hidden from anchors until approved.
+    const { writeFileSync: wf } = await import("node:fs");
+    wf(join(data, "rules", `${brainId}.json`), JSON.stringify({ rules: [
+      { rule_id: "r1", symbol: "f.js#fn", fingerprint: "h1", rule: "never cache here", source_url: undefined, status: "draft" },
+      { rule_id: "r2", symbol: "f.js#fn", fingerprint: "h1", rule: "approved rule", source_url: undefined, status: "approved" },
+    ] }));
+    let anchors = (await (await fetch(`${base}/api/public/brains/${brainId}/rules/anchors`, { headers: auth })).json()).anchors;
+    assert.deepEqual(anchors.map((a) => a.rule_id), ["r2"]);
+    await (await fetch(`${base}/api/public/brains/${brainId}/rules/approve/r1`, { method: "POST", headers: auth })).json();
+    anchors = (await (await fetch(`${base}/api/public/brains/${brainId}/rules/anchors`, { headers: auth })).json()).anchors;
+    assert.equal(anchors.length, 2);
+    // Bad token is rejected.
+    assert.equal((await fetch(`${base}/api/public/brains/${brainId}/rules/anchors`, { headers: { authorization: "Bearer nope" } })).status, 401);
+    // Client-mined anchors can be pushed without any server-side LLM.
+    const push = await (await fetch(`${base}/api/public/brains/${brainId}/rules`, {
+      method: "POST", headers: auth,
+      body: JSON.stringify({ anchors: [{ symbol: "f.js#fn", rule: "agent-written note" }] }),
+    })).json();
+    assert.equal(push.added, 1);
+    const after = (await (await fetch(`${base}/api/public/brains/${brainId}/rules/anchors`, { headers: auth })).json()).anchors;
+    assert.equal(after.length, 3);
+    assert.equal(after.find((a) => a.rule === "agent-written note").fingerprint, "h1");
+  } finally {
+    child.kill();
+  }
+});
+
+import { ensureLocalBrain, addRules, pushNotes } from "../dist/brain/note.js";
+import { pullBrain } from "../dist/brain/connect.js";
+
+test("brain note mints a local brain, fingerprints rules, rejects unknowns", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "grafly-note-"));
+  const { link, created } = ensureLocalBrain(repo);
+  assert.equal(created, true);
+  assert.equal(link.local, true);
+  const graph = { nodes: [{ id: "f.js#fn", path: "f.js", name: "fn", kind: "function", body_hash: "h1" }] };
+  const res = addRules(repo, [
+    { rule: "never cache here", symbol: "f.js#fn" },
+    { rule: "repo convention", repoWide: true },
+    { rule: "bad anchor", symbol: "missing.js#nope" },
+    { rule: "never cache here", symbol: "f.js#fn" },
+  ], graph);
+  assert.equal(res.added.length, 2);
+  assert.equal(res.rejected.length, 2);
+  assert.equal(res.added[0].fingerprint, "h1");
+  // A local brain's pull never fetches — it rewrites sections from the cache.
+  const pull = await pullBrain(repo, { home: mkdtempSync(join(tmpdir(), "grafly-home-")) });
+  assert.equal(pull.local, true);
+  assert.equal(pull.ruleCount, 2);
+  // pushNotes is a no-op for a local brain.
+  assert.equal((await pushNotes(repo, link, res.added)).pushed, 0);
+});
+
+test("ambiguous call sites surface instead of a silent undercount; abstain suppresses --top", () => {
+  const d = mkdtempSync(join(tmpdir(), "grafly-amb-"));
+  writeFileSync(join(d, "a.js"), "export function helper(){ return 1; }\n");
+  writeFileSync(join(d, "b.js"), "export function helper(){ return 1; }\n");
+  writeFileSync(join(d, "caller.js"), 'import {helper as h1} from "./a.js";\nexport function caller(){ return helper() + h1(); }\n');
+  const cli = join(process.cwd(), "dist", "cli.js");
+  const b = spawnSync(process.execPath, [cli, "build"], { cwd: d, encoding: "utf8" });
+  assert.equal(b.status, 0, b.stderr);
+  const r = JSON.parse(spawnSync(process.execPath, [cli, "callers", "helper", "--json"], { cwd: d, encoding: "utf8" }).stdout);
+  assert.deepEqual(r.ambiguousCalls, [{ source: "caller.js#caller", name: "helper" }]);
+  // The aliased import call resolves through the specifier: h1() → a.js#helper.
+  const aHelper = r.matches.find((m) => m.symbol.id === "a.js#helper");
+  assert.deepEqual(aHelper.hits.map((h) => h.id), ["caller.js#caller"]);
+  // Two identical definitions ⇒ abstain ⇒ --top must not hide a match.
+  const top = JSON.parse(spawnSync(process.execPath, [cli, "callers", "helper", "--json", "--top", "1"], { cwd: d, encoding: "utf8" }).stdout);
+  assert.equal(top.circuit.verdict, "abstain");
+  assert.equal(top.matches.length, 2);
+  assert.equal(top.truncated, undefined);
+});

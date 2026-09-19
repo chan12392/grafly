@@ -36,6 +36,7 @@
   "files": [
     "dist",
     "scripts",
+    "service",
     "README.md",
     "LICENSE",
     "TELEMETRY.md"

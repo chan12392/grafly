@@ -1,1 +1,13 @@
 node_modules/
+
+# Grafly's local graph cache — regenerable, not committed (run `grafly build`).
+/grafly/
+
+# grafly's local repository settings — not committed.
+/.grafly/
+
+# graft's local repository settings — not committed.
+/.graft/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/

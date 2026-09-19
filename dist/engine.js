@@ -10,7 +10,7 @@
  * the sync. This class wires the configured LLM provider into the build/check
  * pipelines; an API key is required for any LLM-backed operation.
  */
-import { resolveConfig } from "./ai/providers.js";
+import { resolveConfig, ambientLlmConfig } from "./ai/providers.js";
 import { ChatSynthesizer } from "./ai/synthesize.js";
 import { ChatSummarizer } from "./ai/summarize.js";
 import { ChatCruxSummarizer } from "./ai/crux.js";
@@ -86,8 +86,21 @@ export class Grafly {
         if (this._chatModel)
             return this._chatModel;
         if (!this.cfg.apiKey) {
-            throw new Error("No API key. Set GRAFLY_API_KEY (and GRAFLY_PROVIDER / GRAFLY_BASE_URL / GRAFLY_MODEL " +
-                "for your provider) to build or summarize the graph.");
+            // Before erroring, probe for a keyless local endpoint (the
+            // codex-oauth proxy on our deployments, or an SSH tunnel to it).
+            // Only reached when an LLM pass was actually requested.
+            const ambient = ambientLlmConfig();
+            if (ambient) {
+                this.cfg.provider = ambient.provider;
+                this.cfg.apiKey = ambient.apiKey;
+                this.cfg.model = ambient.model;
+                this.cfg.baseUrl = ambient.baseUrl;
+                this.cfg.headers = undefined;
+            }
+            else {
+                throw new Error("No API key. Set GRAFLY_API_KEY (and GRAFLY_PROVIDER / GRAFLY_BASE_URL / GRAFLY_MODEL " +
+                    "for your provider) to build or summarize the graph.");
+            }
         }
         this._chatModel = createChatModel({
             provider: this.cfg.provider,

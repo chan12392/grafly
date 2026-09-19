@@ -10,7 +10,7 @@
  * NOT suppressed by `--global false`; only `--no-hooks` skips them.
  *
  * The shim is the same one Claude Code and Codex use (`hooksShim`): it locates
- * the installed `@nanonets/graft` package and calls `hooks.js`' `main(argv[2])`,
+ * the installed `grafly` package and calls `hooks.js`' `main(argv[2])`,
  * so the sub-command in each entry (`cursor-post-tool`, `cursor-mcp`,
  * `cursor-session-end`) routes to the matching handler in `../claude/hooks.ts`.
  *
