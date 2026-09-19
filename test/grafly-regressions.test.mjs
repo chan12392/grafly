@@ -236,4 +236,10 @@ test("ambiguous call sites surface instead of a silent undercount; abstain suppr
   // callers on the real nodes must surface it as unattributed, not drop it.
   const r2 = JSON.parse(spawnSync(process.execPath, [cli, "callers", "Base", "--json"], { cwd: d, encoding: "utf8" }).stdout);
   assert.deepEqual(r2.unresolvedNameRefs, [{ source: "c.js#C", relation: "extends", name: "Base" }]);
+  // A miss offers near-miss suggestions and the grep escape hatch instead
+  // of dead-ending into a full-tree grep.
+  const miss = spawnSync(process.execPath, [cli, "callers", "heler"], { cwd: d, encoding: "utf8" });
+  assert.equal(miss.status, 1);
+  assert.match(miss.stderr, /near matches: helper/);
+  assert.match(miss.stderr, /grafly grep/);
 });

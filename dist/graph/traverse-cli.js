@@ -131,6 +131,57 @@ export function looseNoteFor(direction, name, candidateCount) {
         : "";
     return `  no indexed ${label} — the graph has no ${dir} call/reference edges for this symbol as written.${ambiguity} Check the name (try the bare symbol, or "Type.method"), or find its uses with grafly grep "${name}". Fall back to raw grep -rn only for unindexed files`;
 }
+/** Closest indexed names to a query that matched nothing — so a miss
+ * redirects in one turn instead of sending the agent to a full-tree grep.
+ * Substring matches first, then edit distance ≤2 (bounded — short-circuits
+ * past the cap so it stays cheap on 100k-node graphs). */
+function nearMisses(graph, query, limit = 5) {
+    const q = query.toLowerCase();
+    const qNorm = q.replace(/[_-]/g, ""); // snake/camel normalized
+    const scored = [];
+    for (const n of graph.nodes) {
+        if (n.kind === "file")
+            continue;
+        const name = n.name.toLowerCase();
+        const nameNorm = name.replace(/[_-]/g, "");
+        let s = null;
+        // Substring containment needs >=3 chars on the contained side —
+        // otherwise every one-letter name "matches" any query.
+        if ((q.length >= 3 && (name.includes(q) || nameNorm.includes(qNorm))) ||
+            (name.length >= 3 && (q.includes(name) || qNorm.includes(nameNorm))))
+            s = 0;
+        else {
+            const d = Math.min(boundedLevenshtein(q, name, 2), boundedLevenshtein(qNorm, nameNorm, 2));
+            if (d <= 2)
+                s = d + 1;
+        }
+        if (s !== null)
+            scored.push([s, n]);
+    }
+    scored.sort((a, b) => a[0] - b[0] || a[1].name.length - b[1].name.length);
+    return scored.slice(0, limit).map(([, n]) => n);
+}
+/** Levenshtein distance, short-circuited: returns max+1 as soon as the
+ * distance provably exceeds max, so non-candidates cost O(min(len)) work. */
+function boundedLevenshtein(a, b, max) {
+    if (Math.abs(a.length - b.length) > max)
+        return max + 1;
+    let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+        const cur = [i];
+        let rowMin = i;
+        for (let j = 1; j <= b.length; j++) {
+            const v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+            cur.push(v);
+            if (v < rowMin)
+                rowMin = v;
+        }
+        if (rowMin > max)
+            return max + 1;
+        prev = cur;
+    }
+    return prev[b.length];
+}
 function symbolJson(n) {
     return { id: n.id, name: n.name, kind: n.kind, path: n.path, span: n.span };
 }
@@ -180,7 +231,12 @@ export function runCallersCommand(query, dir, opts) {
         return;
     }
     if (matches.length === 0) {
-        console.error(`✗ no symbol "${query}" in the graph — check spelling or run grafly build`);
+        const near = nearMisses(graph, query);
+        const hint = near.length
+            ? `\n  near matches: ${near.map((n) => `${n.name} (${n.path})`).join(", ")}`
+            : "";
+        console.error(`✗ no symbol "${query}" in the graph — check spelling or run grafly build.${hint}\n` +
+            `  for unindexed text (scripts, docs, generated code): grafly grep "${query}" or raw grep -rn`);
         process.exit(1);
     }
     const direction = resolveDirection(opts.direction);
@@ -236,7 +292,17 @@ export function runCallersCommand(query, dir, opts) {
     }
     const adj = walkAdjacency(graph, direction);
     const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-    const results = shown.map((symbol) => ({ symbol, hits: sharedEdgeWalk(graph, adj, byId, symbol, direction, depth) }));
+    // --limit N: cap hits shown per match (default 100; 0/all = unlimited).
+    // A hub symbol (log, error, render) can have thousands of callers — an
+    // agent needs the shape and a representative sample, not every line. The
+    // overflow count and how-to-widen hint keep the tail discoverable.
+    const hitLimit = opts.limit === undefined ? 100
+        : /^(0|all|none)$/i.test(String(opts.limit)) ? Infinity
+            : Math.max(1, Math.floor(Number(opts.limit) || 1));
+    const results = shown.map((symbol) => {
+        const hits = sharedEdgeWalk(graph, adj, byId, symbol, direction, depth);
+        return { symbol, hits: hits.slice(0, hitLimit), overflow: Math.max(0, hits.length - hitLimit) };
+    });
     // Call sites that named one of these symbols but were dropped for
     // ambiguity — recorded at build time (graph.ambiguousCalls) so the
     // undercount is visible instead of silent. Incoming direction only.
@@ -276,6 +342,8 @@ export function runCallersCommand(query, dir, opts) {
             query,
             matches: results.map((r) => {
                 const m = { symbol: symbolJson(r.symbol), hits: r.hits.map(hitJson) };
+                if (r.overflow > 0)
+                    m.hitOverflow = r.overflow;
                 if (r.hits.length === 0) {
                     m.note = looseNoteFor(direction, r.symbol.name, matches.length);
                 }
@@ -307,13 +375,16 @@ export function runCallersCommand(query, dir, opts) {
     }
     // One reader for the whole walk: several hits usually live in the same file.
     const read = fileReader(root);
-    for (const { symbol, hits } of results) {
+    for (const { symbol, hits, overflow } of results) {
         lines.push(headerOf(symbol));
         if (hits.length === 0)
             lines.push(looseNoteFor(direction, symbol.name, matches.length));
-        else
+        else {
             for (const h of hits)
                 lines.push(hitLine(direction, h, showDepth, quoteFor(h, symbol.name, read)));
+            if (overflow > 0)
+                lines.push(`  … +${overflow} more ${direction === "out" ? "callees" : "callers"} (--limit 0 to show all, or --in <dir> to narrow)`);
+        }
         lines.push("");
     }
     if (ambiguous.length) {
