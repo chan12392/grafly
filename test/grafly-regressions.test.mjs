@@ -232,10 +232,18 @@ test("ambiguous call sites surface instead of a silent undercount; abstain suppr
   assert.equal(top.circuit.verdict, "abstain");
   assert.equal(top.matches.length, 2);
   assert.equal(top.truncated, undefined);
+  // mc.channel.v1 contract alignment: status vocabulary, reason codes as an
+  // array, and score semantics (ranking score ≠ probability ⇒ confidence null).
+  assert.equal(top.schema, "grafly.callers.v1");
+  assert.equal(top.circuit.status, "abstained");
+  assert.deepEqual(top.circuit.reasonCodes, top.circuit.reason.split("|"));
+  assert.equal(top.circuit.scoreType, "learned_ranking_weight");
+  assert.equal(top.circuit.confidence, null);
   // `class C extends Base` with an ambiguous Base keeps a name-literal edge —
   // callers on the real nodes must surface it as unattributed, not drop it.
   const r2 = JSON.parse(spawnSync(process.execPath, [cli, "callers", "Base", "--json"], { cwd: d, encoding: "utf8" }).stdout);
   assert.deepEqual(r2.unresolvedNameRefs, [{ source: "c.js#C", relation: "extends", name: "Base" }]);
+  assert.match(r2.limitations.join(" "), /target the bare name/);
   // A miss offers near-miss suggestions and the grep escape hatch instead
   // of dead-ending into a full-tree grep.
   const miss = spawnSync(process.execPath, [cli, "callers", "heler"], { cwd: d, encoding: "utf8" });

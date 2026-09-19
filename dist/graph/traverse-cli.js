@@ -338,7 +338,20 @@ export function runCallersCommand(query, dir, opts) {
             features: circuitFeatures,
             shown: shown.map((n) => n.id) });
     if (opts.json) {
+        // mc.channel.v1-style limitations: machine-readable "what this
+        // answer cannot claim" list, alongside the human-visible notes.
+        const limitations = [];
+        const vendoredCount = circuitFeatures?.filter((f) => f.vendored === 1).length ?? 0;
+        if (vendoredCount > 0)
+            limitations.push(`${vendoredCount} candidate(s) live in vendored/generated paths — ranking deprioritizes them`);
+        if (ambiguous.length)
+            limitations.push(`${ambiguous.length} call site(s) dropped as ambiguous — incoming edges may undercount`);
+        if (nameRefs.length)
+            limitations.push(`${nameRefs.length} edge(s) target the bare name — attribution unknown`);
+        if (truncated)
+            limitations.push(`--top ${truncated.shown} of ${truncated.total} matches shown`);
         const payload = {
+            schema: "grafly.callers.v1",
             query,
             matches: results.map((r) => {
                 const m = { symbol: symbolJson(r.symbol), hits: r.hits.map(hitJson) };
@@ -359,6 +372,8 @@ export function runCallersCommand(query, dir, opts) {
             payload.ambiguousCalls = ambiguous;
         if (nameRefs.length)
             payload.unresolvedNameRefs = nameRefs;
+        if (limitations.length)
+            payload.limitations = limitations;
         console.log(JSON.stringify(payload, null, 2));
         return;
     }
@@ -427,8 +442,17 @@ export function judgeAndRank(graph, query, matches, ctx) {
     return {
         circuit: {
             verdict: judged.verdict,
+            // mc.channel.v1 contract fields: status vocabulary, explicit
+            // reason codes, and the score semantics ("a ranking score is
+            // not a probability of correctness" — confidence stays null
+            // because these weights are uncalibrated).
+            status: judged.verdict === "abstain" ? "abstained" : "ok",
             gap: judged.gap,
             reason: judged.reason,
+            reasonCodes: judged.reason ? judged.reason.split("|") : [],
+            scoreType: "learned_ranking_weight",
+            scoreUnit: "rank_score",
+            confidence: null,
             top: judged.ranked[0].node.id,
             scores: judged.ranked.map((r) => ({ id: r.node.id, score: Number(r.score.toFixed(3)) })),
         },
