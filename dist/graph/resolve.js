@@ -227,6 +227,8 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
                 const candidates = perFileName.get(targetFile)?.get(e.name) ?? [];
                 if (candidates.length === 1)
                     add(e.source, candidates[0].id, "references", "extracted");
+                else if (candidates.length > 1 && opts.dropped)
+                    opts.dropped.push({ source: e.source, name: e.name });
             }
             else if (e.file.endsWith(".php") && byId.get(e.source)?.origin === "ast") {
                 // PHP attribute without a `use` import (same-file or globally unique class).
@@ -263,6 +265,8 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
                 const hit = resolveName(e.name, e.file, refKinds, perFileName, globalName);
                 if (hit && hit.id !== e.source)
                     add(e.source, hit.id, "references", hit.confidence);
+                else if (!hit && opts.dropped && nameCandidateCount(e.name, e.file, refKinds, perFileName, globalName) > 1)
+                    opts.dropped.push({ source: e.source, name: e.name });
             }
         }
         else if (e.relation === "calls") {
@@ -270,8 +274,11 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
                 if (!e.recvType)
                     continue;
                 const hit = resolveTypedMember(e.recvType, e.name, e.file, ownerMethod, classParents, classTraits, e.argCount);
-                if (hit === "ambiguous")
+                if (hit === "ambiguous") {
+                    if (opts.dropped)
+                        opts.dropped.push({ source: e.source, name: e.name });
                     continue; // drop — never guess past an ambiguous owner
+                }
                 if (hit) {
                     add(e.source, hit.id, "calls", hit.confidence);
                     continue;

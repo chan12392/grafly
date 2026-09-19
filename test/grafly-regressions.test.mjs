@@ -216,6 +216,9 @@ test("ambiguous call sites surface instead of a silent undercount; abstain suppr
   writeFileSync(join(d, "a.js"), "export function helper(){ return 1; }\n");
   writeFileSync(join(d, "b.js"), "export function helper(){ return 1; }\n");
   writeFileSync(join(d, "caller.js"), 'import {helper as h1} from "./a.js";\nexport function caller(){ return helper() + h1(); }\n');
+  writeFileSync(join(d, "a2.js"), "export class Base {}\n");
+  writeFileSync(join(d, "b2.js"), "export class Base {}\n");
+  writeFileSync(join(d, "c.js"), "export class C extends Base {}\n");
   const cli = join(process.cwd(), "dist", "cli.js");
   const b = spawnSync(process.execPath, [cli, "build"], { cwd: d, encoding: "utf8" });
   assert.equal(b.status, 0, b.stderr);
@@ -229,4 +232,8 @@ test("ambiguous call sites surface instead of a silent undercount; abstain suppr
   assert.equal(top.circuit.verdict, "abstain");
   assert.equal(top.matches.length, 2);
   assert.equal(top.truncated, undefined);
+  // `class C extends Base` with an ambiguous Base keeps a name-literal edge —
+  // callers on the real nodes must surface it as unattributed, not drop it.
+  const r2 = JSON.parse(spawnSync(process.execPath, [cli, "callers", "Base", "--json"], { cwd: d, encoding: "utf8" }).stdout);
+  assert.deepEqual(r2.unresolvedNameRefs, [{ source: "c.js#C", relation: "extends", name: "Base" }]);
 });

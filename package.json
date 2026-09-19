@@ -31,7 +31,8 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "grafly": "dist/cli.js"
+    "grafly": "dist/cli.js",
+    "graft": "dist/cli.js"
   },
   "files": [
     "dist",

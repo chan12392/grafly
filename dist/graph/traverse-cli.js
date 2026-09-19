@@ -244,6 +244,18 @@ export function runCallersCommand(query, dir, opts) {
     const ambiguous = direction === "in"
         ? (graph.ambiguousCalls ?? []).filter((a) => ambNames.has(a.name))
         : [];
+    // Name-literal edge targets: an ambiguous `extends Foo` resolves to the
+    // bare name, so the edge exists but is keyed under "Foo" — not under any
+    // node id. For a callers query on a real same-named node that's the same
+    // silent undercount, except the evidence is already in the graph: look up
+    // the bare name in adjacency too. (Skipped when the name IS a matched
+    // node id — file nodes are addressed by path — to avoid double-reporting
+    // resolved hits.)
+    const matchIds = new Set(matches.map((m) => m.id));
+    const nameRefs = direction === "in"
+        ? [...ambNames].filter((n) => !matchIds.has(n))
+            .flatMap((n) => (adj.get(n) ?? []).map((x) => ({ source: x.other, relation: x.relation, name: n })))
+        : [];
     const saved = callersSavings(graph, results);
     // Judgment log: what the circuit saw and decided, as JSONL next to the
     // graph it judged — the raw material for retraining weights and for
@@ -277,6 +289,8 @@ export function runCallersCommand(query, dir, opts) {
             payload.truncated = truncated;
         if (ambiguous.length)
             payload.ambiguousCalls = ambiguous;
+        if (nameRefs.length)
+            payload.unresolvedNameRefs = nameRefs;
         console.log(JSON.stringify(payload, null, 2));
         return;
     }
@@ -308,6 +322,17 @@ export function runCallersCommand(query, dir, opts) {
         lines.push(`· ${ambiguous.length} call site(s) invoke a name in this result set but can't be attributed — ambiguous, dropped rather than guessed (not counted above):`);
         for (const a of preview)
             lines.push(`    ${a.source}`);
+        if (rest > 0)
+            lines.push(`    … +${rest} more`);
+    }
+    if (nameRefs.length) {
+        const preview = nameRefs.slice(0, 10);
+        const rest = nameRefs.length - preview.length;
+        lines.push(`· ${nameRefs.length} edge(s) point at the bare name — unresolved target, attribution unknown (not counted above):`);
+        for (const a of preview) {
+            const src = byId.get(a.source);
+            lines.push(`    ${src ? `${src.name} (${src.path}:${src.span})` : a.source} ${a.relation} "${a.name}"`);
+        }
         if (rest > 0)
             lines.push(`    … +${rest} more`);
     }
