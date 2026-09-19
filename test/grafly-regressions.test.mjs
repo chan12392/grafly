@@ -251,3 +251,50 @@ test("ambiguous call sites surface instead of a silent undercount; abstain suppr
   assert.match(miss.stderr, /near matches: helper/);
   assert.match(miss.stderr, /grafly grep/);
 });
+
+test("session-compact replaces old tool outputs with reversible pointers, expands back losslessly", () => {
+  const d = mkdtempSync(join(tmpdir(), "grafly-sess-"));
+  const big = "x".repeat(2000);
+  const dup = "y".repeat(200); // <300B: no archive ref ⇒ first copy retained, second gets a dup pointer
+  const verified = `${"v".repeat(1200)}\nok=true`;
+  const rl = (payload) => JSON.stringify({ timestamp: "t", type: "response_item", payload });
+  const msg = (id, role, text) => rl({ type: "message", id, role, content: [{ type: role === "assistant" ? "output_text" : "input_text", text }] });
+  const call = (id, cid, name) => rl({ type: "custom_tool_call", id, status: "completed", call_id: cid, name, input: "{}" });
+  const out = (id, cid, text) => rl({ type: "custom_tool_call_output", id, call_id: cid, isError: false, output: [{ type: "input_text", text }] });
+  const transcript = join(d, "rollout.jsonl");
+  writeFileSync(transcript, [
+    JSON.stringify({ type: "session_meta", payload: { id: "s1" } }),
+    msg("u1", "user", "do the thing"),
+    call("c1", "k1", "read"), out("o1", "k1", big),
+    call("c2", "k2", "read"), out("o2", "k2", dup),
+    call("c3", "k3", "read"), out("o3", "k3", dup),          // exact duplicate of o2
+    call("c4", "k4", "test"), out("o4", "k4", verified),    // verification evidence — protected
+    msg("a1", "assistant", "done"), msg("a2", "assistant", "summary"),
+  ].join("\n"));
+  const cli = join(import.meta.dirname, "..", "dist", "cli.js");
+  const r = spawnSync(process.execPath, [cli, "session-compact", transcript, "--keep-last", "2", "--no-batches", "--json"], { encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  const res = JSON.parse(r.stdout);
+  assert.equal(res.status, "ok");
+  assert.equal(res.decision.verdict, "compacted");
+  // o1 archived, o3 duplicate pointer; o4 protected by retention rule.
+  assert.equal(res.decision.compacted_message_count, 2);
+  const protectedIds = res.decision.protected_messages.map((m) => m.message_id);
+  assert.ok(protectedIds.includes("o4"), `o4 must be protected: ${protectedIds}`);
+  const compacted = readFileSync(`${transcript}.compacted.jsonl`, "utf8");
+  assert.match(compacted, /\[MC archived tool output; ref=[0-9a-f]{64}\.txt; sha256=[0-9a-f]{64}; bytes=2000\]/);
+  assert.match(compacted, /\[MC exact duplicate of message o2; sha256=[0-9a-f]{64}; bytes=200\]/);
+  // JSON-escaped inside the transcript — compare against the encoded form.
+  assert.ok(compacted.includes(JSON.stringify(verified).slice(1, -1)), "verification output must remain verbatim");
+  assert.ok(!compacted.includes(big), "archived output must leave the transcript");
+  // Original transcript untouched; archive dir holds the original payload.
+  assert.ok(readFileSync(transcript, "utf8").includes(big));
+  const x = spawnSync(process.execPath, [cli, "session-expand", `${transcript}.compacted.jsonl`], { encoding: "utf8" });
+  assert.equal(x.status, 0, x.stderr);
+  assert.equal(readFileSync(`${transcript}.restored.jsonl`, "utf8"), readFileSync(transcript, "utf8"),
+    "restoration must preserve every raw byte, including multipart output shape");
+  // Abstain when the budget can't be met without protected loss.
+  const ab = JSON.parse(spawnSync(process.execPath, [cli, "session-compact", transcript, "--target-bytes", "200", "--json"], { encoding: "utf8" }).stdout);
+  assert.equal(ab.status, "abstained");
+  assert.ok(ab.reason_codes.includes("target_unreachable_without_protected_loss"));
+});
