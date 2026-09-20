@@ -28,6 +28,7 @@ import { fileFirstRoundRobin, roundRobinQueues } from "./file-selection.js";
 import { personalizedPageRank, personalizedPageRankPrepared, preparePageRankPartitions, } from "./graphrank.js";
 import { readSourceFile } from "../util/source.js";
 import { counts, tokenize } from "./index-file.js";
+import { matchesIdentifier, prependExactHits, queryIdentifiers } from "./exact-symbol.js";
 import { rulesForPointers, formatRules } from "../brain/attach.js";
 import { readLink, readRulesCache } from "../brain/link.js";
 /** Max source lines to inline per hit — a definition longer than this is
@@ -907,7 +908,7 @@ function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fi
     // File-aware ranking feeds latent groups to the existing file-first frontier.
     // Leaders are listed first so every file/concept emits once before any
     // secondary span; each group's remaining queue retains baseline order.
-    const selected = fileTopLock && fileFirst
+    const ordinarySelected = fileTopLock && fileFirst
         ? roundRobinQueues(projectedGroups.map((group) => group.hits), limit)
         : fileFirst
             ? fileFirstRoundRobin(scored.map((hit, index) => ({
@@ -915,6 +916,29 @@ function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fi
                 value: hit,
             })), limit)
             : scored;
+    // Resolve explicit names against definitions BEFORE the output limit. The
+    // exact definition may be a secondary span or absent from the lexical list
+    // altogether (e.g. a quoted stopword such as `get`). Never promote a mere
+    // body mention or file name. Structural queries return before this path.
+    const identifiers = queryIdentifiers(query);
+    const existingByPointer = identifiers.size
+        ? new Map([...scored, ...baselineScored].map((hit) => [hit.pointer, hit]))
+        : new Map();
+    const exact = identifiers.size ? graphNodes
+        .filter((n) => n.kind !== "file" && matchesIdentifier(n.name, identifiers))
+        .map((n) => {
+            const previous = existingByPointer.get(`${n.path}:${n.span}`);
+            const scope = scopes && scopes.length > 1 ? scopeOf(n.path, scopes).prefix : undefined;
+            const hit = makeSymbolHit(n.id, previous?.score ?? 0, scope);
+            hit.exactSymbol = true;
+            return hit;
+        })
+        .sort((a, b) => testFactor(b.pointer.replace(/:L\d+-L\d+$/, "")) - testFactor(a.pointer.replace(/:L\d+-L\d+$/, "")) ||
+            b.score - a.score || a.title.localeCompare(b.title) || a.pointer.localeCompare(b.pointer)) : [];
+    const exactLeaders = fileFirst
+        ? fileFirstRoundRobin(exact.map((hit) => ({ group: selectionGroupOf.get(hit), value: hit })))
+        : exact;
+    const selected = prependExactHits(exactLeaders, ordinarySelected, limit);
     const top = selected[0] ?? scored[0];
     if (fileTopLock && top?.scope && scopeMeta) {
         scopeMeta = {
@@ -945,7 +969,7 @@ function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fi
         : undefined;
     return {
         query,
-        mode: scored.length ? "lexical" : "empty",
+        mode: selected.length ? "lexical" : "empty",
         hits: selected.slice(0, limit),
         scopes: scopeMeta,
         coverage: top && q.size > 0 ? matchedOf.get(top) ?? 0 : undefined,
@@ -953,7 +977,7 @@ function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fi
         ...(ranking ? { ranking } : {}),
         // Zero hits on a genuinely multi-scope graph names the scopes that exist,
         // so a query that missed everywhere still tells the caller where to look.
-        note: scored.length
+        note: selected.length
             ? undefined
             : `no matching nodes — try different words, or \`grafly build\` if grafly/ is empty${scopesHereClause(scopes ?? [])}`,
     };

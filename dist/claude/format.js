@@ -166,7 +166,9 @@ export function relevantRetrieval(ask, s, cap = 3) {
     if (!(ask.hits ?? []).length)
         return null;
     const lexical = typeof ask.coverage === 'number' || typeof ask.coverageStrong === 'number';
-    if (lexical) {
+    // A named definition is stronger evidence than its share of a long prose
+    // query. Keep novelty filtering below: exact names never force reinjection.
+    if (lexical && !ask.hits.some((hit) => hit.exactSymbol)) {
         const strong = ask.coverageStrong ?? 0;
         const broad = ask.coverage ?? 0;
         if (strong < STRONG_FLOOR && broad < HIGH_FLOOR)

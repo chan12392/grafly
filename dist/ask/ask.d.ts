@@ -10,6 +10,9 @@ export interface AskHit {
     relation?: Relation;
     related?: string[];
     score: number;
+    /** Explicit full identifier matched this definition. Result order, not the
+     * lexical/RRF score alone, preserves this evidence across repositories. */
+    exactSymbol?: true;
     /** The actual source at `pointer`, sliced from disk when `source` is on.
      * This is what makes `ask` substitutive — the agent reads the span here
      * instead of opening the file, so no source read happens on top of the query. */

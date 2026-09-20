@@ -34,6 +34,7 @@ import { cwdContextTokens } from "../circuit/judge.js";
 import { recordFollowup } from "../circuit/feedback.js";
 import { wiringPath } from "./write.js";
 import { ask, } from "../ask/ask.js";
+import { prependExactHits } from "../ask/exact-symbol.js";
 import { fileFirstRoundRobin, roundRobinQueues, } from "../ask/file-selection.js";
 import { fuseScopes, STRONG_FLOOR, HIGH_FLOOR } from "../ask/fuse.js";
 import { grepGraph } from "../search/grep.js";
@@ -225,6 +226,23 @@ export function federateAsk(root, override, query, opts = {}) {
             ranking: r.ranking,
         });
     }
+    // Exact definitions are corpus-independent evidence. Keep them outside the
+    // coverage gate/RRF: a long query or another repo's rank-1 must not discard
+    // an explicitly named definition. Child order is deterministic; do not
+    // compare their uncalibrated lexical scores across repositories.
+    const exactHits = fileFirstRoundRobin(runs.flatMap(({ child, hits }) => hits
+        .filter((hit) => hit.exactSymbol)
+        .map((hit) => ({
+            group: `file:${child}/${hitFile(hit.pointer)}`,
+            value: { ...hit, scope: hit.scope ? `${child}/${hit.scope}` : child,
+                pointer: prefixPointer(child, hit.pointer) },
+        }))));
+    const withExactScopes = (scopes) => {
+        if (!exactHits.length)
+            return scopes;
+        const federated = [...new Set([...exactHits.map((hit) => hit.scope), ...scopes.federated])];
+        return { federated, alsoMatched: scopes.alsoMatched.filter((hit) => !federated.includes(hit.scope)) };
+    };
     // Cross-child participation gate on match STRENGTH, not a lenient ratio.
     // Per-child hit scores are each per-child-normalized (top ~1.0 everywhere),
     // so feeding them to fuseScopes makes its gate vacuous across repos — a junk
@@ -375,7 +393,7 @@ export function federateAsk(root, override, query, opts = {}) {
                 ...rankedGroups.filter((group) => group.key !== key),
             ];
         }
-        const hits = roundRobinQueues(projectedGroups.map((group) => group.hits), limit);
+        const hits = prependExactHits(exactHits, roundRobinQueues(projectedGroups.map((group) => group.hits), limit), limit);
         const unmatched = [...fileFused.alsoMatched, ...gatedOut];
         const note = coverageNote(wg);
         const result = {
@@ -392,10 +410,10 @@ export function federateAsk(root, override, query, opts = {}) {
                 ]),
             ];
             const federatedSet = new Set(federated);
-            result.scopes = {
+            result.scopes = withExactScopes({
                 federated,
                 alsoMatched: unmatched.filter((match) => !federatedSet.has(match.scope)),
-            };
+            });
         }
         else {
             result.note = `no matching nodes across ${wg.loaded.length} workspace repo(s) — try different words, or \`grafly build\` at a child`;
@@ -435,13 +453,13 @@ export function federateAsk(root, override, query, opts = {}) {
             value,
         };
     });
-    const hits = fileFirstRoundRobin(rankedHits, limit);
+    const hits = prependExactHits(exactHits, fileFirstRoundRobin(rankedHits, limit), limit);
     const alsoMatched = [...fused.alsoMatched, ...gatedOut];
     const note = coverageNote(wg);
     const result = { query, mode: hits.length ? "lexical" : "empty", hits };
     if (hits.length) {
         const federated = fused.federated.length ? fused.federated : [...new Set(hits.map((h) => h.scope))];
-        result.scopes = { federated, alsoMatched };
+        result.scopes = withExactScopes({ federated, alsoMatched });
     }
     else {
         result.note = `no matching nodes across ${wg.loaded.length} workspace repo(s) — try different words, or \`grafly build\` at a child`;
