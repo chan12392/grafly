@@ -1,0 +1,61 @@
+{
+  "description": "Synthetic challenge set authored after v1, frozen before evaluating or fixing v2. Labels express safety requirements, not observed outputs. Observe cases have no pass/fail label.",
+  "groups": [
+    {"name":"short-technical","expect":"retrieve","prompts":[
+      "auth", "cache", "retry", "timeout", "App.vue", "main.css", "view.html", "Dockerfile",
+      "401", "SQLSTATE", "로그인 오류", "결제 실패", "세션 복구", "캐시 무효화", "인증 흐름", "빌드 실패",
+      "토큰 만료", "훅 실행 순서", "import 경로", "auth?", "cache!", "./config", "db/schema", "a+b"
+    ]},
+    {"name":"technical-requests","expect":"retrieve","prompts":[
+      "인증이 끝난 뒤 세션을 저장하는 위치가 궁금해", "로그인 이후 화면이 흰색으로 남는 원인을 조사하자",
+      "이 저장소의 시작 지점부터 데이터 흐름을 설명해줘", "어제 바뀐 부분이 결제 처리에 영향을 주는지 봐줘",
+      "로그인 상태가 탭마다 달라지는 현상을 재현해줘", "동시에 저장할 때 마지막 변경이 사라지는 것 같아",
+      "홈 화면에서 버튼을 누르면 요청이 두 번 전송돼", "네, 이번에는 사용자 목록이 갱신되지 않는 이유를 찾아보자",
+      "Where is the refresh token rotated in this repository?", "Describe how the workspace cache is invalidated.",
+      "Trace the request from the route to persistent storage.", "The worker hangs after cancellation; investigate the cause.",
+      "Authentication succeeds but the dashboard remains empty.", "Which module owns the background indexing schedule?",
+      "Compare the two timeout paths in the hook runner.", "Please add coverage for malformed hook payloads.",
+      "Thanks for checking. Patch session restoration next.", "All right, inspect the retries after a connection reset.",
+      "고마워요. src/auth.ts 호출부를 확인해줘", "✅ 그럼 npm test 실패부터 해결하자",
+      "Why does readSession return an empty object here?", "Explain the callers of `recordToolUse`.",
+      "C:\\repo\\src\\entry.ts 에서 예외가 발생해", "HTTP 500 after saving the project settings"
+    ]},
+    {"name":"meta-plus-action","expect":"retrieve","prompts":[
+      "tool call을 줄이는 패치 적용해줘", "토큰 절약하도록 캐시 붙여줘", "Reduce tool calls in the renderer.",
+      "Reduce token usage in our gateway.", "Save tokens by caching repeated context in the adapter.",
+      "What tools do you use most? Also profile memory allocation.",
+      "Which tools do you use most? Now inspect request scheduling.",
+      "Can Grafly reduce tool calls? Patch the dispatcher accordingly.",
+      "Would Grafly save tokens? Benchmark it against the current renderer.",
+      "Can Grafly save tool calls? Wire it into the startup path.",
+      "도구를 가장 많이 쓰는 부분을 최적화해줘", "너가 자주 사용하는 tool은 뭐야? 그리고 캐시 붙여줘.",
+      "Grafly가 tool call을 줄일 수 있어? 인증 흐름도 분석해줘.",
+      "Thanks, can we reduce tool calls? Implement a cache for repeated reads.",
+      "Tool calls could be fewer. Locate all callers of the wrapper.",
+      "Can Grafly save tokens while processing the authentication module?"
+    ]},
+    {"name":"conversation","expect":"skip","prompts":[
+      "고마워요. 알겠습니다!", "감사합니다. 네, 진행해주세요.", "응, 좋아요. 계속 진행해줘!",
+      "지금 어느 정도 진행됐어요?", "작업은 어디까지 됐어요?", "안녕하세요!", "아직 작업 중이야?",
+      "다 끝났어요?", "좋아요, 설명 고마워요.", "수고했어요. 알겠어요.", "네! 네! 알겠습니다.", "알겠습니다. 그대로 진행해줘.",
+      "Okay, thanks for the help!", "Thank you for the explanation. Sounds good!",
+      "Hello, good morning!", "Got it. Please continue!", "Yes! Sounds good. Go ahead!",
+      "Are you done?", "What's the progress?", "How is it going?", "Any updates, please?",
+      "Thanks a lot. Okay!", "Hi! How are you?", "No, thank you."
+    ]},
+    {"name":"tool-conversation","expect":"skip","prompts":[
+      "Which tools do you use most often?", "What tool do you use most during your work?",
+      "Which tools do you use most frequently?", "Can Grafly save tool calls?", "Would Grafly save tokens?",
+      "Will Grafly reduce tool calls?", "Can Grafly save tokens?", "Does Grafly reduce tool calls?",
+      "너가 가장 많이 쓰는 도구는 뭐야?", "네가 자주 사용하는 tool은 뭐가 있어?",
+      "grafly를 쓰면 tool call이 줄어들겠네. 너가 가장 많이 쓰는 tool은 뭐야?",
+      "What tools do you use most often? Thanks for the explanation."
+    ]},
+    {"name":"unlabeled-ambiguous","expect":"observe","prompts":[
+      "이건 좀 이상한데", "방금 얘기한 것부터", "Looks reasonable to me.", "Please proceed with that approach.",
+      "How much could Grafly save in general?", "내가 쓰는 도구가 너무 많은 것 같아",
+      "요즘 일할 때 어떤 방식이 제일 편해?", "Which option would you choose?",
+      "Can you explain that again?", "아까 그거 다시 해줘", "That result surprised me.", "일단 기다릴게요"
+    ]}
+  ]
+}

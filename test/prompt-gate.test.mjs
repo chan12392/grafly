@@ -127,6 +127,56 @@ test('conversation cannot start an automatic build in an unindexed Git repositor
   assert.equal(existsSync(join(f.root, 'grafly/.cache/auto-build.stamp')), false);
 });
 
+test('repository adapter retains new short and mixed task queries through the real hook boundary', (t) => {
+  const f = fixture(t);
+  const project = join(f.root, 'project');
+  mkdirSync(join(project, 'grafly/.graph'), { recursive: true });
+  writeFileSync(join(project, 'grafly/.graph/wiring.json'), '{}');
+  const prompts = ['auth', 'App.vue', '로그인 오류', '401',
+    'Reduce tool calls in the renderer.', '토큰 절약하도록 캐시 붙여줘',
+    'Would Grafly save tokens? Benchmark it against the current renderer.',
+    'What tools do you use most? Also profile memory allocation.'];
+  for (const [i, prompt] of prompts.entries()) {
+    const output = JSON.parse(f.run(prompt, { adapter: true, cwd: project, session: `task-${i}` }));
+    assert.match(output.hookSpecificOutput.additionalContext, /src\/graph.js:L1-L3/);
+    assert.equal(f.calls().length, i + 1, prompt);
+    assert.equal(f.calls()[i][1], prompt);
+  }
+});
+
+test('chat cannot mutate session state; duplicate suppression stays isolated across sessions', (t) => {
+  const f = fixture(t);
+  const project = join(f.root, 'project');
+  mkdirSync(join(project, 'grafly/.graph'), { recursive: true });
+  writeFileSync(join(project, 'grafly/.graph/wiring.json'), '{}');
+  const opts = { adapter: true, cwd: project, session: 'session-a' };
+  assert.match(f.run('loadGraph', opts), /src\/graph.js/);
+  const state = join(project, 'grafly/.cache/session/session-a.json');
+  const before = readFileSync(state, 'utf8');
+  assert.equal(f.run('Can Grafly save tokens?', opts), '');
+  assert.equal(f.run('감사합니다. 네, 진행해주세요.', opts), '');
+  assert.equal(readFileSync(state, 'utf8'), before);
+  assert.equal(f.calls().length, 1);
+  assert.equal(f.run('loadGraph', opts), '');
+  assert.match(f.run('loadGraph', { ...opts, session: 'session-b' }), /src\/graph.js/);
+  assert.equal(f.run('loadGraph', { ...opts, session: 'session-b' }), '');
+  assert.equal(f.calls().length, 4);
+});
+
+test('home adapter honors thread_id session isolation without a session_id', (t) => {
+  const f = fixture(t);
+  mkdirSync(join(f.root, 'grafly'));
+  writeFileSync(join(f.root, 'grafly/workspace.json'), JSON.stringify({ version: 1, children: [] }));
+  for (const thread of ['thread-a', 'thread-b']) {
+    const result = spawnSync(process.execPath, [shim, 'prompt'], { cwd: f.root,
+      env: { ...process.env, USERPROFILE: f.root, HOME: f.root, GRAFLY_NO_AUTO_INDEX: '1' },
+      input: JSON.stringify({ cwd: f.root, thread_id: thread, prompt: 'Inspect request scheduling.' }),
+      encoding: 'utf8', windowsHide: true, timeout: 15000 });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(join(f.root, `grafly/.cache/session/${thread}.json`)), true);
+  }
+});
+
 test('home indexes remain isolated from unindexed projects and unrelated directories', (t) => {
   const f = fixture(t);
   const touch = (relative) => {
