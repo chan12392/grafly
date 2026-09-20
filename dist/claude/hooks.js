@@ -13,10 +13,7 @@ import { flushClosedSessions, summarizeSession } from '../telemetry/sessions.js'
 import { hasSavingsTally, lastAssistantTurn, lastTurnBilling } from './tally.js';
 import { scopeOf, scopesOfGraph } from '../graph/scopes.js';
 import { classifyToolUse, isMcpToolName, isGraftMcpTool, parseSavings, recordToolUse } from './session-metrics.js';
-/** Prompts shorter than this never trigger retrieval — they are almost always
- * conversational ("yes go ahead", "thanks") and the coverage gate can't judge
- * them reliably with so few terms. */
-const MIN_PROMPT_CHARS = 12;
+import { shouldRetrievePrompt } from './prompt-gate.js';
 function readStdin() {
     const seam = process.env.GRAFLY_TEST_STDIN ?? process.env.GRAFT_TEST_STDIN;
     const raw = seam !== undefined ? seam : safeReadFd0();
@@ -463,7 +460,7 @@ export async function main(event) {
     }
     if (event === 'prompt') {
         const prompt = String(input?.prompt ?? '').trim();
-        if (prompt.length < MIN_PROMPT_CHARS)
+        if (!shouldRetrievePrompt(prompt))
             return;
         // Pointers-only, small, gated. No --source: per-prompt injected tokens are
         // fresh full-price input on every turn (unlike the cached SessionStart
