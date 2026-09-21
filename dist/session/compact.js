@@ -66,6 +66,10 @@ const jsonBytes = (v) => Buffer.byteLength(JSON.stringify(v), "utf8");
 const sha256 = (s) => createHash("sha256").update(s, "utf8").digest("hex");
 const IDENT = /^[A-Za-z0-9_.:/-]{1,128}$/;
 const ROLES = new Set(["system", "developer", "user", "assistant", "tool"]);
+const PAYLOAD_FIELDS = new Set(["messages", "target_bytes", "keep_last",
+    "completed_tool_batches", "verification_message_ids"]);
+const MESSAGE_FIELDS = new Set(["id", "role", "content", "tool_calls",
+    "tool_call_id", "outcome", "must_keep", "archive"]);
 
 export class RequestError extends Error {
     constructor(code, detail) { super(detail); this.code = code; }
@@ -99,18 +103,25 @@ function batchIndices(messages) {
 
 /** Validate the normalized payload; throws RequestError like the channel. */
 export function validatePayload(p, limits = {}) {
-    require(p && typeof p === "object" && !Array.isArray(p), "invalid_payload", "Payload must be an object");
+    require(p && typeof p === "object" && !Array.isArray(p)
+        && !Object.keys(p).some((k) => !PAYLOAD_FIELDS.has(k)),
+        "unknown_payload_field", "Use the normalized message contract");
     const maxText = limits.maxTextBytes ?? Infinity;
+    const maxPayload = limits.maxPayloadBytes ?? Infinity;
     require(typeof p.target_bytes === "number" && Number.isInteger(p.target_bytes) && p.target_bytes >= 1,
         "invalid_budget", "target_bytes must be a positive integer");
     const keepLast = p.keep_last ?? 8;
     require(Number.isInteger(keepLast) && keepLast >= 0, "invalid_budget", "keep_last must be a nonnegative integer");
+    require(jsonBytes(p) <= maxPayload, "payload_too_large", "Payload exceeds max_payload_bytes");
     const messages = p.messages;
     require(Array.isArray(messages) && messages.length >= 1 && messages.length <= 4096,
         "invalid_messages", "Supply 1..4096 normalized messages");
     const ids = new Set(), calls = new Map(), returned = new Set();
     for (const m of messages) {
-        require(m && typeof m === "object" && typeof m.id === "string" && IDENT.test(m.id) && !ids.has(m.id),
+        require(m && typeof m === "object" && !Array.isArray(m)
+            && !Object.keys(m).some((k) => !MESSAGE_FIELDS.has(k)),
+            "invalid_message", "Unknown message fields or non-object message");
+        require(typeof m.id === "string" && IDENT.test(m.id) && !ids.has(m.id),
             "invalid_message_id", "Message IDs must be unique stable identifiers");
         ids.add(m.id);
         require(ROLES.has(m.role), "invalid_role", "Unsupported message role");
@@ -125,9 +136,12 @@ export function validatePayload(p, limits = {}) {
         if (m.tool_calls) {
             require(Array.isArray(m.tool_calls) && m.tool_calls.length > 0, "invalid_tool_calls", "tool_calls must be nonempty");
             for (const c of m.tool_calls) {
-                require(typeof c.id === "string" && IDENT.test(c.id) && !calls.has(c.id)
-                    && typeof c.name === "string" && c.name && typeof c.arguments === "string",
-                    "invalid_tool_calls", "Calls need unique id, name, string arguments");
+                require(c && typeof c === "object" && !Array.isArray(c)
+                    && Object.keys(c).length === 3
+                    && typeof c.id === "string" && typeof c.name === "string" && typeof c.arguments === "string",
+                    "invalid_tool_calls", "Calls need id, name and text arguments");
+                require(IDENT.test(c.id) && !calls.has(c.id), "invalid_call_id", "Tool call IDs must be unique");
+                require(c.name, "invalid_tool_calls", "Tool name and arguments must be strings");
                 calls.set(c.id, c.name);
             }
         }
@@ -147,11 +161,16 @@ export function validatePayload(p, limits = {}) {
         && verification.every((id) => typeof id === "string" && toolIds.has(id)),
         "invalid_verification_ids", "Verification IDs must name supplied tool results, uniquely");
     const batches = p.completed_tool_batches ?? [];
-    require(Array.isArray(batches), "invalid_batch_archive", "completed_tool_batches must be an array");
+    require(Array.isArray(batches) && batches.length <= messages.length,
+        "invalid_batch_archive", "Supply a bounded list of completed batch archives");
     const indices = batchIndices(messages);
     const seen = new Set();
     for (const entry of batches) {
-        require(entry && typeof entry === "object" && typeof entry.call_message_id === "string"
+        require(entry && typeof entry === "object" && !Array.isArray(entry)
+            && Object.keys(entry).length === 2
+            && typeof entry.call_message_id === "string" && entry.archive !== undefined,
+            "invalid_batch_archive", "Batch archive needs call_message_id and archive");
+        require(IDENT.test(entry.call_message_id)
             && indices.has(entry.call_message_id) && !seen.has(entry.call_message_id),
             "invalid_batch_archive", "Batch owner must be a unique supplied call message");
         seen.add(entry.call_message_id);
@@ -166,9 +185,12 @@ export function validatePayload(p, limits = {}) {
 
 function validateArchive(archive, content) {
     require(archive && typeof archive === "object" && !Array.isArray(archive)
-        && typeof archive.ref === "string" && /^[A-Za-z0-9_.:/-]{1,256}$/.test(archive.ref)
-        && typeof archive.sha256 === "string" && /^[0-9a-f]{64}$/.test(archive.sha256),
-        "invalid_archive", "Archives need a stable ref and SHA-256 digest");
+        && Object.keys(archive).length === 2
+        && typeof archive.ref === "string" && typeof archive.sha256 === "string",
+        "invalid_archive", "Archive needs ref and sha256");
+    require(archive.ref.length > 0 && archive.ref.length <= 1024
+        && ![...archive.ref].some((ch) => ch.charCodeAt(0) < 32),
+        "invalid_archive", "Archive ref must be a bounded opaque locator without control characters");
     require(archive.sha256 === sha256(content), "archive_hash_mismatch", "Archive digest does not match supplied content");
 }
 
