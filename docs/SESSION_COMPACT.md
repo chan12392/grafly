@@ -5,6 +5,10 @@ judgment rules to a **copy of a Codex rollout JSONL file**. It runs locally with
 no model call. It does not replace a running agent's context, replay tools,
 summarize user instructions, or guarantee future answer quality.
 
+For same-thread replacement through an owned Codex app-server process, see
+[live session compaction](LIVE_SESSION_COMPACT.md). That opt-in adapter has a
+separate protocol and compatibility boundary; this file command remains unchanged.
+
 ```powershell
 grafly session-compact ./rollout.jsonl --json
 grafly session-expand ./rollout.jsonl.compacted.jsonl

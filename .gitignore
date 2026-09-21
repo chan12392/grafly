@@ -17,3 +17,6 @@ node_modules/
 
 # Local validation, operational backups and acceptance fixtures.
 /.gepa-shadow/
+
+# Python bytecode caches from repo scripts.
+__pycache__/
