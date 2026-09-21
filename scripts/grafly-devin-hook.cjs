@@ -5,6 +5,8 @@
 // without the user ever typing a command. The explicit home workspace searches
 // saved project graphs; other unindexed non-Git directories stay silent.
 // Usage: node grafly-devin-hook.cjs <session-start|prompt>
+// With ~/.grafly/auto-deep.json enabled, git projects also queue a cached
+// deep pass. The optional worker never delays retrieval or provisions a model.
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -36,9 +38,10 @@ function claimStartup(root, input, context, now = Date.now()) {
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     try {
-      // NTFS timestamps have sub-millisecond precision; Date.now() does not.
+      // NTFS and the Windows coarse wall clock can differ by a few milliseconds.
+      // A slightly future timestamp still belongs to the same startup burst.
       const age = now - Math.floor(fs.statSync(file).mtimeMs);
-      if (age >= 0 && age < STARTUP_DEDUP_MS) return false;
+      if (age >= -1000 && age < STARTUP_DEDUP_MS) return false;
       fs.unlinkSync(file);
     } catch (error) {
       if (error.code !== 'ENOENT') return true;
@@ -125,6 +128,15 @@ function tryAutoBuild(start) {
   } catch { return false; }
 }
 
+async function tryAutoDeep(start) {
+  const root = findUp(start, d => fs.existsSync(path.join(d, '.git')));
+  if (!root) return false;
+  try {
+    const { scheduleAutoDeep } = await import(pathToFileURL(path.join(PKG, 'hosts', 'auto-deep.js')).href);
+    return scheduleAutoDeep(root);
+  } catch { return false; }
+}
+
 // Use the installed federation and relevance gate directly: home prompts read
 // existing graphs without the CLI's automatic refresh, upkeep, or network work.
 async function homeWorkspace(root, input) {
@@ -175,7 +187,9 @@ async function main() {
   const start = input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const root = findIndex(start);
   if (!root) {
-    if (tryAutoBuild(start))
+    if (await tryAutoDeep(start))
+      emit('[grafly] no index yet — queued structural + deep indexing in the background. Retrieval starts when the structural graph is available; deep status: node "' + path.join(PKG, 'hosts', 'auto-deep.js') + '" status');
+    else if (tryAutoBuild(start))
       emit('[grafly] no index yet — building this repo in the background (grafly build). Retrieval switches on automatically once it finishes.');
     return;
   }
@@ -183,6 +197,7 @@ async function main() {
     await homeWorkspace(root, input);
     return;
   }
+  await tryAutoDeep(root);
   process.env.CLAUDE_PROJECT_DIR = root;
   // hooks.js reads fd 0 synchronously (already consumed above); GRAFLY_TEST_STDIN
   // is its input seam, so hand the buffered payload through the env instead.

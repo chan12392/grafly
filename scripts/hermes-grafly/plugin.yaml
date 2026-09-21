@@ -1,0 +1,5 @@
+name: grafly
+version: 0.1.0
+description: Project graph context and opt-in automatic deep indexing through the shared Grafly adapter.
+hooks:
+  - pre_llm_call
