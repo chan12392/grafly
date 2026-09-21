@@ -587,7 +587,8 @@ export function federateCallers(root, override, symbol, opts = {}) {
         const logPath = circuitLogPath(contextDirFor(childRoot));
         recordFollowup(logPath, childRoot, symbol, matches.map((m) => m.id));
         const judged = judgeAndRank(graph, symbol, matches, { cwdTokens: cwdContextTokens(childRoot, process.cwd()) });
-        const shown = topN !== null && matches.length > topN ? matches.slice(0, topN) : matches;
+        const shown = topN !== null && matches.length > topN && judged?.circuit.verdict !== 'abstain'
+            ? matches.slice(0, topN) : matches;
         const adj = walkAdjacency(graph, direction);
         const byId = new Map(graph.nodes.map((n) => [n.id, n]));
         const results = shown.map((m) => ({ symbol: m, hits: sharedEdgeWalk(graph, adj, byId, m, direction, depth) }));

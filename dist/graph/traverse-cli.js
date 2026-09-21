@@ -464,7 +464,7 @@ export function judgeAndRank(graph, query, matches, ctx) {
  * reads only the header still learns which symbol the circuit preferred. */
 export function circuitVerdictLine(circuit, matchCount) {
     return circuit.verdict === "abstain"
-        ? `⚖ circuit: ${matchCount} same-name matches — abstain (gap ${circuit.gap.toFixed(2)} < ${ABSTAIN_GAP}; ${reasonText(circuit.reason)}); best guess first: ${circuit.top}`
+        ? `⚖ circuit: ${matchCount} same-name matches — abstain (gap ${circuit.gap.toFixed(2)}; ${reasonText(circuit.reason)}); best guess first: ${circuit.top}`
         : `⚖ circuit: ${matchCount} same-name matches — confident → ${circuit.top} (${reasonText(circuit.reason)})`;
 }
 /** Human-readable expansion of the machine reason code — an LLM or human
@@ -479,6 +479,8 @@ function reasonText(reason) {
             out.push("top-2 identical on all evidence");
         else if (p === "weak_gap")
             out.push("weak separation");
+        else if (p === "equivalent_query_evidence")
+            out.push("same query evidence; popularity does not identify the intended symbol");
         else if (p === "vendored_pool")
             out.push("all candidates vendored — answer is library code");
         else if (p === "lone_source")

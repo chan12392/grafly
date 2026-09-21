@@ -273,7 +273,8 @@ async function callSingleTool(root, name, args, dirOverride) {
             const judged = judgeAndRank(w, symbol, matches, { cwdTokens: cwdContextTokens(root, process.cwd()) });
             const topN = typeof args.top === 'number' && Number.isFinite(args.top) && args.top >= 1
                 ? Math.floor(args.top) : null;
-            const shown = topN !== null && matches.length > topN ? matches.slice(0, topN) : matches;
+            const shown = topN !== null && matches.length > topN && judged?.circuit.verdict !== 'abstain'
+                ? matches.slice(0, topN) : matches;
             const adj = walkAdjacency(w, direction);
             const nodesById = new Map(w.nodes.map((n) => [n.id, n]));
             const results = shown.map((m) => ({ symbol: m, hits: sharedEdgeWalk(w, adj, nodesById, m, direction, depth) }));

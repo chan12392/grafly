@@ -200,9 +200,18 @@ export function judgeSymbols(graph, query, matches, ctx) {
         .sort((a, b) => b.score - a.score);
     const gap = ranked.length > 1 ? ranked[0].score - ranked[1].score
         : Number.POSITIVE_INFINITY;
-    const verdict = ranked.length === 1 || gap >= ABSTAIN_GAP
+    let verdict = ranked.length === 1 || gap >= ABSTAIN_GAP
         ? "confident" : "abstain";
-    const reason = verdictReason(verdict, gap, ranked);
+    // Popularity may order candidates, but does not identify which of two
+    // equally supported symbols the caller meant. Compare every peer, not
+    // just runner-up: a different-context candidate can sit between them.
+    // Keep the existing path/cwd/source preferences; only degree is excluded.
+    const queryFeatures = ["qualified_tail", "exact_name", "path_overlap",
+        "kind_hint", "vendored", "test_path", "cwd_affinity"];
+    const equivalent = verdict === "confident" && ranked.some((r, i) => i > 0 &&
+        queryFeatures.every((key) => r.features[key] === ranked[0].features[key]));
+    if (equivalent) verdict = "abstain";
+    const reason = equivalent ? "equivalent_query_evidence" : verdictReason(verdict, gap, ranked);
     return { verdict, gap, ranked, reason };
 }
 
