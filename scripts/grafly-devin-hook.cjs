@@ -10,6 +10,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const { homedir } = require('os');
 const { spawn } = require('child_process');
+const { createHash } = require('crypto');
 
 const EVENT = process.argv[2] || 'prompt';
 // In a checkout/package, use the adjacent source so branch tests exercise it.
@@ -21,6 +22,35 @@ const ENTRY = path.join(PKG, 'claude', 'hooks.js');
 const CLI = path.join(PKG, 'cli.js');
 const EVENT_NAMES = { 'session-start': 'SessionStart', prompt: 'UserPromptSubmit' };
 const BUILD_STALE_MS = 60 * 60 * 1000; // retry a failed build at most hourly
+const STARTUP_DEDUP_MS = 5000;
+
+// A home workspace can load both the account and project hook registrations.
+// Suppress only simultaneous, identical startup orientation. A resume/compact,
+// changed index list, different session, or later startup still gets its context.
+// Atomic creation also covers concurrent registrations; cache failures emit.
+function claimStartup(root, input, context, now = Date.now()) {
+  const id = input.session_id || input.thread_id || process.env.CODEX_THREAD_ID;
+  if (!id || (input.source && input.source !== 'startup')) return true;
+  const key = createHash('sha256').update(JSON.stringify([id, context])).digest('hex');
+  const file = path.join(root, 'grafly', '.cache', 'hook-startup', `${key}.stamp`);
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    try {
+      // NTFS timestamps have sub-millisecond precision; Date.now() does not.
+      const age = now - Math.floor(fs.statSync(file).mtimeMs);
+      if (age >= 0 && age < STARTUP_DEDUP_MS) return false;
+      fs.unlinkSync(file);
+    } catch (error) {
+      if (error.code !== 'ENOENT') return true;
+    }
+    try {
+      fs.writeFileSync(file, '', { flag: 'wx' });
+      return true;
+    } catch (error) {
+      return error.code !== 'EEXIST';
+    }
+  } catch { return true; }
+}
 
 // Grafly builds write <repo>/grafly/; legacy <repo>/graft/ indexes still work
 // until `grafly migrate` rewrites them, so accept either.
@@ -101,11 +131,12 @@ async function homeWorkspace(root, input) {
   const workspace = JSON.parse(fs.readFileSync(path.join(root, 'grafly', 'workspace.json'), 'utf8'));
   if (workspace.version !== 1 || !Array.isArray(workspace.children)) return;
   if (EVENT === 'session-start') {
-    emit(`[grafly] Home workspace: ${workspace.children.length} existing project indexes.\n` +
+    const context = `[grafly] Home workspace: ${workspace.children.length} existing project indexes.\n` +
       `Projects: ${workspace.children.join(', ')}\n` +
       'Use grafly ask "<query>" . --source --no-refresh for ranked code locations, ' +
       'or grafly grep "<pattern>" . --no-refresh for indexed occurrences.\n' +
-      'Results use saved project indexes; confirm source before editing. Refresh only the relevant project when needed.');
+      'Results use saved project indexes; confirm source before editing. Refresh only the relevant project when needed.';
+    if (claimStartup(root, input, context)) emit(context);
     return;
   }
   const prompt = String(input.prompt || '').trim();
@@ -163,5 +194,5 @@ async function main() {
   await m.main(EVENT);
 }
 
-module.exports = { findIndex };
+module.exports = { findIndex, claimStartup };
 if (require.main === module) main().catch(() => { /* fail-open: never block the user's prompt */ });
