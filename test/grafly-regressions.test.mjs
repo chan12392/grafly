@@ -185,6 +185,124 @@ test("brain server serves the public brain API", async () => {
   }
 });
 
+import { createServer } from "node:http";
+
+test("brain mining preserves pushed rules and approvals, stale jobs cannot overwrite", async () => {
+    const server = join(process.cwd(), "service", "brain-server.mjs");
+    const data = mkdtempSync(join(tmpdir(), "grafly-brain-"));
+    // Stub OpenAI-compatible mining endpoint. The first request is slow so a
+    // later ingest always wins the race; the answer depends on the digest's
+    // symbol ids.
+    let calls = 0;
+    const llm = createServer((req, res) => {
+        let body = "";
+        req.on("data", (c) => body += c);
+        req.on("end", async () => {
+            const n = ++calls;
+            const anchors = body.includes("f.js#fn2") ? [{ symbol: "f.js#fn2", rule: "second mine rule", source: "abc1234" }]
+                : body.includes("f.js#fn") ? [{ symbol: "f.js#fn", rule: "first mine rule", source: "abc1234" }] : [];
+            if (n === 1) await new Promise((r) => setTimeout(r, 500));
+            res.writeHead(200, { "content-type": "application/json" });
+            res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ anchors }) } }] }));
+        });
+    });
+    await new Promise((r) => llm.listen(0, "127.0.0.1", r));
+    const port = 24000 + Math.floor(Math.random() * 20000);
+    const env = { ...process.env, DATA_DIR: data, PORT: String(port),
+        BRAIN_LLM_URL: `http://127.0.0.1:${llm.address().port}/v1`, BRAIN_LLM_KEY: "k", BRAIN_LLM_MODEL: "m" };
+    const mint = spawnSync(process.execPath, [server, "create-brain", "--name", "t"], { env, encoding: "utf8" });
+    const [brainId, token] = mint.stdout.trim().split(":");
+    assert.ok(brainId && token, mint.stderr);
+    const child = spawn(process.execPath, [server], { env, stdio: "ignore" });
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const rulesFile = () => JSON.parse(readFileSync(join(data, "rules", `${brainId}.json`), "utf8")).rules;
+    const jobFile = (id) => JSON.parse(readFileSync(join(data, "jobs", `${id}.json`), "utf8"));
+    try {
+        const base = `http://127.0.0.1:${port}`;
+        const auth = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+        for (let i = 0; i < 50; i++) {
+            try { const r = await fetch(`${base}/health`); if (r.ok) break; } catch {}
+            await sleep(100);
+        }
+        const page = await (await fetch(`${base}/`)).text();
+        assert.ok(!page.includes("innerHTML"), "status page must not interpolate rules into HTML");
+        const push = await (await fetch(`${base}/api/public/brains/${brainId}/rules`, { method: "POST", headers: auth,
+            body: JSON.stringify({ anchors: [{ symbol: "f.js#fn", rule: "manual survives" }] }) })).json();
+        assert.equal(push.added, 1);
+        const digest = (symbols) => ({ provider: "github", owner: "o", name: "r", head_sha: "x", default_branch: "main",
+            is_private: true, commits: [{ sha: "abc1234", subject: "s", body: "", files: [], symbols: [] }],
+            threads: [], symbols, sources: [], auto_approve: false });
+        // Race two ingests: job1's slow mining must lose to job2, not overwrite it.
+        const j1 = (await (await fetch(`${base}/api/public/brains/${brainId}/repo`, { method: "POST", headers: auth,
+            body: JSON.stringify(digest([{ id: "f.js#fn", path: "f.js", name: "fn", kind: "function", signature: "", fingerprint: "h1" }])) })).json()).job_id;
+        const j2 = (await (await fetch(`${base}/api/public/brains/${brainId}/repo`, { method: "POST", headers: auth,
+            body: JSON.stringify(digest([{ id: "f.js#fn2", path: "f.js", name: "fn2", kind: "function", signature: "", fingerprint: "h2" }])) })).json()).job_id;
+        const jobDone = (id) => { try { return !["mining"].includes(jobFile(id).status); } catch { return false; } };
+        let rules;
+        for (let i = 0; i < 100; i++) {
+            try { rules = rulesFile(); } catch {}
+            if (rules?.some((r) => r.rule === "second mine rule") && jobDone(j1)) break;
+            await sleep(100);
+        }
+        assert.equal(jobFile(j1).status, "stale");
+        assert.equal(jobFile(j2).status, "done");
+        assert.deepEqual(rules.map((r) => r.rule).sort(), ["manual survives", "second mine rule"]);
+        // Approve the mined draft, re-mine the same rule: approval survives.
+        const mined = rules.find((r) => r.rule === "second mine rule");
+        assert.equal(mined.status, "draft");
+        await (await fetch(`${base}/api/public/brains/${brainId}/rules/approve/${mined.rule_id}`, { method: "POST", headers: auth })).json();
+        const j3 = (await (await fetch(`${base}/api/public/brains/${brainId}/repo`, { method: "POST", headers: auth,
+            body: JSON.stringify(digest([{ id: "f.js#fn2", path: "f.js", name: "fn2", kind: "function", signature: "", fingerprint: "h2" }])) })).json()).job_id;
+        for (let i = 0; i < 100 && !jobDone(j3); i++) await sleep(100);
+        assert.equal(jobFile(j3).status, "done");
+        rules = rulesFile();
+        assert.equal(rules.length, 2);
+        assert.equal(rules.find((r) => r.rule === "second mine rule").status, "approved");
+        // An empty mine retires mined rules but never the manual one.
+        const j4 = (await (await fetch(`${base}/api/public/brains/${brainId}/repo`, { method: "POST", headers: auth,
+            body: JSON.stringify(digest([])) })).json()).job_id;
+        for (let i = 0; i < 100 && !jobDone(j4); i++) await sleep(100);
+        assert.equal(jobFile(j4).status, "done");
+        assert.deepEqual(rulesFile().map((r) => r.rule), ["manual survives"]);
+    } finally {
+        child.kill();
+        llm.close();
+    }
+});
+
+import { buildGraph } from "../dist/graph/build.js";
+import { ensureFreshChildren } from "../dist/graph/refresh.js";
+import { acquireLockIn, releaseLockIn } from "../dist/util/state.js";
+import { CACHE_DIR } from "../dist/context/node-file.js";
+
+test("workspace refresh keeps stale-child warnings alongside rebuilt ones", async () => {
+    const ws = mkdtempSync(join(tmpdir(), "grafly-ws-"));
+    const mkchild = (name) => {
+        const dir = join(ws, name);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "a.js"), "export function a() { return 1 }\n");
+        return dir;
+    };
+    const a = mkchild("childA"), b = mkchild("childB");
+    for (const dir of [a, b]) await buildGraph(dir, { graphOnly: true });
+    for (const dir of [a, b]) writeFileSync(join(dir, "a.js"), "export function a() { return 2 }\n");
+    // Hold childB's sync lock: its refresh waits out LOCK_WAIT_MS then reports
+    // "in flight" — the warning must survive childA's successful rebuild.
+    const bLock = join(contextDirFor(b), CACHE_DIR);
+    assert.ok(acquireLockIn(bLock));
+    try {
+        const mixed = await ensureFreshChildren(ws, ["childA", "childB"]);
+        assert.equal(mixed.refreshed, true);
+        assert.match(mixed.note, /refreshed childA/);
+        assert.match(mixed.note, /childB: .*in flight/);
+        const onlyB = await ensureFreshChildren(ws, ["childB"]);
+        assert.equal(onlyB.refreshed, false);
+        assert.match(onlyB.note, /childB: .*in flight/);
+    } finally {
+        releaseLockIn(bLock);
+    }
+}, { timeout: 120000 });
+
 import { ensureLocalBrain, addRules, pushNotes } from "../dist/brain/note.js";
 import { pullBrain } from "../dist/brain/connect.js";
 

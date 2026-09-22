@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const LIMIT = 4 * 1024 * 1024;
 const MINIMUM = 4096;
+const KILL_GRACE_MS = 2000;
 export const archiveRoot = () => resolve(process.env.GRAFLY_OUTPUT_DIR || join(homedir(), ".grafly", "tool-output"));
 export const lines = (text) => text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
 
@@ -156,13 +157,27 @@ export async function runCommand(command, args = [], options = {}) {
         if (live) sinks[name].write(chunk);
         else { buffers[name].push(chunk); if (size > LIMIT) flush(); }
     });
-    let timedOut = false, interrupted = false;
+    let timedOut = false, interrupted = false, killTimer = null;
     // Native host owns normal cancellation. Explicit runner timeout terminates
-    // the child tree so late grandchildren cannot keep the pipe alive.
+    // the child tree: SIGTERM to the process group, a bounded grace, then
+    // SIGKILL — a child that ignores SIGTERM must not hold the runner open.
+    // (win32: taskkill /T /F is already the forced tree kill.)
     const kill = (signal = "SIGTERM") => {
         if (!child.pid) return;
-        if (process.platform === "win32") spawnSync("taskkill.exe", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
-        else try { process.kill(-child.pid, signal); } catch { /* exited meanwhile */ }
+        if (process.platform === "win32") {
+            spawnSync("taskkill.exe", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+            return;
+        }
+        try { process.kill(-child.pid, signal); } catch { /* exited meanwhile */ }
+        if (!killTimer) {
+            killTimer = setTimeout(() => {
+                try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ }
+                // An heir that escaped the group can still pin our pipes;
+                // destroy them so `close` is not hostage to a dead tree.
+                for (const s of [child.stdout, child.stderr]) try { s.destroy(); } catch { /* closed */ }
+            }, KILL_GRACE_MS);
+            killTimer.unref();
+        }
     };
     const signalHandlers = Object.fromEntries(["SIGINT", "SIGTERM"].map(s => [s, () => { interrupted = true; kill(s); }]));
     for (const [s, handler] of Object.entries(signalHandlers)) process.on(s, handler);
@@ -171,6 +186,7 @@ export async function runCommand(command, args = [], options = {}) {
     child.on("error", (err) => { spawnError = err; });
     const completion = await new Promise((accept) => child.on("close", (code, signal) => accept({ code, signal })));
     if (timer) clearTimeout(timer);
+    if (killTimer) clearTimeout(killTimer);
     for (const [s, handler] of Object.entries(signalHandlers)) process.off(s, handler);
     for (const fd of Object.values(files)) try { closeSync(fd); } catch { archived = false; }
     const exitCode = spawnError ? 127 : timedOut ? 124 : completion.code ?? (128 + (constants.signals[completion.signal] ?? 15));
@@ -191,7 +207,7 @@ export async function runCommand(command, args = [], options = {}) {
             const input = Object.fromEntries(["stdout", "stderr"].map(s => [s, decoder.decode(Buffer.concat(buffers[s]))]));
             // NUL/binary output is never interpreted as a text transcript.
             if (input.stdout.includes("\0") || input.stderr.includes("\0")) throw new Error("binary_output");
-            const result = judge({ ...input, kind, exit_code: exitCode, complete: true,
+            const result = (options.judge ?? judge)({ ...input, kind, exit_code: exitCode, complete: true,
                 exit_one_is_result: Boolean(exitMeaning) }, env);
             const decision = result.decision;
             if (decision.verdict === "reduced") {

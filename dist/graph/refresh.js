@@ -216,7 +216,7 @@ export async function ensureFreshGraph(root, opts = {}) {
 export async function ensureFreshChildren(root, children, opts = {}) {
     if (opts.disabled || envDisabled())
         return CLEAN;
-    const refreshedIn = [];
+    const refreshedIn = [], stale = [];
     let files = 0;
     for (const child of children) {
         // Deliberately NOT `opts`: `contextDirFor` returns an override verbatim and
@@ -227,16 +227,21 @@ export async function ensureFreshChildren(root, children, opts = {}) {
         // clobbering the rest.) A child's graph always lives in its own `<child>/graft`,
         // which is exactly how `loadWorkspaceGraphs` reads them back.
         const r = await ensureFreshGraph(resolve(root, child), { disabled: opts.disabled });
-        if (!r.refreshed)
-            continue;
-        refreshedIn.push(child);
-        files += r.drift ? driftCount(r.drift) : 0;
+        if (r.refreshed) {
+            refreshedIn.push(child);
+            files += r.drift ? driftCount(r.drift) : 0;
+        }
+        // A child that could not refresh answers from a stale graph — its note
+        // must reach the caller whether or not siblings rebuilt fine.
+        else if (r.note)
+            stale.push(`${child}: ${r.note}`);
     }
     if (!refreshedIn.length)
-        return CLEAN;
+        return stale.length ? { refreshed: false, note: stale.join("; ") } : CLEAN;
+    const built = `refreshed ${refreshedIn.join(", ")} (${files || "?"} file${files === 1 ? "" : "s"} changed) before answering`;
     return {
         refreshed: true,
-        note: `refreshed ${refreshedIn.join(", ")} (${files || "?"} file${files === 1 ? "" : "s"} changed) before answering`,
+        note: stale.length ? `${built}; stale: ${stale.join("; ")}` : built,
     };
 }
 /** The one-line note a CLI/MCP surface prints when a refresh actually happened.
