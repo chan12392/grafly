@@ -145,7 +145,7 @@ export async function runCommand(command, args = [], options = {}) {
     }
     if (reduced && archived) {
         stdout.write(reduced.stdout); stderr.write(reduced.stderr);
-        stderr.write(`\n[grafly tool_output: ${size} -> ${manifest.output_bytes} bytes; raw=${dir}; retrieve: grafly output ${id}]\n`);
+        stderr.write(`\n[grafly tool_output: ${size} -> ${manifest.output_bytes} bytes; id=${id}; find details: grafly output ${id} --find '<literal>'; ranges: --stream <stdout|stderr> --start <line> --count <lines>]\n`);
     } else if (!live) flush();
     if (spawnError) stderr.write(`grafly run: ${spawnError.message}\n`);
     if (timedOut) stderr.write("grafly run: command timed out\n");
