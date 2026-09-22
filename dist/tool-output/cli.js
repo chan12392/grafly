@@ -11,6 +11,10 @@ async function main() {
         if (args[0] === "--") args.shift();
         if (!args[0]) throw new Error("missing command");
         result = await runCommand(args[0], args.slice(1));
+    } else if (mode === "output-prune") {
+        const { values } = parseArgs({ args, options: { "dry-run": { type: "boolean" } } });
+        const { pruneArchives } = await import("./retention.js");
+        process.stdout.write(JSON.stringify(pruneArchives({ dryRun: Boolean(values["dry-run"]) }), null, 2) + "\n");
     } else if (mode === "output") {
         const { values, positionals } = parseArgs({ args, allowPositionals: true, options: Object.fromEntries(
             ["stream", "start", "count", "archive-dir", "find", "context", "max-matches", "max-bytes"].map(name => [name, { type: "string" }])) });
@@ -24,7 +28,7 @@ async function main() {
         const options = Object.fromEntries(Object.entries(values).map(([key, value]) => [key.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase()), value]));
         const { readPath } = await import("./output.js");
         process.stdout.write(readPath(positionals[0], options));
-    } else throw new Error("usage: grafly run -- <executable> [args...] | grafly output <id> [--find <literal>] | grafly read <path>");
+    } else throw new Error("usage: grafly run -- <executable> [args...] | grafly output <id> [--find <literal>] | grafly read <path> | grafly output-prune [--dry-run]");
     process.exitCode = result?.exit_code ?? 0;
 }
 

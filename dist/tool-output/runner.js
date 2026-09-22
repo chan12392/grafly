@@ -3,14 +3,15 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { homedir, constants } from "node:os";
+import { constants } from "node:os";
 import { fileURLToPath } from "node:url";
 import { pinRuntime, validatePinned } from "../mc-runtime/runtime.js";
+import { archiveRoot, startArchive, finishArchive, pruneArchives } from "./retention.js";
+export { archiveRoot } from "./retention.js";
 
 const LIMIT = 4 * 1024 * 1024;
 const MINIMUM = 4096;
 const KILL_GRACE_MS = 2000;
-export const archiveRoot = () => resolve(process.env.GRAFLY_OUTPUT_DIR || join(homedir(), ".grafly", "tool-output"));
 export const lines = (text) => text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
 
 const READ_COMMANDS = new Set(["cat", "head", "tail"]);
@@ -120,12 +121,14 @@ export async function runCommand(command, args = [], options = {}) {
     const pinned = pinRuntime(env); // An in-flight command retains its starting version.
     const stdout = options.stdout ?? process.stdout, stderr = options.stderr ?? process.stderr;
     const root = resolve(options.archiveDir ?? archiveRoot());
+    pruneArchives({ root });
     const id = randomUUID(), dir = join(root, id);
     // Create evidence storage before running; if it cannot be created, run once
     // with inherited output instead. Never replay a completed command.
     let archived = true, files = {}, hashes = {}, sizes = { stdout: 0, stderr: 0 };
     try {
         mkdirSync(dir, { recursive: true, mode: 0o700 });
+        startArchive(dir, id);
         for (const name of ["stdout", "stderr"]) {
             files[name] = openSync(join(dir, `${name}.bin`), "wx", 0o600);
             hashes[name] = createHash("sha256");
@@ -195,6 +198,7 @@ export async function runCommand(command, args = [], options = {}) {
     const exitCode = spawnError ? 127 : timedOut ? 124 : completion.code ?? (128 + (constants.signals[completion.signal] ?? 15));
     const manifest = { schema: "grafly.tool-output.v1", id, command, args, cwd: resolve(options.cwd ?? process.cwd()),
         exit_code: exitCode, signal: completion.signal, complete: !spawnError && !timedOut && !interrupted && completion.code !== null,
+        started_at: new Date(started).toISOString(), finished_at: new Date().toISOString(),
         elapsed_ms: Date.now() - started, streams: {}, verdict: "passthrough", reason: live ? "streamed" : "not_reduced" };
     if (pinned?.metadata) manifest.mc_runtime = { version: pinned.metadata.version, sequence: pinned.metadata.sequence, sha256: pinned.metadata.sha256 };
     for (const name of ["stdout", "stderr"]) if (archived) manifest.streams[name] = { bytes: sizes[name], sha256: hashes[name].digest("hex") };
@@ -246,7 +250,11 @@ export async function runCommand(command, args = [], options = {}) {
         stderr.write("[grafly tool_output: no matches; exit=1]\n");
     if (spawnError) stderr.write(`grafly run: ${spawnError.message}\n`);
     if (timedOut) stderr.write("grafly run: command timed out\n");
-    return { ...manifest, exit_code: exitCode, archive: archived ? dir : null };
+    finishArchive(dir, id);
+    const retention = pruneArchives({ root });
+    const expired = retention.deleted.includes(id);
+    if (expired) stderr.write(`[grafly tool_output: raw archive expired under the 20 MiB budget; id=${id}]\n`);
+    return { ...manifest, exit_code: exitCode, archive: archived && !expired ? dir : null };
 }
 
 export function readOutput(id, { archiveDir = archiveRoot(), stream = "stdout", start = 1, count } = {}) {
@@ -254,8 +262,14 @@ export function readOutput(id, { archiveDir = archiveRoot(), stream = "stdout", 
     if (!["stdout", "stderr"].includes(stream)) throw new Error("stream must be stdout or stderr");
     if (!Number.isInteger(start) || start < 1 || (count !== undefined && (!Number.isInteger(count) || count < 1))) throw new Error("invalid line range");
     const dir = join(resolve(archiveDir), id);
-    const meta = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
-    const data = readFileSync(join(dir, `${stream}.bin`));
+    let meta, data;
+    try {
+        meta = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
+        data = readFileSync(join(dir, `${stream}.bin`));
+    } catch (error) {
+        if (error.code === "ENOENT") throw new Error(`raw output unavailable: ${id}; it may have expired under the 20 MiB retention budget`);
+        throw error;
+    }
     if (meta.schema !== "grafly.tool-output.v1" || meta.id !== id || data.length !== meta.streams[stream]?.bytes
         || createHash("sha256").update(data).digest("hex") !== meta.streams[stream]?.sha256) throw new Error("raw output integrity mismatch");
     if (start === 1 && count === undefined) return data;
