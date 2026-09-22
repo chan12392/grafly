@@ -18,18 +18,20 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, sep } from "node:path";
 import { stripOrdinals } from "../graph/traverse.js";
+import { rankFeatures, DEFAULT_WEIGHTS, FEATURE_KEYS as MC_FEATURE_KEYS, ARTIFACT } from "./mc-channel.js";
+export { SYMBOL_CHANNEL } from './mc-channel.js';
 
 /** Feature keys the circuit produces — the converter (scripts/npz-to-weights.mjs)
  * validates a retrained artifact against this list: a weight for a name not
  * here is dead, a name here missing from the artifact scores 0. */
-export const FEATURE_KEYS = ["qualified_tail", "exact_name", "path_overlap",
-    "degree", "kind_hint", "vendored", "test_path", "cwd_affinity", "bias"];
+export const FEATURE_KEYS = MC_FEATURE_KEYS;
 
 /** Weights are an ARTIFACT, not code: circuit/weights.json carries the
  * feature weights + abstain gap so a retrained circuit ships as a JSON
  * drop-in — no JS edits. Built-in seeds cover an absent/unparseable file.
  * GRAFLY_WEIGHTS points at an alternate artifact. */
 function loadWeights() {
+    if (!process.env.GRAFLY_WEIGHTS) return { W: DEFAULT_WEIGHTS, abstain: ARTIFACT.abstain_gap };
     const here = dirname(fileURLToPath(import.meta.url));
     const path = process.env.GRAFLY_WEIGHTS ?? join(here, "weights.json");
     try {
@@ -50,10 +52,8 @@ function loadWeights() {
     }
     catch { /* absent/invalid artifact → seeds */ }
     return {
-        W: { qualified_tail: 1.9, exact_name: 1.6, path_overlap: 1.4,
-             degree: 0.9, kind_hint: 0.8, vendored: -2.0,
-             test_path: -0.8, cwd_affinity: 1.5, bias: -0.3 },
-        abstain: 0.5,
+        W: DEFAULT_WEIGHTS,
+        abstain: ARTIFACT.abstain_gap,
     };
 }
 const _lw = loadWeights();
@@ -189,59 +189,11 @@ export function cwdContextTokens(root, cwd) {
  * ctx.cwdTokens (optional) supplies the cwd-affinity feature.
  */
 export function judgeSymbols(graph, query, matches, ctx) {
-    const cwdTokens = ctx?.cwdTokens;
     const deg = degreeMap(graph);
-    const ranked = matches
-        .map((node) => {
-            const f = matchFeatures(graph, query, node, deg, cwdTokens);
-            const score = Object.keys(W).reduce((s, k) => s + W[k] * (f[k] ?? 0), 0);
-            return { node, score, features: f };
-        })
-        .sort((a, b) => b.score - a.score);
-    const gap = ranked.length > 1 ? ranked[0].score - ranked[1].score
-        : Number.POSITIVE_INFINITY;
-    let verdict = ranked.length === 1 || gap >= ABSTAIN_GAP
-        ? "confident" : "abstain";
-    // Popularity may order candidates, but does not identify which of two
-    // equally supported symbols the caller meant. Compare every peer, not
-    // just runner-up: a different-context candidate can sit between them.
-    // Keep the existing path/cwd/source preferences; only degree is excluded.
-    const queryFeatures = ["qualified_tail", "exact_name", "path_overlap",
-        "kind_hint", "vendored", "test_path", "cwd_affinity"];
-    const equivalent = verdict === "confident" && ranked.some((r, i) => i > 0 &&
-        queryFeatures.every((key) => r.features[key] === ranked[0].features[key]));
-    if (equivalent) verdict = "abstain";
-    const reason = equivalent ? "equivalent_query_evidence" : verdictReason(verdict, gap, ranked);
-    return { verdict, gap, ranked, reason };
+    const candidates = matches.map(node => ({ id: node.id, node,
+        features: matchFeatures(graph, query, node, deg, ctx?.cwdTokens) }));
+    const result = rankFeatures(candidates, { weights: W, abstainGap: ABSTAIN_GAP });
+    // Retain Grafly's in-process Infinity convention; channel JSON uses null.
+    return { ...result, gap: result.gap ?? Number.POSITIVE_INFINITY,
+        ranked: result.ranked.map(({ id, ...candidate }) => candidate) };
 }
-
-/** Why the verdict came out this way — the part an LLM consumer needs to
- * decide whether the ranking is trustworthy:
- *  - confident: which features actually separated top-1 from top-2
- *  - abstain:   tie (identical evidence) vs weak_gap (real but small
- *               separation)
- *  - pool flags (either verdict): vendored_pool when every candidate lives
- *    in vendored/generated paths; lone_source when exactly one candidate is
- *    project source — the top-1 then won by elimination, not by preferred
- *    evidence, which is a different kind of "confident" the consumer should
- *    see. Measured on merlection: `render`/`__eq__` picked a lone test
- *    symbol over 40-270 vendored duplicates this way. */
-function verdictReason(verdict, gap, ranked) {
-    if (ranked.length === 1)
-        return "unique";
-    const vendoredPool = ranked.every((r) => r.features.vendored === 1);
-    const nonVendored = vendoredPool ? 0 : ranked.filter((r) => r.features.vendored === 0).length;
-    const poolFlag = vendoredPool ? "|vendored_pool" : nonVendored === 1 ? "|lone_source" : "";
-    if (verdict === "confident") {
-        // |Δfeature × weight|, desc — the evidence that decided it.
-        const diffs = Object.keys(W)
-            .map((k) => [k, ((ranked[0].features[k] ?? 0) - (ranked[1].features[k] ?? 0)) * (W[k] ?? 0)])
-            .filter(([, d]) => d > 1e-9)
-            .sort((a, b) => b[1] - a[1]);
-        const by = diffs.slice(0, 3).map(([k]) => k).join("+") || "score";
-        return `by:${by}` + poolFlag;
-    }
-    const cause = gap < 1e-6 ? "tie" : "weak_gap";
-    return cause + poolFlag;
-}
-

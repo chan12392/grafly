@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { escalateAmbiguous, escalationLines, mcConfig } from "../dist/circuit/escalate.js";
+import { escalateAmbiguous, escalationLines, mcConfig, analyzerIdentity } from "../dist/circuit/escalate.js";
 
 const ROOT = "C:/repo/under/test";
 
@@ -40,7 +40,10 @@ const DROPPED = [{ source: "caller.py#main", name: "work" }];
 
 function withEnv(patch, fn) {
     const saved = {};
-    for (const k of Object.keys(patch)) { saved[k] = process.env[k]; process.env[k] = patch[k]; }
+    for (const k of Object.keys(patch)) {
+        saved[k] = process.env[k];
+        if (patch[k] === undefined) delete process.env[k]; else process.env[k] = patch[k];
+    }
     try { return fn(); }
     finally { for (const k of Object.keys(patch)) {
         if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
@@ -102,5 +105,32 @@ test("kill switch wins over GRAFLY_MC_HOME", () => {
     const home = stubMcHome("resolve");
     withEnv({ GRAFLY_MC_HOME: home, GRAFLY_MC: "0" }, () => {
         assert.equal(escalateAmbiguous(ROOT, "work", MATCHES, DROPPED), null);
+    });
+});
+
+test('saved analyzer config works without inherited environment and preserves kill switches', { skip: !process.env.GRAFLY_TEST_PYTHON }, () => {
+    const home = stubMcHome('resolve');
+    const config = join(home, 'grafly-analyzer.json');
+    // Explicit interpreter; the fake engine remains this test's own source.
+    const python = process.env.GRAFLY_TEST_PYTHON;
+    writeFileSync(config, JSON.stringify({ schema: 'grafly.mc-analyzer.v1', enabled: true, home, python }));
+    withEnv({ GRAFLY_MC_CONFIG: config, GRAFLY_MC_HOME: undefined, GRAFLY_MC_PYTHON: undefined,
+        GRAFLY_MC: '1', GRAFLY_NO_MC: '' }, () => {
+        assert.equal(mcConfig(ROOT).source, 'user-config');
+        assert.equal(escalateAmbiguous(ROOT, 'work', MATCHES, DROPPED).resolved[0].candidate, 'a/mod.py#work');
+        withEnv({ GRAFLY_NO_MC: '1' }, () => assert.equal(mcConfig(ROOT), null));
+        writeFileSync(config, '{broken json');
+        assert.equal(mcConfig(ROOT), null);
+    });
+});
+
+test('analyzer implementation changes invalidate source snapshot namespace', () => {
+    const home = stubMcHome('resolve');
+    withEnv({ GRAFLY_MC_HOME: home, GRAFLY_MC: '1', GRAFLY_NO_MC: '' }, () => {
+        const before = mcConfig(ROOT);
+        writeFileSync(join(home, 'morecoffee', 'analyzer.py'), 'VERSION = 2\n');
+        const after = mcConfig(ROOT);
+        assert.notEqual(after.cacheDir, before.cacheDir);
+        assert.notEqual(analyzerIdentity(home), before.analyzerFingerprint);
     });
 });

@@ -54,10 +54,38 @@ class AdapterTests(unittest.TestCase):
         context, _ = self.invoke(lambda *a, **kw: subprocess.CompletedProcess(a, 0, "not JSON", ""))
         self.assertIsNone(context)
 
-    def test_registers_only_turn_injection(self):
+    def test_registers_context_and_argument_routing(self):
         registered = []
         adapter.register(types.SimpleNamespace(register_hook=lambda name, fn: registered.append((name, fn))))
-        self.assertEqual(registered, [("pre_llm_call", adapter.grafly_context)])
+        self.assertEqual(registered, [("pre_llm_call", adapter.grafly_context),
+                                      ("pre_tool_call", adapter.grafly_route)])
+
+    def test_routing_preserves_local_cwd_and_host_arguments(self):
+        terminal = types.ModuleType("tools.terminal_tool")
+        terminal._get_env_config = lambda: {"env_type": "local"}
+        args = {"command": "rg needle .", "workdir": self.cwd, "timeout": 17}
+        modified = {**args, "command": "wrapped command"}
+        def response(command, **kwargs):
+            self.assertEqual(command[-1], "hermes")
+            self.assertEqual(kwargs["cwd"], self.cwd)
+            self.assertEqual(json.loads(kwargs["input"]),
+                             {"tool_name": "terminal", "args": args, "shell": "bash"})
+            return subprocess.CompletedProcess(command, 0, json.dumps({"action": "modify", "args": modified}), "")
+        with patch.dict(sys.modules, {"tools.terminal_tool": terminal}), \
+             patch.object(adapter.shutil, "which", return_value=sys.executable), \
+             patch.object(Path, "is_file", return_value=True), \
+             patch.object(adapter.subprocess, "run", side_effect=response):
+            self.assertEqual(adapter.grafly_route("terminal", args), {"action": "modify", "args": modified})
+        self.assertEqual(args["command"], "rg needle .")
+
+    def test_remote_and_native_tools_do_not_spawn_local_wrapper(self):
+        terminal = types.ModuleType("tools.terminal_tool")
+        terminal._get_env_config = lambda: {"env_type": "docker"}
+        with patch.dict(sys.modules, {"tools.terminal_tool": terminal}), \
+             patch.object(adapter.subprocess, "run") as run:
+            self.assertIsNone(adapter.grafly_route("terminal", {"command": "rg needle ."}))
+            self.assertIsNone(adapter.grafly_route("read_file", {"path": "README.md"}))
+            run.assert_not_called()
 
 
 if __name__ == "__main__":

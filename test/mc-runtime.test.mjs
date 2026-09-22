@@ -4,8 +4,11 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { FILES, sha256, syncRuntime, pinRuntime, validatePinned, runtimeStatus, verifyEnvelope, verifyBundle, acquireLock } from '../dist/mc-runtime/runtime.js';
 import { runCommand, judge } from '../dist/tool-output/runner.js';
+import { FILES_V2 } from '../dist/mc-runtime/runtime.js';
 
 const keys = generateKeyPairSync('ed25519');
 const publicKey = keys.publicKey.export({ type: 'spki', format: 'pem' });
@@ -47,6 +50,28 @@ test('signed install, atomic version switch, offline survival and command pinnin
   validatePinned(pinned); assert.ok(existsSync(pinned.root));
   await assert.rejects(syncRuntime(h, { transport: async () => { throw new Error('offline'); } }));
   assert.equal(runtimeStatus(h).version, '0.2.1');
+});
+test('v2 signed portable channel is loaded by the actual Grafly judge, with v1 still supported', async () => {
+  const h = home(); await install(h, release());
+  const r = release('0.3.0', 2, b => {
+    b.runtime_api = 2; b.provided_channels.push('symbol_disambiguation');
+    b.channels.symbol_disambiguation = { version: '0.1.0', tag: 'channel/symbol_disambiguation/v0.1.0' };
+    for (const name of FILES_V2.filter(f => !FILES.includes(f))) {
+      const data = name.endsWith('.py') ? Buffer.from('# fixture\n') : readFileSync(new URL('../dist/circuit/mc/' + name.split('/').at(-1), import.meta.url));
+      b.files[name] = { data: data.toString('base64'), sha256: sha256(data) };
+    }
+  });
+  await install(h, r);
+  const module = new URL('../dist/circuit/judge.js', import.meta.url).href;
+  const proc = spawnSync(process.execPath, ['--input-type=module', '-e', `import {SYMBOL_CHANNEL,judgeSymbols} from ${JSON.stringify(module)}; console.log(JSON.stringify({channel:SYMBOL_CHANNEL,result:judgeSymbols({edges:[]},'run',[])}));`],
+    { env: env(h), encoding: 'utf8', windowsHide: true, timeout: 10000 });
+  assert.equal(proc.status, 0, proc.stderr);
+  const output = JSON.parse(proc.stdout);
+  assert.equal(output.channel.source, 'signed-runtime'); assert.equal(output.channel.version, '0.1.0');
+  assert.equal(output.result.verdict, 'abstain'); assert.equal(output.result.reason, 'no_candidates');
+  const pinned = pinRuntime(env(h));
+  writeFileSync(join(pinned.root, 'morecoffee/channels/portable/symbol_disambiguation.mjs'), 'throw new Error("tampered")');
+  assert.throws(() => validatePinned(pinned), /mc_file_hash/);
 });
 test('signature, compatibility, file hashes and path traversal fail before executing candidates', async () => {
   for (const alter of [r => r.envelope.signature = Buffer.alloc(64).toString('base64'),

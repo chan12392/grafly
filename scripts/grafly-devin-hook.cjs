@@ -179,6 +179,11 @@ async function main() {
   const raw = await readStdin();
   let input = {};
   try { input = JSON.parse(raw); } catch { /* cwd fallback below */ }
+  if (EVENT === 'pre-tool') {
+    const { routeHook } = await import(pathToFileURL(path.join(PKG, 'tool-output', 'route.js')).href);
+    process.stdout.write(JSON.stringify(routeHook('devin', input)));
+    return;
+  }
   if (!input.prompt && input.message) input.prompt = input.message;
   if (EVENT === 'prompt') {
     const { shouldRetrievePrompt } = await import(pathToFileURL(path.join(PKG, 'claude', 'prompt-gate.js')).href);
