@@ -3,12 +3,15 @@ import { readConfig, runtimeHome, syncRuntime, runtimeStatus, atomicWrite, acqui
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
+import { startArchiveMaintenance } from '../tool-output/retention.js';
 
 export async function watchRuntime(home = runtimeHome()) {
   const unlock = acquireLock(home, 'watch.lock');
   if (!unlock) return;
   const config = readConfig(home);
   if (!config) { unlock(); throw new Error('mc_not_configured'); }
+  // Independent of the network connection; reap crashed/finished writers while idle.
+  const stopMaintenance = startArchiveMaintenance();
   const stop = new AbortController();
   const shutdown = () => stop.abort();
   process.once('SIGINT', shutdown); process.once('SIGTERM', shutdown);
@@ -50,6 +53,7 @@ export async function watchRuntime(home = runtimeHome()) {
       if (!stop.signal.aborted) await delay(5000 + Math.random() * 5000, undefined, { signal: stop.signal }).catch(() => {});
     }
   } finally {
+    stopMaintenance();
     process.off('SIGINT', shutdown); process.off('SIGTERM', shutdown); unlock();
   }
 }
