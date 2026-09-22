@@ -17,7 +17,14 @@ async function main() {
         if (positionals.length !== 1) throw new Error("usage: grafly output <id> [--find <literal>]");
         const options = Object.fromEntries(Object.entries(values).map(([key, value]) => [key.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase()), value]));
         writeOutput(positionals[0], options);
-    } else throw new Error("usage: grafly run -- <executable> [args...] | grafly output <id> [--find <literal>]");
+    } else if (mode === "read") {
+        const { values, positionals } = parseArgs({ args, allowPositionals: true, options: Object.fromEntries(
+            ["start", "count", "find", "context", "max-matches", "max-bytes"].map(name => [name, { type: "string" }])) });
+        if (positionals.length !== 1) throw new Error("usage: grafly read <path> [--start N --count N | --find <literal>]");
+        const options = Object.fromEntries(Object.entries(values).map(([key, value]) => [key.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase()), value]));
+        const { readPath } = await import("./output.js");
+        process.stdout.write(readPath(positionals[0], options));
+    } else throw new Error("usage: grafly run -- <executable> [args...] | grafly output <id> [--find <literal>] | grafly read <path>");
     process.exitCode = result?.exit_code ?? 0;
 }
 
