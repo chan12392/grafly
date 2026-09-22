@@ -6,13 +6,23 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
-import { runCommand, readOutput, applyRanges, isTestCommand } from "../dist/tool-output/runner.js";
-import { searchOutput, writeOutput } from "../dist/tool-output/output.js";
+import { runCommand, readOutput, applyRanges, isTestCommand, classifyCommand, judge } from "../dist/tool-output/runner.js";
+import { searchOutput, writeOutput, readPath } from "../dist/tool-output/output.js";
 import { installOutputHook } from "../dist/tool-output/install.js";
 import { outputContext } from "../dist/tool-output/hook.js";
 
 const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
 const python = process.env.MC_PYTHON || "python";
+/** Probe whether the reachable MC implements a general kind; older/absent MC
+ *  yields the documented raw fallback, so kind-dependent tests skip. */
+const mcSupports = (kind, env = process.env) => {
+    try {
+        // Channel accepted the kind (status ok) — verdict itself may be
+        // passthrough for probe text with nothing to remove.
+        return judge({ stdout: "probe\n".repeat(500), stderr: "", kind, exit_code: 0, complete: true }, env)
+            .status === "ok";
+    } catch { return false; }
+};
 function fixture() {
     const dir = mkdtempSync(join(tmpdir(), "grafly-output-")), archiveDir = join(dir, "archive");
     const collected = { stdout: [], stderr: [] };
@@ -98,6 +108,35 @@ test("source readers and interpreted scripts are not inferred to be tests from o
     assert.equal(isTestCommand("python", ["read_source.py", "-m", "unittest"]), false);
     assert.equal(isTestCommand("node", ["read_source.js", "--test"]), false);
     assert.equal(isTestCommand(python, ["-m", "unittest", "-v"]), true);
+});
+
+test("classifyCommand maps exact forms to kinds; wrappers and unknowns stay unclassified", () => {
+    assert.equal(classifyCommand("cat", ["f.txt"]), "read");
+    assert.equal(classifyCommand("tail.exe", ["-n", "5", "f"]), "read");
+    assert.equal(classifyCommand("rg", ["-n", "needle"]), "search");
+    assert.equal(classifyCommand("findstr", ["/s", "x", "*.py"]), "search");
+    assert.equal(classifyCommand("ls", ["-la"]), "search");
+    assert.equal(classifyCommand("git", ["status", "--porcelain"]), "git");
+    assert.equal(classifyCommand("git", ["-C", "repo", "diff", "HEAD~1"]), "git");
+    assert.equal(classifyCommand("git", ["--git-dir", "x/.git", "--no-pager", "log"]), "git");
+    assert.equal(classifyCommand("git", ["-c", "core.pager=cat", "show"]), "git");
+    assert.equal(classifyCommand("git", ["grep", "-n", "x"]), "search");
+    assert.equal(classifyCommand("git", ["ls-files"]), "search");
+    assert.equal(classifyCommand("git", ["show", "HEAD:src/a.py"]), "read");
+    assert.equal(classifyCommand("git", ["show", "abc123"]), "git");
+    assert.equal(classifyCommand("git", ["diff", "--name-only", "HEAD~1"]), "search");
+    assert.equal(classifyCommand("git", ["show", "--stat", "HEAD"]), "search");
+    assert.equal(classifyCommand("git", ["log", "--name-only"]), "git");
+    assert.equal(classifyCommand("npm", ["install", "--verbose"]), "build");
+    assert.equal(classifyCommand("pnpm", ["ci"]), "build");
+    assert.equal(classifyCommand("yarn", ["add", "x"]), "build");
+    for (const [command, args] of [["powershell", ["-c", "Get-Content", "f"]],
+        ["git", ["commit", "-m", "x"]], ["git", ["merge", "b"]], ["git", ["status2"]],
+        ["npm", ["run", "build"]], ["python", ["-m", "pip", "install", "x"]],
+        ["node", ["script.js"]], ["cmd", ["/c", "dir"]], ["less", ["f"]]])
+        assert.equal(classifyCommand(command, args), null, `${command} ${args}`);
+    assert.equal(classifyCommand("python", ["-m", "unittest"]), "test");
+    assert.equal(classifyCommand("npm", ["test"]), "test");
 });
 
 test("host installer preserves foreign hooks and their identities, is idempotent and reversible", () => {
@@ -223,5 +262,157 @@ test("public CLI preserves exit code and removed session commands are unavailabl
     for (const name of ["session-compact", "session-expand", "session-live"]) {
         const retired = spawnSync(process.execPath, [cli, name], { encoding: "utf8" });
         assert.notEqual(retired.status, 0); assert.match(retired.stderr, /unknown command/);
+    }
+});
+
+test("git status/diff/log reduce bounded while keeping conflict, rename and identity data", async (t) => {
+    if (spawnSync("git", ["--version"], { encoding: "utf8" }).status !== 0) return t.skip("git unavailable");
+    if (!mcSupports("read")) return t.skip("MC without general kinds (documented raw fallback)");
+    const f = fixture(), repo = join(f.dir, "repo");
+    const git = args => { const r = spawnSync("git", args, { cwd: repo, encoding: "utf8" }); assert.equal(r.status, 0, r.stderr); return r; };
+    mkdirSync(repo);
+    git(["init", "-b", "main"]); git(["config", "user.email", "t@t"]); git(["config", "user.name", "t"]);
+    git(["config", "commit.gpgsign", "false"]);
+    for (let i = 0; i < 400; i++) writeFileSync(join(repo, `f${String(i).padStart(3, "0")}.py`), `v${i}\n`);
+    writeFileSync(join(repo, "conflict.txt"), "base\n"); writeFileSync(join(repo, "old.txt"), "x\n");
+    git(["add", "-A"]); git(["commit", "-m", "base"]);
+    for (let i = 0; i < 40; i++) git(["commit", "--allow-empty", "-m", `change ${i}`]);
+    git(["checkout", "-b", "side"]); writeFileSync(join(repo, "conflict.txt"), "side\n");
+    git(["commit", "-am", "side"]); git(["checkout", "main"]);
+    writeFileSync(join(repo, "conflict.txt"), "main\n"); git(["commit", "-am", "main"]);
+    spawnSync("git", ["merge", "side"], { cwd: repo, encoding: "utf8" }); // conflicts
+    git(["mv", "old.txt", "new.txt"]);
+    for (let i = 0; i < 400; i++) writeFileSync(join(repo, `f${String(i).padStart(3, "0")}.py`), `v${i} edited\n`);
+
+    const status = await runCommand("git", ["status", "--porcelain"], { ...f.options, cwd: repo });
+    assert.equal(status.exit_code, 0); assert.equal(status.verdict, "reduced"); assert.equal(status.kind, "git");
+    const shown = f.text("stdout");
+    assert.match(shown, /UU conflict\.txt/); assert.match(shown, /R +old\.txt -> new\.txt/);
+    assert.ok(!shown.includes("f399.py")); assert.match(f.text("stderr"), /kind=git.*exit=0.*id=/);
+    const recovered = searchOutput(status.id, { archiveDir: f.options.archiveDir, find: "f399.py", context: 0 });
+    assert.match(recovered, /stdout:\d+: M f399\.py/);
+
+    const f2 = fixture();
+    const diff = await runCommand("git", ["diff"], { ...f2.options, cwd: repo });
+    assert.equal(diff.verdict, "reduced");
+    const dshown = f2.text("stdout");
+    assert.match(dshown, /diff --git a\/f000\.py/); assert.match(dshown, /diff --git a\/f399\.py/);
+    assert.ok(!dshown.includes("v399 edited")); // late hunks omitted, file identity kept
+    const back = readOutput(diff.id, { archiveDir: f2.options.archiveDir }).toString();
+    assert.match(back, /v399 edited/); // verbatim original remains retrievable
+
+    const f3 = fixture();
+    const log = await runCommand("git", ["log"], { ...f3.options, cwd: repo });
+    assert.equal(log.verdict, "reduced");
+    assert.match(f3.text("stdout"), /change 39/); assert.match(f3.text("stdout"), /commit [0-9a-f]{40}/);
+    assert.ok(!f3.text("stdout").includes("    base\n")); // older messages collapse to ids
+}, { timeout: 120000 });
+
+test("rg reduction bounds results, no-match exit 1 is explicit, missing MC stays raw", async (t) => {
+    if (spawnSync("rg", ["--version"], { encoding: "utf8" }).status !== 0) return t.skip("rg unavailable");
+    const f = fixture(), data = join(f.dir, "data"); // keep archives out of the searched tree
+    mkdirSync(data);
+    for (let i = 0; i < 300; i++) writeFileSync(join(data, `s${i}.txt`), `needle-${i}\n`);
+    if (!mcSupports("read")) {
+        const rawOnly = await runCommand("rg", ["needle-", "data"], { ...f.options, cwd: f.dir });
+        assert.equal(rawOnly.verdict, "passthrough"); // documented fallback on older MC
+        return t.skip("MC without general kinds");
+    }
+    const result = await runCommand("rg", ["needle-", "data"], { ...f.options, cwd: f.dir });
+    assert.equal(result.exit_code, 0); assert.equal(result.verdict, "reduced");
+    assert.match(f.text("stderr"), /kind=search.*200\/300 lines/);
+    assert.equal((f.text("stdout").match(/needle-/g) ?? []).length, 200);
+    assert.match(searchOutput(result.id, { archiveDir: f.options.archiveDir, find: "needle-299", context: 0 }), /s299\.txt.*needle-299/);
+    const f2 = fixture();
+    const none = await runCommand("rg", ["absent-pattern-xyz", "data"], { ...f2.options, cwd: f.dir });
+    assert.equal(none.exit_code, 1);
+    assert.match(f2.text("stderr"), /no matches; exit=1/);
+    const f3 = fixture(); f3.options.env = { ...process.env, MC_PYTHON: join(f3.dir, "missing-python") };
+    const raw = await runCommand("rg", ["needle-", "data"], { ...f3.options, cwd: f.dir });
+    assert.equal(raw.verdict, "passthrough"); assert.equal(raw.reason, "mc_unavailable");
+    assert.match(f3.text("stdout"), /s299\.txt/);
+});
+
+test("npm install-family drops only recognized noise; summaries stay", async (t) => {
+    // npm/pnpm/yarn are .cmd shims on Windows — the runner requires a real
+    // executable, so the command fails 127 and passes through raw there.
+    if (spawnSync("npm", ["--version"], { encoding: "utf8" }).status !== 0) {
+        const f = fixture();
+        const shim = await runCommand("npm", ["install"], f.options);
+        assert.equal(shim.exit_code, 127); assert.equal(shim.verdict, "passthrough");
+        assert.match(f.text("stderr"), /grafly run:/);
+        return t.skip("npm is not a directly spawnable executable on this host");
+    }
+    if (!mcSupports("build")) return t.skip("MC without general kinds (documented raw fallback)");
+    const f = fixture(), pkg = join(f.dir, "pkg");
+    for (let i = 0; i < 30; i++) { const dep = join(pkg, `dep${i}`); mkdirSync(dep, { recursive: true });
+        writeFileSync(join(dep, "package.json"), JSON.stringify({ name: `dep${i}`, version: "1.0.0" })); }
+    writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "t", version: "1.0.0",
+        dependencies: Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`dep${i}`, `file:./dep${i}`])) }));
+    const result = await runCommand("npm", ["install", "--loglevel", "silly", "--no-audit", "--no-fund"], { ...f.options, cwd: pkg });
+    assert.equal(result.exit_code, 0); assert.equal(result.kind, "build");
+    if (result.verdict !== "reduced") return; // under the size floor stays raw
+    assert.match(f.text("stderr"), /kind=build.*id=/);
+    const shown = f.text("stdout") + f.text("stderr");
+    assert.ok(!/npm silly|npm verbose/.test(shown)); // recognized noise removed
+    assert.match(shown, /added|up to date/); // summary stays verbatim
+    assert.match(readOutput(result.id, { archiveDir: f.options.archiveDir }).toString(), /npm silly/);
+}, { timeout: 120000 });
+
+test("unrecognized commands and shell wrappers deliver raw output only", async () => {
+    const f = fixture();
+    const result = await runCommand(process.execPath, ["-e",
+        "for(let i=0;i<500;i++)console.log('row',i)"], f.options);
+    assert.equal(result.exit_code, 0); assert.equal(result.verdict, "passthrough");
+    assert.equal(result.kind, undefined);
+    assert.match(f.text("stdout"), /row 499/); assert.ok(!f.text("stderr").includes("grafly tool_output"));
+});
+
+test("read delivers bounded verbatim ranges, literal search and directory listings", () => {
+    const f = fixture();
+    const spaced = join(f.dir, "sub dir 한글");
+    mkdirSync(spaced);
+    const file = join(spaced, "log file.txt");
+    writeFileSync(file, Array.from({ length: 500 }, (_, i) => `row ${i + 1} ${"한".repeat(3)}\r\n`).join(""));
+    const first = readPath(file, {});
+    assert.match(first, /shown 1-200; \d+ bytes; complete=false; continue: grafly read <path> --start 201/);
+    assert.match(first, /row 200 한한한\r\n$/m);
+    assert.ok(!first.includes("row 201"));
+    const range = readPath(file, { start: 480, count: 30 });
+    assert.match(range, /shown 480-500; \d+ bytes; complete=true/);
+    assert.match(range, /row 480/); assert.match(range, /row 500/);
+    const found = readPath(file, { find: "row 499", context: 0 });
+    assert.match(found, /:499:row 499/); assert.ok(!found.includes("row 498"));
+    assert.throws(() => readPath(file, { find: "x", count: 2 }), /--max-matches/);
+    const past = readPath(file, { start: 900 });
+    assert.match(past, /shown 0; \d+ bytes; complete=true/);
+    // Byte budget: whole lines only — a lone oversized line refuses loudly.
+    const wide = join(f.dir, "wide.txt");
+    writeFileSync(wide, `short\n${"y".repeat(9000)}\nafter\n`);
+    const capped = readPath(wide, { maxBytes: 5000 });
+    assert.match(capped, /shown 1-1; \d+ bytes; complete=false; continue: grafly read <path> --start 2/);
+    assert.ok(capped.includes("short\n")); assert.ok(!capped.includes("yyyy"));
+    assert.throws(() => readPath(wide, { start: 2, maxBytes: 5000 }), /line 2 alone is 9001 bytes/);
+    const listing = readPath(f.dir, {});
+    assert.match(listing, /entries; shown/); assert.match(listing, /sub dir 한글\//);
+    mkdirSync(join(f.dir, "empty-dir"));
+    assert.match(readPath(join(f.dir, "empty-dir"), {}), /0 entries; shown 0; complete=true/);
+    const binary = join(f.dir, "b.bin"); writeFileSync(binary, Buffer.from([0, 255, 1]));
+    assert.throws(() => readPath(binary, {}), /encoded data/);
+    assert.throws(() => readPath(join(f.dir, "missing.txt"), {}));
+});
+
+test("public and lightweight CLIs share the read entrypoint", () => {
+    const f = fixture(), file = join(f.dir, "a.txt");
+    writeFileSync(file, "alpha\nbeta needle\ngamma\n");
+    const entry = fileURLToPath(new URL("../dist/tool-output/cli.js", import.meta.url));
+    for (const path of [cli, entry]) {
+        const ranged = spawnSync(process.execPath, [path, "read", file, "--start", "2", "--count", "1"], { encoding: "utf8" });
+        assert.equal(ranged.status, 0, ranged.stderr);
+        assert.match(ranged.stdout, /3 lines; shown 2-2;/); assert.match(ranged.stdout, /beta needle\n$/);
+        const found = spawnSync(process.execPath, [path, "read", file, "--find", "needle", "--context", "0"], { encoding: "utf8" });
+        assert.equal(found.status, 0, found.stderr); assert.match(found.stdout, /:2:beta needle/);
+        const missing = spawnSync(process.execPath, [path, "read"], { encoding: "utf8" });
+        assert.notEqual(missing.status, 0);
     }
 });
