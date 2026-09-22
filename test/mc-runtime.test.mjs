@@ -91,6 +91,10 @@ test('disk tampering and added Python bytecode fail closed; explicit development
   assert.throws(() => judge({ kind: 'search' }, env(h)), /mc_managed_unavailable/);
   assert.equal(pinRuntime({ ...env(h), MC_ROOT: '/explicit/dev' }), null);
 });
+test('an explicit unavailable Python override stays unavailable with managed code installed', async () => {
+  const h = home(); await install(h, release());
+  assert.throws(() => judge({ kind: 'search' }, { ...env(h), MC_PYTHON: join(h, 'missing-python') }), /mc_unavailable/);
+});
 test('a command started before activation judges with its starting runtime', async () => {
   const h = home(); await install(h, release());
   const script = join(h, 'slow.test.mjs');

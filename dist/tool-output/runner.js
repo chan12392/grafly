@@ -88,7 +88,7 @@ export function judge(payload, env, pinned = pinRuntime(env)) {
     const sibling = fileURLToPath(new URL("../../../morecoffee", import.meta.url));
     const root = pinned?.root ?? (env.MC_ROOT ? resolve(env.MC_ROOT) : existsSync(join(sibling, "morecoffee", "channels", "tool_output_stdio.py")) ? sibling : "");
     const code = "import runpy,sys; root=sys.argv[1]; sys.path.insert(0,root) if root else None; runpy.run_module('morecoffee.channels.tool_output_stdio',run_name='__main__')";
-    const result = spawnSync(pinned?.python || env.MC_PYTHON || "python", ["-I", "-S", "-B", "-X", "utf8", "-c", code, root], {
+    const result = spawnSync(env.MC_PYTHON || pinned?.python || "python", ["-I", "-S", "-B", "-X", "utf8", "-c", code, root], {
         input: JSON.stringify(payload), encoding: "utf8", env, windowsHide: true, timeout: 5000, maxBuffer: LIMIT * 2,
         // Isolated Python never imports code from the command's working directory.
         cwd: dirname(fileURLToPath(import.meta.url)),
