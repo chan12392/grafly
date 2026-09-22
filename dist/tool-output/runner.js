@@ -5,6 +5,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync
 import { dirname, join, resolve } from "node:path";
 import { homedir, constants } from "node:os";
 import { fileURLToPath } from "node:url";
+import { pinRuntime, validatePinned } from "../mc-runtime/runtime.js";
 
 const LIMIT = 4 * 1024 * 1024;
 const MINIMUM = 4096;
@@ -82,11 +83,12 @@ export function exitOneMeaning(command, args = []) {
 
 export const isTestCommand = (command, args) => classifyCommand(command, args) === "test";
 
-export function judge(payload, env) {
+export function judge(payload, env, pinned = pinRuntime(env)) {
+    validatePinned(pinned);
     const sibling = fileURLToPath(new URL("../../../morecoffee", import.meta.url));
-    const root = env.MC_ROOT ? resolve(env.MC_ROOT) : existsSync(join(sibling, "morecoffee", "channels", "tool_output_stdio.py")) ? sibling : "";
+    const root = pinned?.root ?? (env.MC_ROOT ? resolve(env.MC_ROOT) : existsSync(join(sibling, "morecoffee", "channels", "tool_output_stdio.py")) ? sibling : "");
     const code = "import runpy,sys; root=sys.argv[1]; sys.path.insert(0,root) if root else None; runpy.run_module('morecoffee.channels.tool_output_stdio',run_name='__main__')";
-    const result = spawnSync(env.MC_PYTHON || "python", ["-I", "-X", "utf8", "-c", code, root], {
+    const result = spawnSync(pinned?.python || env.MC_PYTHON || "python", ["-I", "-S", "-B", "-X", "utf8", "-c", code, root], {
         input: JSON.stringify(payload), encoding: "utf8", env, windowsHide: true, timeout: 5000, maxBuffer: LIMIT * 2,
         // Isolated Python never imports code from the command's working directory.
         cwd: dirname(fileURLToPath(import.meta.url)),
@@ -115,6 +117,7 @@ export function applyRanges(text, stream) {
 
 export async function runCommand(command, args = [], options = {}) {
     const env = options.env ?? process.env;
+    const pinned = pinRuntime(env); // An in-flight command retains its starting version.
     const stdout = options.stdout ?? process.stdout, stderr = options.stderr ?? process.stderr;
     const root = resolve(options.archiveDir ?? archiveRoot());
     const id = randomUUID(), dir = join(root, id);
@@ -193,6 +196,7 @@ export async function runCommand(command, args = [], options = {}) {
     const manifest = { schema: "grafly.tool-output.v1", id, command, args, cwd: resolve(options.cwd ?? process.cwd()),
         exit_code: exitCode, signal: completion.signal, complete: !spawnError && !timedOut && !interrupted && completion.code !== null,
         elapsed_ms: Date.now() - started, streams: {}, verdict: "passthrough", reason: live ? "streamed" : "not_reduced" };
+    if (pinned?.metadata) manifest.mc_runtime = { version: pinned.metadata.version, sequence: pinned.metadata.sequence, sha256: pinned.metadata.sha256 };
     for (const name of ["stdout", "stderr"]) if (archived) manifest.streams[name] = { bytes: sizes[name], sha256: hashes[name].digest("hex") };
     const kind = classifyCommand(command, args);
     if (kind) manifest.kind = kind;
@@ -208,7 +212,7 @@ export async function runCommand(command, args = [], options = {}) {
             // NUL/binary output is never interpreted as a text transcript.
             if (input.stdout.includes("\0") || input.stderr.includes("\0")) throw new Error("binary_output");
             const result = (options.judge ?? judge)({ ...input, kind, exit_code: exitCode, complete: true,
-                exit_one_is_result: Boolean(exitMeaning) }, env);
+                exit_one_is_result: Boolean(exitMeaning) }, env, pinned);
             const decision = result.decision;
             if (decision.verdict === "reduced") {
                 const candidate = Object.fromEntries(["stdout", "stderr"].map(s => [s, applyRanges(input[s], decision.streams?.[s])]));
