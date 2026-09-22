@@ -20,6 +20,7 @@ import { resolveSymbol } from "./traverse.js";
 import { WALK_RELATIONS } from "./relations.js";
 import { judgeSymbols, cwdContextTokens, ABSTAIN_GAP } from "../circuit/judge.js";
 import { appendCircuitRecord, jidFor, recordFollowup } from "../circuit/feedback.js";
+import { escalateAmbiguous, escalationLines } from "../circuit/escalate.js";
 const ARROW = { in: "←", out: "→" };
 const DEFAULT_DEPTH = 1;
 /**
@@ -310,6 +311,10 @@ export function runCallersCommand(query, dir, opts) {
     const ambiguous = direction === "in"
         ? (graph.ambiguousCalls ?? []).filter((a) => ambNames.has(a.name))
         : [];
+    // Opt-in second opinion: dropped call sites go to morecoffee's live
+    // code_relation channel (GRAFLY_MC_HOME) — the circuit ranks from the
+    // graph, MC re-reads the source. Null unless configured; never fatal.
+    const escalation = escalateAmbiguous(root, query, matches, ambiguous);
     // Name-literal edge targets: an ambiguous `extends Foo` resolves to the
     // bare name, so the edge exists but is keyed under "Foo" — not under any
     // node id. For a callers query on a real same-named node that's the same
@@ -336,7 +341,10 @@ export function runCallersCommand(query, dir, opts) {
             cwd: [...cwdTokens].join("/") || null,
             scores: circuit.scores,
             features: circuitFeatures,
-            shown: shown.map((n) => n.id) });
+            shown: shown.map((n) => n.id),
+            ...(escalation ? { escalation: { resolved: escalation.resolved.length,
+                sites: escalation.sites, errors: escalation.errors.length,
+                elapsed_ms: escalation.elapsed_ms } } : {}) });
     if (opts.json) {
         // mc.channel.v1-style limitations: machine-readable "what this
         // answer cannot claim" list, alongside the human-visible notes.
@@ -372,6 +380,8 @@ export function runCallersCommand(query, dir, opts) {
             payload.ambiguousCalls = ambiguous;
         if (nameRefs.length)
             payload.unresolvedNameRefs = nameRefs;
+        if (escalation)
+            payload.escalation = escalation;
         if (limitations.length)
             payload.limitations = limitations;
         console.log(JSON.stringify(payload, null, 2));
@@ -410,6 +420,11 @@ export function runCallersCommand(query, dir, opts) {
             lines.push(`    ${a.source}`);
         if (rest > 0)
             lines.push(`    … +${rest} more`);
+    }
+    const escLines = escalationLines(escalation);
+    if (escLines) {
+        lines.push("");
+        lines.push(...escLines);
     }
     if (nameRefs.length) {
         const preview = nameRefs.slice(0, 10);
