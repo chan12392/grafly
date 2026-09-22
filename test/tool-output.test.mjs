@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
-import { runCommand, readOutput, applyRanges, isTestCommand, classifyCommand, judge } from "../dist/tool-output/runner.js";
+import { runCommand, readOutput, applyRanges, isTestCommand, classifyCommand, exitOneMeaning, judge } from "../dist/tool-output/runner.js";
 import { searchOutput, writeOutput, readPath } from "../dist/tool-output/output.js";
 import { installOutputHook } from "../dist/tool-output/install.js";
 import { outputContext } from "../dist/tool-output/hook.js";
@@ -137,6 +137,16 @@ test("classifyCommand maps exact forms to kinds; wrappers and unknowns stay uncl
         assert.equal(classifyCommand(command, args), null, `${command} ${args}`);
     assert.equal(classifyCommand("python", ["-m", "unittest"]), "test");
     assert.equal(classifyCommand("npm", ["test"]), "test");
+});
+
+test("exit 1 semantics are command-specific and distinguish diff from no-match", () => {
+    for (const command of ["rg", "grep", "egrep", "fgrep", "findstr.exe"])
+        assert.equal(exitOneMeaning(command), "no_matches");
+    assert.equal(exitOneMeaning("git.exe", ["-C", "repo", "grep", "needle"]), "no_matches");
+    assert.equal(exitOneMeaning("git", ["-c", "color.ui=never", "diff", "--quiet"]), "differences");
+    for (const command of ["find", "ls", "tree", "node", "powershell", "which", "where"])
+        assert.equal(exitOneMeaning(command), null);
+    assert.equal(exitOneMeaning("git", ["status"]), null);
 });
 
 test("host installer preserves foreign hooks and their identities, is idempotent and reversible", () => {
@@ -399,6 +409,9 @@ test("read delivers bounded verbatim ranges, literal search and directory listin
     assert.match(readPath(join(f.dir, "empty-dir"), {}), /0 entries; shown 0; complete=true/);
     const binary = join(f.dir, "b.bin"); writeFileSync(binary, Buffer.from([0, 255, 1]));
     assert.throws(() => readPath(binary, {}), /encoded data/);
+    writeFileSync(binary, Buffer.from([0, 1, 2, 10]));
+    assert.throws(() => readPath(binary), /binary file/);
+    assert.throws(() => readPath(binary, { find: "x" }), /binary file/);
     assert.throws(() => readPath(join(f.dir, "missing.txt"), {}));
 });
 
@@ -414,5 +427,79 @@ test("public and lightweight CLIs share the read entrypoint", () => {
         assert.equal(found.status, 0, found.stderr); assert.match(found.stdout, /:2:beta needle/);
         const missing = spawnSync(process.execPath, [path, "read"], { encoding: "utf8" });
         assert.notEqual(missing.status, 0);
+    }
+});
+
+test("real Git diff retains boundary rename rows and standalone unmerged paths", async (t) => {
+    if (!mcSupports("git")) return t.skip("MC without general kinds");
+    const f = fixture(), repo = join(f.dir, "repo"); mkdirSync(repo);
+    const git = (args, input) => {
+        const r = spawnSync("git", ["-c", "core.autocrlf=false", ...args], { cwd: repo, encoding: "utf8", input });
+        assert.equal(r.status, 0, r.stderr); return r.stdout;
+    };
+    git(["init", "-b", "main"]); git(["config", "user.email", "review@example.invalid"]);
+    git(["config", "user.name", "Review"]); git(["config", "commit.gpgsign", "false"]);
+    for (const name of ["a-prefix.txt", "zz-tail.txt"]) writeFileSync(join(repo, name), "");
+    writeFileSync(join(repo, "z-old.txt"), "rename payload\n");
+    git(["add", "."]); git(["commit", "-m", "fixture"]);
+    writeFileSync(join(repo, "a-prefix.txt"), Array.from({ length: 394 }, (_, i) => `prefix ${i} ${"a".repeat(40)}\n`).join(""));
+    writeFileSync(join(repo, "zz-tail.txt"), Array.from({ length: 300 }, (_, i) => `tail ${i} ${"b".repeat(40)}\n`).join(""));
+    git(["mv", "z-old.txt", "z-new.txt"]); git(["add", "."]);
+    const blob = git(["rev-parse", "HEAD:z-old.txt"]).trim();
+    git(["update-index", "--index-info"], [1, 2, 3].map(stage => `100644 ${blob} ${stage}\tzzz-conflict.txt\n`).join(""));
+    const raw = git(["diff", "--cached"]);
+    assert.equal(raw.split("\n").indexOf("diff --git a/z-old.txt b/z-new.txt"), 399);
+    const result = await runCommand("git", ["diff", "--cached", "--exit-code"], { ...f.options, cwd: repo });
+    assert.equal(result.exit_code, 1); assert.equal(result.verdict, "reduced");
+    for (const line of ["rename from z-old.txt", "rename to z-new.txt", "* Unmerged path zzz-conflict.txt"])
+        assert.ok(f.text("stdout").includes(line), line);
+    assert.equal(readOutput(result.id, { archiveDir: f.options.archiveDir }).toString(), raw);
+    const quiet = fixture();
+    const q = await runCommand("git", ["diff", "--cached", "--quiet"], { ...quiet.options, cwd: repo });
+    assert.equal(q.exit_code, 1); assert.equal(quiet.text("stdout"), "");
+    assert.equal(quiet.text("stderr"), ""); // a difference is not "no matches"
+});
+
+test("real find exit-1 failures keep all output and every diagnostic", async (t) => {
+    const command = process.platform === "win32" ? "C:/Program Files/Git/usr/bin/find.exe" : "find";
+    if (spawnSync(command, ["--version"], { encoding: "utf8" }).status !== 0) return t.skip("GNU find unavailable");
+    if (!mcSupports("search")) return t.skip("MC without general kinds");
+    const f = fixture(), data = join(f.dir, "data"); mkdirSync(data);
+    for (let i = 0; i < 300; i++) writeFileSync(join(data, `f${i}.txt`), "x\n");
+    const result = await runCommand(command, ["data", ...Array.from({ length: 240 }, (_, i) => `missing-evidence-path-${i}`)], f.options);
+    assert.equal(result.exit_code, 1); assert.equal(result.verdict, "passthrough");
+    assert.match(f.text("stderr"), /missing-evidence-path-239/);
+    for (const stream of ["stdout", "stderr"])
+        assert.deepEqual(f.data(stream), readOutput(result.id, { archiveDir: f.options.archiveDir, stream }));
+    assert.ok(!f.text("stderr").includes("no matches"));
+});
+
+test("directory byte budget includes metadata and supports exact UTF-8 pagination", () => {
+    const f = fixture(), dir = join(f.dir, "directory 한글"); mkdirSync(dir);
+    const expected = Array.from({ length: 120 }, (_, i) => `file ${String(i).padStart(3, "0")} 한글.txt`);
+    for (const name of expected) writeFileSync(join(dir, name), "x\n");
+    const seen = [];
+    let start = 1;
+    while (true) {
+        const page = readPath(dir, { start, maxBytes: 1024 });
+        assert.ok(Buffer.byteLength(page) <= 1024);
+        seen.push(...page.split("\n").slice(1, -1));
+        if (page.includes("complete=true")) break;
+        const next = Number(page.match(/continue: grafly read <path> --start (\d+)/)?.[1]);
+        assert.ok(next > start); start = next;
+    }
+    assert.deepEqual(seen, expected);
+    assert.match(readPath(dir, { start: 121, maxBytes: 1024 }), /shown 0; complete=true/);
+    for (const options of [{ maxBytes: 0 }, { maxBytes: "NaN" }, { context: 0 }, { maxMatches: 2 }])
+        assert.throws(() => readPath(dir, options), /invalid max-bytes|search options require/);
+    const entry = fileURLToPath(new URL("../dist/tool-output/cli.js", import.meta.url));
+    for (const path of [cli, entry]) {
+        const result = spawnSync(process.execPath, [path, "read", dir, "--max-bytes", "1024"], { encoding: "utf8" });
+        assert.equal(result.status, 0, result.stderr);
+        assert.equal(result.stdout, readPath(dir, { maxBytes: 1024 }));
+        for (const args of [["--max-bytes", "0"], ["--context", "0"]]) {
+            const bad = spawnSync(process.execPath, [path, "read", dir, ...args], { encoding: "utf8" });
+            assert.notEqual(bad.status, 0); assert.equal(bad.stdout, "");
+        }
     }
 });

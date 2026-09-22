@@ -13,6 +13,7 @@ export const lines = (text) => text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
 
 const READ_COMMANDS = new Set(["cat", "head", "tail"]);
 const SEARCH_COMMANDS = new Set(["rg", "grep", "egrep", "fgrep", "findstr", "find", "ls", "where", "which", "tree"]);
+const NO_MATCH_COMMANDS = new Set(["rg", "grep", "egrep", "fgrep", "findstr"]);
 const BUILD_COMMANDS = new Set(["npm", "pnpm", "yarn"]);
 const BUILD_ACTIONS = new Set(["install", "i", "ci", "add", "remove", "update", "upgrade"]);
 const GIT_KINDS = { status: "git", diff: "git", log: "git", show: "git", grep: "search", "ls-files": "search" };
@@ -21,6 +22,8 @@ const GIT_VALUE_OPTS = new Set(["-C", "-c", "--git-dir", "--work-tree", "--exec-
 // git diff/show flags that turn the output into a plain listing.
 const GIT_LIST_FLAGS = new Set(["--name-only", "--name-status", "--numstat", "--shortstat", "--stat",
     "--raw", "--dirstat", "--summary", "--compact-summary"]);
+
+const commandName = command => command.replaceAll("\\", "/").split("/").at(-1).toLowerCase().replace(/\.(?:exe|cmd|bat|com)$/, "");
 
 function gitSubcommand(args) {
     for (let i = 0; i < args.length; i++) {
@@ -46,7 +49,7 @@ function gitKind(args) {
 
 /** Exact supported invocation forms → MC kind; anything else stays raw. */
 export function classifyCommand(command, args = []) {
-    const name = command.replaceAll("\\", "/").split("/").at(-1).toLowerCase().replace(/\.(?:exe|cmd|bat|com)$/, "");
+    const name = commandName(command);
     if (/^python(?:3(?:\.\d+)?)?$/.test(name)) {
         for (let i = 0; i < args.length; i++) {
             if (args[i] === "-m") return ["unittest", "pytest"].includes(args[i + 1]) ? "test" : null;
@@ -61,6 +64,18 @@ export function classifyCommand(command, args = []) {
     if (SEARCH_COMMANDS.has(name)) return "search";
     if (BUILD_COMMANDS.has(name) && BUILD_ACTIONS.has(args[0])) return "build";
     if (name === "git") return gitKind(args);
+    return null;
+}
+
+/** Exit 1 is not universally a search result: find/ls can report failures. */
+export function exitOneMeaning(command, args = []) {
+    const name = commandName(command);
+    if (NO_MATCH_COMMANDS.has(name)) return "no_matches";
+    if (name === "git") {
+        const sub = gitSubcommand(args);
+        if (sub === "grep") return "no_matches";
+        if (sub === "diff") return "differences";
+    }
     return null;
 }
 
@@ -165,17 +180,19 @@ export async function runCommand(command, args = [], options = {}) {
     for (const name of ["stdout", "stderr"]) if (archived) manifest.streams[name] = { bytes: sizes[name], sha256: hashes[name].digest("hex") };
     const kind = classifyCommand(command, args);
     if (kind) manifest.kind = kind;
+    const exitMeaning = exitCode === 1 && sizes.stderr === 0 ? exitOneMeaning(command, args) : null;
     let reduced = null;
-    // Exit 1 is a result for search/git (no match / differences), an error for
-    // every other kind. Unsupported kinds and shell wrappers never reach MC.
+    // Only known command semantics with no diagnostics allow an exit-1 result.
+    // Unsupported kinds and shell wrappers never reach MC.
     if (!live && archived && manifest.complete && size >= MINIMUM && kind
-        && (exitCode === 0 || (["search", "git"].includes(kind) && exitCode === 1))) {
+        && (exitCode === 0 || exitMeaning)) {
         try {
             const decoder = new TextDecoder("utf-8", { fatal: true });
             const input = Object.fromEntries(["stdout", "stderr"].map(s => [s, decoder.decode(Buffer.concat(buffers[s]))]));
             // NUL/binary output is never interpreted as a text transcript.
             if (input.stdout.includes("\0") || input.stderr.includes("\0")) throw new Error("binary_output");
-            const result = judge({ ...input, kind, exit_code: exitCode, complete: true }, env);
+            const result = judge({ ...input, kind, exit_code: exitCode, complete: true,
+                exit_one_is_result: Boolean(exitMeaning) }, env);
             const decision = result.decision;
             if (decision.verdict === "reduced") {
                 const candidate = Object.fromEntries(["stdout", "stderr"].map(s => [s, applyRanges(input[s], decision.streams?.[s])]));
@@ -205,7 +222,7 @@ export async function runCommand(command, args = [], options = {}) {
     } else if (!live) flush();
     // A recognized search exiting 1 with no output is a legitimate no-match,
     // not an execution error — say so explicitly.
-    if (!reduced && kind === "search" && exitCode === 1 && sizes.stdout === 0 && sizes.stderr === 0)
+    if (!reduced && exitMeaning === "no_matches" && sizes.stdout === 0)
         stderr.write("[grafly tool_output: no matches; exit=1]\n");
     if (spawnError) stderr.write(`grafly run: ${spawnError.message}\n`);
     if (timedOut) stderr.write("grafly run: command timed out\n");

@@ -76,19 +76,38 @@ export function readPath(pathArg, options = {}) {
     const start = integer(options.start, 1, 1, Number.MAX_SAFE_INTEGER, "start");
     const count = integer(options.count, READ_DEFAULT_COUNT, 1, READ_MAX_COUNT, "count");
     if (options.stream !== undefined || options.archiveDir !== undefined) throw new Error("read takes a file or directory path, not archive options");
+    if (options.find === undefined && [options.context, options.maxMatches].some(v => v !== undefined))
+        throw new Error("search options require --find");
+    const maxBytes = integer(options.maxBytes, options.find === undefined ? READ_MAX_BYTES : 8192,
+        1024, READ_MAX_BYTES, "max-bytes (1024..1048576)");
     if (stat.isDirectory()) {
         if (options.find !== undefined) throw new Error("--find is for file contents; narrow the directory path instead");
         const entries = readdirSync(full, { withFileTypes: true })
             .map(e => e.name + (e.isDirectory() ? "/" : "")).sort();
-        const shown = entries.slice(start - 1, start - 1 + count);
-        const complete = start - 1 + shown.length >= entries.length;
-        return `[grafly read ${full}: ${entries.length} entries; shown ${shown.length ? `${start}-${start + shown.length - 1}` : "0"}; complete=${complete}`
-            + (complete ? "" : `; continue: grafly read <path> --start ${start + shown.length}`) + "]\n"
-            + shown.join("\n") + (shown.length ? "\n" : "");
+        const header = n => {
+            const complete = start - 1 + n >= entries.length;
+            return `[grafly read ${full}: ${entries.length} entries; shown ${n ? `${start}-${start + n - 1}` : "0"}; complete=${complete}`
+                + (complete ? "" : `; continue: grafly read <path> --start ${start + n}`) + "]\n";
+        };
+        const shown = [];
+        let bytes = 0;
+        for (let i = start - 1; i < Math.min(entries.length, start - 1 + count); i++) {
+            const row = entries[i] + "\n", rowBytes = Buffer.byteLength(row);
+            if (bytes + rowBytes + Buffer.byteLength(header(shown.length + 1)) > maxBytes) {
+                if (!shown.length) throw new Error(`directory entry ${i + 1} and metadata exceed the ${maxBytes} byte budget; raise --max-bytes`);
+                break;
+            }
+            shown.push(row); bytes += rowBytes;
+        }
+        const result = header(shown.length) + shown.join("");
+        if (Buffer.byteLength(result) > maxBytes) throw new Error("directory metadata exceeds the byte budget; raise --max-bytes");
+        return result;
     }
     if (!stat.isFile()) throw new Error("not a regular file or directory");
     if (stat.size > READ_FILE_LIMIT) throw new Error(`file exceeds ${READ_FILE_LIMIT} bytes; use a narrower source tool`);
-    const text = new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(full));
+    const data = readFileSync(full);
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(data);
+    if (text.includes("\0")) throw new Error("binary file (NUL byte); use a binary-aware tool");
     const source = lines(text);
     if (options.find !== undefined) {
         const search = searchOptions(options);
@@ -97,8 +116,6 @@ export function readPath(pathArg, options = {}) {
         return boundedSearch([{ name: full, source, hits }],
             { ...search, header: `[grafly read ${full}; literal search; start=${search.start}; context=${search.context}]\n` });
     }
-    if ([options.context, options.maxMatches].some(v => v !== undefined)) throw new Error("search options require --find");
-    const maxBytes = integer(options.maxBytes, READ_MAX_BYTES, 1024, READ_MAX_BYTES, "max-bytes (1024..1048576)");
     // Complete lines only — a single line over budget is an explicit refusal,
     // never a silent truncation.
     const shown = [];
