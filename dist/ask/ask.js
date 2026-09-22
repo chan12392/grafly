@@ -44,13 +44,35 @@ function firstProse(body) {
     }
     return "";
 }
+// Capture only data parsers; never mutate gray-matter's process-wide engines.
+const parseYaml = matter.engines.yaml.parse;
+const parseJson = JSON.parse;
+function parseConcept(content) {
+    // Match gray-matter's BOM/delimiter/language handling before it dispatches
+    // an engine. Options alone are NOT an allowlist: gray-matter merges defaults
+    // (including its eval-based JavaScript engine) into per-call engines.
+    const input = content.replace(/^\uFEFF/, "");
+    let language = "yaml";
+    if (input.startsWith("---") && !input.startsWith("----"))
+        language = matter.language(input.slice(3)).name || "yaml";
+    const normalized = language.toLowerCase();
+    if (!["yaml", "yml", "json"].includes(normalized))
+        throw new Error(`Unsupported concept frontmatter language: ${language}`);
+    // Explicit options also bypass gray-matter's shared content-only cache.
+    // Pass the original text: gray-matter strips one BOM itself. Passing input
+    // would strip twice and could expose an unvalidated frontmatter delimiter.
+    return matter(content, { engines: {
+        yaml: parseYaml,
+        [language]: normalized === "json" ? parseJson : parseYaml,
+    } });
+}
 function loadCorpus(outDir) {
     const concepts = [];
     if (existsSync(outDir)) {
         for (const entry of readdirSync(outDir)) {
             if (!entry.endsWith(".md") || entry === "INDEX.md")
                 continue;
-            const parsed = matter(readFileSync(join(outDir, entry), "utf8"));
+            const parsed = parseConcept(readFileSync(join(outDir, entry), "utf8"));
             const fm = parsed.data;
             const sources = Array.isArray(fm.sources)
                 ? fm.sources.map((s) => s.path)

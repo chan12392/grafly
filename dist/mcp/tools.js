@@ -13,6 +13,7 @@ import { resolveSymbol } from '../graph/traverse.js';
 import { callersSavings, headerOf, hitLine, looseNoteFor, judgeAndRank, circuitVerdictLine, circuitLogPath, logCircuit, walkAdjacency, sharedEdgeWalk } from '../graph/traverse-cli.js';
 import { cwdContextTokens } from '../circuit/judge.js';
 import { recordFollowup } from '../circuit/feedback.js';
+import { escalateAmbiguous, escalationLines } from '../circuit/escalate.js';
 import { withSavings, setInputRate } from '../context/savings.js';
 import { sessionInputRate } from '../claude/session-metrics.js';
 import { grepGraph } from '../search/grep.js';
@@ -278,6 +279,13 @@ async function callSingleTool(root, name, args, dirOverride) {
             const adj = walkAdjacency(w, direction);
             const nodesById = new Map(w.nodes.map((n) => [n.id, n]));
             const results = shown.map((m) => ({ symbol: m, hits: sharedEdgeWalk(w, adj, nodesById, m, direction, depth) }));
+            // Same dropped-call-site escalation the CLI runs (GRAFLY_MC_HOME
+            // opt-in; null and free when unconfigured).
+            const ambNames = new Set(matches.map((m) => m.name));
+            const ambiguous = direction === 'in'
+                ? (w.ambiguousCalls ?? []).filter((a) => ambNames.has(a.name))
+                : [];
+            const escalation = escalateAmbiguous(root, symbol, matches, ambiguous);
             if (judged)
                 logCircuit(logPath, { ts: new Date().toISOString(), type: 'judge', cmd: 'mcp_trace',
                     query: symbol, direction, depth: Number.isFinite(depth) ? depth : 'all',
@@ -285,11 +293,15 @@ async function callSingleTool(root, name, args, dirOverride) {
                     matchCount: matches.length, verdict: judged.circuit.verdict,
                     gap: judged.circuit.gap, reason: judged.circuit.reason,
                     top1: judged.circuit.top, scores: judged.circuit.scores,
-                    features: judged.features, shown: shown.map((n) => n.id) });
+                    features: judged.features, shown: shown.map((n) => n.id),
+                    ...(escalation ? { escalation: { resolved: escalation.resolved.length,
+                        sites: escalation.sites, errors: escalation.errors.length } } : {}) });
+            const escText = escalationLines(escalation);
             const hitsById = new Map(results.map((r) => [r.symbol.id, r.hits]));
             const body = (judged ? circuitVerdictLine(judged.circuit, matches.length) + '\n\n' : '')
                 + (shown.length < matches.length ? `… top ${shown.length} of ${matches.length} matches (circuit-ranked; pass top:${matches.length} for all)\n\n` : '')
-                + renderMatches(direction, depth > 1, shown, (m) => hitsById.get(m.id) ?? [], matches.length);
+                + renderMatches(direction, depth > 1, shown, (m) => hitsById.get(m.id) ?? [], matches.length)
+                + (escText ? '\n' + escText.join('\n') + '\n' : '');
             const text = withSavings(body, callersSavings(w, results));
             return { text, isError: false };
         }
