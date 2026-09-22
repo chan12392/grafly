@@ -15,32 +15,48 @@ function integer(value, fallback, min, max, name) {
 }
 
 // Shared literal-search body: numbered `name:line:text` rows under byte/match
-// budgets, with explicit per-source counts and continuation.
+// budgets, with explicit per-source counts and continuation. The whole response
+// — header, stats rows and body — must fit maxBytes. Stats text depends on the
+// selection, so the byte budget is settled by iteration: stats only shrink as
+// shown counts shrink, so one re-selection always converges.
 function boundedSearch(sources, { header, start, context, maxMatches, maxBytes }) {
-    let remainingBytes = maxBytes - 1024, remainingMatches = maxMatches;
-    const body = [], stats = [];
-    for (const { name, source, hits } of sources) {
-        const selected = hits.slice(0, remainingMatches), shownLines = new Set();
-        // Do not pull extra matches past the match limit in as trailing context.
-        const endLimit = hits[selected.length] ?? source.length;
-        let byteLimited = false;
-        for (const hit of selected) {
-            const window = [];
-            for (let i = Math.max(start - 1, hit - context); i < Math.min(endLimit, hit + context + 1); i++) {
-                if (!shownLines.has(i)) window.push([i, `${name}:${i + 1}:${source[i].replace(/\r?\n$/, "")}\n`]);
+    let reserved = 0;
+    for (;;) {
+        const budget = maxBytes - Buffer.byteLength(header) - reserved;
+        if (budget <= 0) throw new Error(`max-bytes ${maxBytes} cannot fit the result metadata; raise --max-bytes`);
+        let remainingBytes = budget, remainingMatches = maxMatches;
+        const body = [], stats = [];
+        for (const { name, source, hits } of sources) {
+            const selected = hits.slice(0, remainingMatches), shownLines = new Set();
+            // Do not pull extra matches past the match limit in as trailing context.
+            const endLimit = hits[selected.length] ?? source.length;
+            let byteLimited = false;
+            for (const hit of selected) {
+                const window = [];
+                for (let i = Math.max(start - 1, hit - context); i < Math.min(endLimit, hit + context + 1); i++) {
+                    if (!shownLines.has(i)) window.push([i, `${name}:${i + 1}:${source[i].replace(/\r?\n$/, "")}\n`]);
+                }
+                const size = window.reduce((sum, [, row]) => sum + Buffer.byteLength(row), 0);
+                // A window that could not fit even the whole body budget can
+                // never be delivered — a next_start pointing at it would stall
+                // every retry, so refuse loudly instead.
+                if (size > budget)
+                    throw new Error(`match at ${name}:${hit + 1} needs ${size} bytes; the ${maxBytes} byte budget leaves ${budget} — raise --max-bytes or reduce --context`);
+                if (size > remainingBytes) { byteLimited = true; break; }
+                for (const [i, row] of window) { shownLines.add(i); body.push(row); }
+                remainingBytes -= size;
             }
-            const size = window.reduce((sum, [, row]) => sum + Buffer.byteLength(row), 0);
-            if (size > remainingBytes) { byteLimited = true; break; }
-            for (const [i, row] of window) { shownLines.add(i); body.push(row); }
-            remainingBytes -= size;
+            const shown = hits.filter(i => shownLines.has(i)).length;
+            remainingMatches -= shown;
+            const next = hits.find(i => !shownLines.has(i));
+            stats.push(`[${name}: matches=${hits.length}; shown=${shown}; complete=${next === undefined}`
+                + (next === undefined ? "" : `; next_start=${next + 1}; limit=${byteLimited ? "bytes (reduce context or raise --max-bytes)" : "matches"}`) + "]\n");
         }
-        const shown = hits.filter(i => shownLines.has(i)).length;
-        remainingMatches -= shown;
-        const next = hits.find(i => !shownLines.has(i));
-        stats.push(`[${name}: matches=${hits.length}; shown=${shown}; complete=${next === undefined}`
-            + (next === undefined ? "" : `; next_start=${next + 1}; limit=${byteLimited ? "bytes (reduce context or raise --max-bytes)" : "matches"}`) + "]\n");
+        const statsText = stats.join("");
+        const statsBytes = Buffer.byteLength(statsText);
+        if (statsBytes <= reserved) return header + statsText + body.join("");
+        reserved = statsBytes;
     }
-    return header + stats.join("") + body.join("");
 }
 
 function searchOptions(options) {
@@ -117,20 +133,30 @@ export function readPath(pathArg, options = {}) {
             { ...search, header: `[grafly read ${full}; literal search; start=${search.start}; context=${search.context}]\n` });
     }
     // Complete lines only — a single line over budget is an explicit refusal,
-    // never a silent truncation.
+    // never a silent truncation. The header counts toward maxBytes, same as
+    // the directory listing does.
+    const header = (n, b) => {
+        const complete = start - 1 + n >= source.length;
+        return `[grafly read ${full}: ${source.length} lines; shown ${n ? `${start}-${start + n - 1}` : "0"}; ${b} bytes; complete=${complete}`
+            + (complete ? "" : `; continue: grafly read <path> --start ${start + n}`) + "]\n";
+    };
     const shown = [];
     let bytes = 0;
     for (let i = start - 1; i < Math.min(source.length, start - 1 + count); i++) {
         const lineBytes = Buffer.byteLength(source[i]);
-        if (!shown.length && lineBytes > maxBytes)
-            throw new Error(`line ${i + 1} alone is ${lineBytes} bytes, over the ${maxBytes} byte budget; use --find '<literal>' or another tool`);
-        if (bytes + lineBytes > maxBytes) break;
-        shown.push(source[i]); bytes += lineBytes;
+        const prospective = bytes + lineBytes;
+        if (prospective + Buffer.byteLength(header(shown.length + 1, prospective)) > maxBytes) {
+            if (!shown.length)
+                throw new Error(lineBytes > maxBytes
+                    ? `line ${i + 1} alone is ${lineBytes} bytes, over the ${maxBytes} byte budget; use --find '<literal>' or another tool`
+                    : `line ${i + 1} and the response header exceed the ${maxBytes} byte budget; raise --max-bytes`);
+            break;
+        }
+        shown.push(source[i]); bytes = prospective;
     }
-    const complete = start - 1 + shown.length >= source.length;
-    return `[grafly read ${full}: ${source.length} lines; shown ${shown.length ? `${start}-${start + shown.length - 1}` : "0"}; ${bytes} bytes; complete=${complete}`
-        + (complete ? "" : `; continue: grafly read <path> --start ${start + shown.length}`) + "]\n"
-        + shown.join("");
+    const result = header(shown.length, bytes) + shown.join("");
+    if (Buffer.byteLength(result) > maxBytes) throw new Error("file metadata exceeds the byte budget; raise --max-bytes");
+    return result;
 }
 
 // Shared by the public CLI and the lightweight host entry point.

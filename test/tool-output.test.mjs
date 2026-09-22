@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
-import { runCommand, readOutput, applyRanges, isTestCommand, classifyCommand, exitOneMeaning, judge } from "../dist/tool-output/runner.js";
+import { runCommand, readOutput, applyRanges, isTestCommand, classifyCommand, exitOneMeaning, judge, lines } from "../dist/tool-output/runner.js";
 import { searchOutput, writeOutput, readPath } from "../dist/tool-output/output.js";
 import { installOutputHook } from "../dist/tool-output/install.js";
 import { outputContext } from "../dist/tool-output/hook.js";
@@ -35,9 +35,25 @@ function suite(dir) {
     return ["-m", "unittest", "-v", "test_output_sample"];
 }
 
+/** Deterministic stand-in for the MC channel: keeps the first line plus the
+ * result tail of stderr, so the reduction path is exercised on hosts without a
+ * live morecoffee install. The same reduction contract (ranges, sizes, receipt)
+ * is still verified against the real applyRanges/manifest code. */
+const stubJudge = (payload) => {
+    const source = lines(payload.stderr);
+    const tail = source.findIndex(l => /^Ran \d+ tests/.test(l));
+    const keep = [[0, 1], [tail < 1 ? source.length : tail, source.length]];
+    const kept = keep.flatMap(([a, b]) => source.slice(a, b));
+    return { status: "ok", channel_id: "tool_output", reason_codes: ["passing_test_details"],
+        decision: { verdict: "reduced", streams: {
+            stdout: { keep: [], output_bytes: 0, shown_lines: 0, total_lines: lines(payload.stdout).length },
+            stderr: { keep, output_bytes: Buffer.byteLength(kept.join("")), shown_lines: kept.length, total_lines: source.length },
+        } } };
+};
+
 test("runner executes once, reduces real unittest output, and retrieves exact raw streams", async () => {
     const f = fixture(); const args = suite(f.dir);
-    const result = await runCommand(python, args, f.options);
+    const result = await runCommand(python, args, { ...f.options, judge: stubJudge });
     assert.equal(result.exit_code, 0); assert.equal(result.verdict, "reduced");
     assert.match(f.text("stderr"), /Ran 160 tests/); assert.match(f.text("stderr"), /grafly tool_output/);
     assert.ok(!f.text("stderr").includes("test_detail_159"));
@@ -52,6 +68,13 @@ test("runner executes once, reduces real unittest output, and retrieves exact ra
     assert.ok(Buffer.byteLength(found) < 500);
     writeFileSync(join(result.archive, "stderr.bin"), "tampered");
     assert.throws(() => readOutput(result.id, { archiveDir: f.options.archiveDir, stream: "stderr" }), /integrity/);
+    // Where a live MC exists, the real channel still produces the reduction.
+    if (mcSupports("test")) {
+        const live = fixture(); live.options.cwd = f.dir;
+        const real = await runCommand(python, args, live.options);
+        assert.equal(real.exit_code, 0); assert.equal(real.verdict, "reduced");
+        assert.ok(!live.text("stderr").includes("test_detail_159"));
+    }
 });
 
 test("failure exit, UTF-8, stderr and literal shell metacharacters survive unchanged", async () => {
@@ -94,6 +117,19 @@ test("timeout and missing executable cannot report success", async () => {
     assert.equal(result.exit_code, 124); assert.equal(result.complete, false);
     const missing = await runCommand(join(f.dir, "missing-executable"), [], f.options);
     assert.equal(missing.exit_code, 127); assert.equal(missing.complete, false);
+});
+
+test("timeout escalates past SIGTERM-ignoring children and pipe-holding heirs", async (t) => {
+    if (process.platform === "win32") return t.skip("group escalation is POSIX-only; win32 uses taskkill /T /F");
+    const f = fixture(), started = Date.now();
+    // The child ignores SIGTERM; its detached heir survives the group kill and
+    // still holds our pipe — the runner must return on SIGKILL + pipe release.
+    const result = await runCommand(process.execPath, ["-e",
+        "process.on('SIGTERM',()=>{});setInterval(()=>{},50);"
+        + "require('node:child_process').spawn(process.execPath,['-e','setTimeout(()=>{},15000)'],{detached:true,stdio:'inherit'}).unref()"],
+        { ...f.options, timeoutMs: 150 });
+    assert.equal(result.exit_code, 124);
+    assert.ok(Date.now() - started < 10_000, "escalation must not hang on ignored SIGTERM or held pipes");
 });
 
 test("range consumer rejects missing, reordered, duplicate and out-of-bounds evidence", () => {
@@ -218,18 +254,35 @@ test("match limits expose continuation without leaking extra matches through con
     assert.ok(!next.includes("hit two"));
 });
 
-test("byte limits never split UTF-8 or silently omit a long matching line", () => {
+test("byte limits never split UTF-8; an undeliverable window is a loud error", () => {
     const f = archived("hit " + "한".repeat(4000) + "\n");
-    const result = f.search({ find: "hit", context: 0 });
-    assert.ok(Buffer.byteLength(result) <= 8192);
-    assert.match(result, /shown=0; complete=false; next_start=1; limit=bytes/);
+    // A window too large for ANY budget the flag allows cannot be paged to —
+    // next_start would stall forever, so the search refuses explicitly.
+    assert.throws(() => f.search({ find: "hit", context: 0 }), /needs \d+ bytes.*raise --max-bytes/);
     const expanded = f.search({ find: "hit", context: 0, maxBytes: 16384 });
     assert.match(expanded, /shown=1; complete=true/);
     assert.ok(expanded.includes("한".repeat(4000)));
     const many = archived(Array.from({ length: 20 }, (_, i) => `hit ${i} ${"한".repeat(300)}\n`).join(""));
     const bounded = many.search({ find: "hit", context: 0, maxBytes: 2048 });
     assert.ok(Buffer.byteLength(bounded) <= 2048);
-    assert.match(bounded, /shown=1; complete=false; next_start=2; limit=bytes/);
+    const m = bounded.match(/shown=(\d+); complete=false; next_start=(\d+); limit=bytes/);
+    assert.ok(m && Number(m[1]) >= 1 && Number(m[2]) === Number(m[1]) + 1, bounded);
+});
+
+test("minimum byte budget still makes progress on an ordinary match", () => {
+    const f = archived("needle\n");
+    const result = f.search({ find: "needle", maxBytes: 1024 });
+    assert.ok(Buffer.byteLength(result) <= 1024);
+    assert.match(result, /stdout:1:needle/);
+    assert.match(result, /shown=1; complete=true/);
+});
+
+test("file read byte budget covers the whole response, header included", () => {
+    const f = fixture(), file = join(f.dir, "rows.txt");
+    writeFileSync(file, Array.from({ length: 300 }, (_, i) => `row ${i}\n`).join(""));
+    const page = readPath(file, { maxBytes: 1024 });
+    assert.ok(Buffer.byteLength(page) <= 1024);
+    assert.match(page, /complete=false; continue: grafly read <path> --start \d+/);
 });
 
 test("search validates ranges and verifies even nonmatching streams before delivering evidence", () => {
