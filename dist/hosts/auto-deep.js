@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { acquireLockIn, releaseLockIn } from '../util/state.js';
 import { contextDirFor } from '../context/node-file.js';
 import { readFingerprint } from '../graph/fingerprint.js';
+import { migrateIndex } from '../context/migrate-index.js';
 
 const SELF = fileURLToPath(import.meta.url);
 const HOUR = 3600000;
@@ -60,7 +61,7 @@ function wake(home) {
     child.unref();
 }
 /** True means this project is managed, including an already queued/cached job. */
-export function scheduleAutoDeep(root, { home = autoDeepHome(), launch = true, now = Date.now() } = {}) {
+export function scheduleAutoDeep(root, { home = autoDeepHome(), launch = true, now = Date.now(), sessionId, force = false } = {}) {
     if (disabled()) return false;
     const c = config(home);
     if (!c) return false;
@@ -69,12 +70,15 @@ export function scheduleAutoDeep(root, { home = autoDeepHome(), launch = true, n
         if (!allowed(root, c)) return false;
         const p = paths(home, root);
         const previous = read(p.state);
-        if (!existsSync(p.job) && previous?.nextCheckAt > now) return true;
+        const session = sessionId ? createHash('sha256').update(String(sessionId)).digest('hex').slice(0, 24) : null;
+        if (session && previous?.completedSessions?.includes(session)) return true;
+        if (session || force) p.job = p.job.replace(/\.json$/, `-${session || randomUUID()}.json`);
+        if (!session && !force && !existsSync(p.job) && previous?.nextCheckAt > now) return true;
         mkdirSync(p.queue, { recursive: true });
         // Publish a complete record exclusively, so a worker cannot consume a
         // half-written job when two host hooks enqueue simultaneously.
         const temp = `${p.job}.${randomUUID()}.tmp`;
-        writeFileSync(temp, JSON.stringify({ root, queuedAt: now }));
+        writeFileSync(temp, JSON.stringify({ root, queuedAt: now, session }));
         try { linkSync(temp, p.job); }
         catch (error) { if (error.code !== 'EEXIST') throw error; }
         finally { unlinkSync(temp); }
@@ -102,7 +106,8 @@ async function localModel(c) {
 }
 /** Existing cached builders, with the concurrency limit applied to BOTH passes. */
 export async function buildDeepProject(root, c, progress = () => {}) {
-    const [{ Grafly }, { buildContext }, { buildGraph }] = await Promise.all([
+    migrateIndex(root);
+    const [{ Grafly }, { buildContext, listContextFiles, CODE_EXTENSIONS }, { buildGraph }] = await Promise.all([
         import('../engine.js'), import('../context/build.js'), import('../graph/build.js'),
     ]);
     const contextDir = contextDirFor(root);
@@ -112,16 +117,28 @@ export async function buildDeepProject(root, c, progress = () => {}) {
     const stopHeartbeat = heartbeat(cache);
     try {
         // Keep a usable structural index even when the endpoint is unavailable.
-        if (!existsSync(join(contextDir, '.graph', 'wiring.json'))) {
-            progress({ phase: 'structure' });
-            await buildGraph(root, { contextDir, graphOnly: true, onlyDirs });
-        }
+        progress({ phase: 'structure' });
+        const structural = await buildGraph(root, { contextDir, graphOnly: true, onlyDirs });
+        // Independent of query-refresh fingerprints: a query may have refreshed
+        // structure since the last successful Deep pass. Hash the concept scope too.
+        const identity = () => createHash('sha256').update(JSON.stringify({ version: 1,
+            model: c.model, baseUrl: c.baseUrl, onlyDirs, fingerprint: readFingerprint(contextDir)?.extractor,
+            files: listContextFiles(root, contextDir, CODE_EXTENSIONS, onlyDirs).sort().map(file =>
+                [relative(root, file), createHash('sha256').update(readFileSync(file)).digest('hex')]),
+        })).digest('hex');
+        const before = identity();
+        const stamp = join(cache, 'deepidx.json');
+        const prior = read(stamp);
+        const manifest = read(join(contextDir, 'manifest.json'));
+        if (prior?.identity === before && manifest && manifest.nodes.every(n => existsSync(join(contextDir, `${n.slug}.md`))) &&
+            !structural.errors.length && !structural.meaning.pending && !structural.meaning.stale)
+            return { ...prior.result, cached: true };
         const model = await localModel(c);
         const engine = new Grafly({ provider: 'openai', apiKey: 'local', baseUrl: c.baseUrl, model, contextDir });
         progress({ phase: 'concepts', model });
         const concepts = await buildContext(root, {
             contextDir, model, concurrency: c.concurrency, onlyDirs,
-            summarizer: engine.summarizer(), synthesizer: engine.synthesizer(),
+            summarizer: engine.summarizer(), synthesizer: engine.synthesizer(), incremental: true,
         });
         // Fatal quota/auth failures must not start a second wave of requests.
         if (concepts.fatal) return { status: 'incomplete', model, conceptErrors: concepts.errors, fatal: concepts.fatal };
@@ -130,8 +147,12 @@ export async function buildDeepProject(root, c, progress = () => {}) {
         const m = graph.meaning;
         const conceptErrors = [...concepts.errors];
         if (concepts.files > 0 && concepts.nodes === 0) conceptErrors.push('No concept nodes were produced from nonempty source.');
+        const changedDuringBuild = identity() !== before;
+        if (changedDuringBuild) conceptErrors.push('Source changed during Deep; retry to finish the new revision.');
         const incomplete = conceptErrors.length || graph.errors.length || m.pending || m.stale || m.failedFiles || m.fatal;
-        return { status: incomplete ? 'incomplete' : 'ready', model, nodes: graph.nodes, meaning: m, conceptErrors };
+        const result = { status: incomplete ? 'incomplete' : 'ready', model, nodes: graph.nodes, meaning: m, conceptErrors };
+        if (!incomplete) write(stamp, { identity: before, result });
+        return result;
     } finally { stopHeartbeat(); releaseLockIn(cache); }
 }
 /** One worker across hosts/projects. Queue files survive a worker crash. */
@@ -154,14 +175,17 @@ export async function runAutoDeepWorker({ home = autoDeepHome(), build = buildDe
                 if (!job?.root || !allowed(job.root, c)) { try { unlinkSync(jobFile); } catch {} continue; }
                 const p = paths(home, job.root);
                 const startedAt = Date.now();
-                const base = { root: job.root, startedAt, workerPid: process.pid };
+                const completedSessions = read(p.state)?.completedSessions || [];
+                const base = { root: job.root, startedAt, workerPid: process.pid, completedSessions };
                 write(p.state, { ...base, status: 'running', phase: 'starting' });
                 let result;
                 try { result = await build(job.root, c, update => write(p.state, { ...base, status: 'running', ...update })); }
                 catch (error) { result = { status: 'failed', error: error.message }; }
                 const finishedAt = Date.now();
+                if (result.status !== 'busy' && job.session) base.completedSessions = [...new Set([...completedSessions, job.session])].slice(-128);
                 write(p.state, { ...base, ...result, finishedAt, nextCheckAt: finishedAt + (result.status === 'busy' ? 60000 : HOUR) });
-                unlinkSync(jobFile);
+                if (result.status === 'busy') await new Promise(resolve => setTimeout(resolve, 5000));
+                else unlinkSync(jobFile);
             }
         }
     } finally {
@@ -169,6 +193,15 @@ export async function runAutoDeepWorker({ home = autoDeepHome(), build = buildDe
         // A hook can enqueue while the old worker is exiting; leave no lost wakeup.
         try { if (readdirSync(join(dir, 'queue')).some(f => f.endsWith('.json'))) wake(home); } catch {}
     }
+}
+/** Explicit CLI path, using the same configured local-only endpoint and root boundary. */
+export async function deepidx(root, { background = false, sessionId, home = autoDeepHome() } = {}) {
+    root = realpathSync(resolve(root));
+    const c = config(home);
+    if (disabled() || !c || !allowed(root, c))
+        return { status: 'disabled', error: 'Enable .grafly/auto-deep.json with an allowed Git root and existing localhost endpoint.' };
+    if (background) return { status: scheduleAutoDeep(root, { home, sessionId, force: true }) ? 'queued' : 'failed' };
+    return buildDeepProject(root, c);
 }
 if (process.argv[1] && resolve(process.argv[1]) === SELF) {
     const command = process.argv[2];

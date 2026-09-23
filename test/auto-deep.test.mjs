@@ -32,7 +32,7 @@ test('shared adapter startup dedup tolerates Windows timestamp skew', t => {
     const { claimStartup } = createRequire(import.meta.url)('../scripts/grafly-devin-hook.cjs');
     const now = Date.now();
     assert.equal(claimStartup(f.root, { session_id: 'clock' }, 'orientation', now), true);
-    const dir = join(f.root, 'grafly/.cache/hook-startup');
+    const dir = join(f.root, '.grafly/.cache/hook-startup');
     const stamp = join(dir, readdirSync(dir)[0]);
     utimesSync(stamp, new Date(now + 20), new Date(now + 20));
     assert.equal(claimStartup(f.root, { session_id: 'clock' }, 'orientation', now), false);
@@ -69,6 +69,26 @@ test('one worker consumes duplicates once; successful projects cool down', async
     assert.equal(autoDeepStatus(f.home).jobs.length, 1);
 });
 
+test('every new session bypasses cooldown and a session arriving during a build is retained', async t => {
+    const f = fixture(t); f.configure();
+    const opts = { home: f.home, launch: false };
+    scheduleAutoDeep(f.root, { ...opts, sessionId: 'first' });
+    let calls = 0;
+    await runAutoDeepWorker({ home: f.home, build: async () => {
+        calls++;
+        if (calls === 1) {
+            scheduleAutoDeep(f.root, { ...opts, sessionId: 'first' });
+            scheduleAutoDeep(f.root, { ...opts, sessionId: 'second' });
+        }
+        return { status: 'ready' };
+    } });
+    assert.equal(calls, 2);
+    scheduleAutoDeep(f.root, { ...opts, sessionId: 'second' });
+    assert.equal(autoDeepStatus(f.home).jobs.length, 0);
+    scheduleAutoDeep(f.root, { ...opts, sessionId: 'third' });
+    assert.equal(autoDeepStatus(f.home).jobs.length, 1);
+});
+
 test('unavailable model records failure while preserving usable structure, then retries', async t => {
     const f = fixture(t); f.configure();
     scheduleAutoDeep(f.root, { home: f.home, launch: false });
@@ -76,8 +96,8 @@ test('unavailable model records failure while preserving usable structure, then 
     const state = autoDeepStatus(f.home).projects[0];
     assert.equal(state.status, 'failed');
     assert.ok(state.error);
-    assert.ok(existsSync(join(f.root, 'grafly/.graph/wiring.json')));
-    assert.equal(existsSync(join(f.root, 'grafly/.cache/.sync.lock')), false);
+    assert.ok(existsSync(join(f.root, '.grafly/.graph/wiring.json')));
+    assert.equal(existsSync(join(f.root, '.grafly/.cache/.sync.lock')), false);
     scheduleAutoDeep(f.root, { home: f.home, launch: false, now: state.nextCheckAt + 1 });
     let count = 0;
     await runAutoDeepWorker({ home: f.home, build: async () => { count++; return { status: 'ready' }; } });
@@ -86,7 +106,7 @@ test('unavailable model records failure while preserving usable structure, then 
 
 test('active structural refresh prevents an overlapping deep write', async t => {
     const f = fixture(t);
-    const cache = join(f.root, 'grafly/.cache');
+    const cache = join(f.root, '.grafly/.cache');
     assert.equal(acquireLockIn(cache), true);
     try {
         const result = await buildDeepProject(f.root, { baseUrl: 'http://127.0.0.1:1/v1' });
@@ -138,7 +158,7 @@ test('real shared hook schedules deep; model responses produce ready symbols and
     assert.equal(autoDeepStatus(f.home).jobs.length, 0, JSON.stringify(autoDeepStatus(f.home)));
     const state = autoDeepStatus(f.home).projects[0];
     assert.equal(state.status, 'ready', JSON.stringify(state));
-    const graph = JSON.parse(readFileSync(join(f.root, 'grafly/.graph/wiring.json'), 'utf8'));
+    const graph = JSON.parse(readFileSync(join(f.root, '.grafly/.graph/wiring.json'), 'utf8'));
     assert.ok(graph.nodes.length > 0);
     assert.ok(graph.nodes.every(n => n.summary_state === 'ready' && n.summary));
     assert.ok(model.requests.some(r => r.tools?.[0]?.function?.name === 'record_symbols'));
@@ -168,9 +188,9 @@ test('automatic deep preserves an existing only-dir boundary in both passes', as
     await buildGraph(f.root, { onlyDirs: ['selected'], graphOnly: true });
     const result = await buildDeepProject(f.root, { baseUrl: model.baseUrl, model: 'gpt-5.6-luna', concurrency: 2 });
     assert.equal(result.status, 'ready', JSON.stringify(result));
-    const graph = JSON.parse(readFileSync(join(f.root, 'grafly/.graph/wiring.json'), 'utf8'));
+    const graph = JSON.parse(readFileSync(join(f.root, '.grafly/.graph/wiring.json'), 'utf8'));
     assert.ok(graph.nodes.every(n => n.path.startsWith('selected/')));
     assert.ok(!JSON.stringify(model.requests).includes('excludedSentinel'));
     const { readFingerprint } = await import('../dist/graph/fingerprint.js');
-    assert.deepEqual(readFingerprint(join(f.root, 'grafly')).onlyDirs, ['selected']);
+    assert.deepEqual(readFingerprint(join(f.root, '.grafly')).onlyDirs, ['selected']);
 });

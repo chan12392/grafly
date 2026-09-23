@@ -36,7 +36,7 @@ function projectDir(input) {
 export function underGraft(dir, file) {
     const rel = file.startsWith(dir) ? file.slice(dir.length) : file;
     const normalized = rel.replace(/^[/\\]+/, '').replace(/\\/g, '/');
-    return normalized.startsWith('grafly/') || normalized.startsWith('graft/');
+    return normalized.startsWith('.grafly/') || normalized.startsWith('grafly/') || normalized.startsWith('graft/');
 }
 /** Default budget for a graft child process invoked from a hook, matching the 8s
  * the installed hook entries carry. */
@@ -404,6 +404,8 @@ export async function main(event) {
     const input = readStdin();
     const dir = projectDir(input);
     if (event === 'session-start') {
+        const { scheduleAutoDeep } = await import('../hosts/auto-deep.js');
+        scheduleAutoDeep(dir, { sessionId: input.session_id || input.thread_id || process.env.CODEX_THREAD_ID, force: true });
         // Before anything is emitted: refresh this repo's wiring if it was written by
         // an older graft, and pick up any cached "newer version on npm" answer.
         // background:false — a hook must never touch the network; the CLI and the MCP

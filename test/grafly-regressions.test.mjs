@@ -11,7 +11,7 @@ import { posthogKey } from "../dist/telemetry/key.js";
 import { appendCircuitRecord, recordFollowup } from "../dist/circuit/feedback.js";
 
 test("Grafly is primary engine and Graft remains alias",()=>assert.equal(Graft,Grafly));
-test("default graph directory is grafly",()=>{const root=mkdtempSync(join(tmpdir(),"grafly-"));assert.equal(contextDirFor(root),join(root,"grafly"));});
+test("default graph directory is .grafly",()=>{const root=mkdtempSync(join(tmpdir(),"grafly-"));assert.equal(contextDirFor(root),join(root,".grafly"));});
 test("MCP canonical names use grafly",()=>{assert.ok(GRAFLY_MCP_TOOL_CANONICAL.every(n=>n.startsWith("grafly_")));assert.equal(canonicalToolName("graft_find_code"),"grafly_find_code");});
 test("trace depth all is infinite",()=>{assert.equal(normalizeTraceDepth("all"),Infinity);assert.equal(normalizeTraceDepth("4"),4);});
 test("workspace scope splits child",()=>assert.deepEqual(splitWorkspaceScope("repoA/src",["repoA","repoB"]),{onlyChild:"repoA",childIn:"src"}));
@@ -72,12 +72,14 @@ import { resolveContextDir, readBuildConfig, writeBuildConfig } from "../dist/ut
 import { upsertSection } from "../dist/hosts/sections.js";
 import { instructionBody } from "../dist/hosts/instructions.js";
 
-test("resolveContextDir defaults to grafly, honors legacy graft and env override", () => {
+test("resolveContextDir defaults to .grafly, honors legacy graft and env override", () => {
   const bare = mkdtempSync(join(tmpdir(), "grafly-bare-"));
-  assert.equal(resolveContextDir(bare), join(bare, "grafly"));
+  assert.equal(resolveContextDir(bare), join(bare, ".grafly"));
   mkdirSync(join(bare, "graft"));
+  writeFileSync2(join(bare, "graft/workspace.json"), JSON.stringify({version:1,children:[]}));
   assert.equal(resolveContextDir(bare), join(bare, "graft"));
   mkdirSync(join(bare, "grafly"));
+  writeFileSync2(join(bare, "grafly/workspace.json"), JSON.stringify({version:1,children:[]}));
   assert.equal(resolveContextDir(bare), join(bare, "grafly"));
   const prev = process.env.GRAFLY_DIR;
   process.env.GRAFLY_DIR = "custom-ctx";

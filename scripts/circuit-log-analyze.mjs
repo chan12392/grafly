@@ -1,10 +1,11 @@
 #!/usr/bin/env node
+import { contextDirFor } from '../dist/context/node-file.js';
 /**
  * circuit-log.jsonl analyzer — mine the judgment log for ranking problems
  * and feedback labels. Usage:
  *
  *   node scripts/circuit-log-analyze.mjs <log.jsonl> [more.jsonl...]
- *   node scripts/circuit-log-analyze.mjs --dir <repo>     → <repo>/graft/circuit-log.jsonl
+ *   node scripts/circuit-log-analyze.mjs --dir <repo>     → <repo>/.grafly/circuit-log.jsonl
  *   --query X   drill into one query string
  *
  * Reports what an operator needs to tune the circuit:
@@ -23,7 +24,7 @@ let queryFilter = null;
 for (let i = 0; i < args.length; i++) {
     if (args[i] === "--dir") {
         const repo = args[++i];
-        const log = join(repo, "graft", "circuit-log.jsonl");
+        const log = join(contextDirFor(repo), "circuit-log.jsonl");
         paths.push(log);
         if (existsSync(log + ".1"))
             paths.push(log + ".1"); // rotated generation — history is data too

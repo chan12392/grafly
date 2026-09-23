@@ -9,8 +9,10 @@ export interface BuildProgress {
     file: string;
 }
 export interface BuildOptions {
-    /** Override the output dir (default: `<root>/.context`). */
+    /** Override the output dir (default: `<root>/.grafly`). */
     contextDir?: string;
+    /** Preserve existing concepts; synthesize only changed/deleted-file effects. */
+    incremental?: boolean;
     /** Extensions to treat as code. Default: {@link CODE_EXTENSIONS}. */
     extensions?: string[];
     /** Repo-relative directory prefixes to limit the concept pass (`--only-dir`).

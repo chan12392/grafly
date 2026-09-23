@@ -1,3 +1,4 @@
+import { contextDirFor } from '../dist/context/node-file.js';
 // Local paired replay on existing indexes. No build/refresh, network or session writes.
 // node scripts/evaluate-exact-symbol.mjs BASELINE_PACKAGE WORKSPACE OUTPUT_JSON
 import assert from 'node:assert/strict';
@@ -43,15 +44,15 @@ const controls = ['who calls writeSession', 'what does readSession call',
     'who calls loadGraphCached', 'what does federateAsk call',
     'Where is nonexistentCacheQz917?', 'Locate src/writeSession.js',
     'writeSessionExtraQz917', 'write session'];
-const children = JSON.parse(readFileSync(join(workspace, 'grafly/workspace.json'), 'utf8')).children;
+const children = JSON.parse(readFileSync(join(contextDirFor(workspace), 'workspace.json'), 'utf8')).children;
 const candidateDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const engineFiles = ['dist/ask/ask.js', 'dist/ask/exact-symbol.js', 'dist/ask/fuse.js',
     'dist/ask/index-file.js', 'dist/graph/workspace.js', 'dist/claude/format.js'];
-const watched = [join(workspace, 'grafly/workspace.json'),
+const watched = [join(contextDirFor(workspace), 'workspace.json'),
     join(workspace, '.config/devin/hooks/grafly-devin-hook.cjs'),
     ...[baselineDir, candidateDir].flatMap((root) => engineFiles.map((file) => join(root, file))),
-    ...children.flatMap((child) => [join(workspace, child, 'grafly/.graph/wiring.json'),
-        join(workspace, child, 'grafly/.cache/ask-index.json')])].filter(existsSync);
+    ...children.flatMap((child) => [join(contextDirFor(join(workspace, child)), '.graph/wiring.json'),
+        join(workspace, child, '.grafly/.cache/ask-index.json')])].filter(existsSync);
 const digest = () => Object.fromEntries(watched.map((p) => [p, createHash('sha256').update(readFileSync(p)).digest('hex')]));
 const before = digest();
 const result = { baselineDir, workspace, node: process.version, sourceProof: [], quality: [], controls: [], timings: [], inputs: before };
@@ -63,7 +64,7 @@ const summary = (r) => r.hits.map(({ title, pointer, exactSymbol }) => ({ title,
 for (const [project, name, path, action] of cases) {
     const child = `orca/projects/${project}`;
     const root = join(workspace, child);
-    const graph = JSON.parse(readFileSync(join(root, 'grafly/.graph/wiring.json'), 'utf8'));
+    const graph = JSON.parse(readFileSync(join(contextDirFor(root), '.graph/wiring.json'), 'utf8'));
     const symbol = graph.nodes.find((n) => n.name === name && n.path === path);
     assert.ok(symbol, name);
     const [start, end] = symbol.span.match(/\d+/g).map(Number);

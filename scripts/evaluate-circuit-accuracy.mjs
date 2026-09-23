@@ -1,3 +1,4 @@
+import { contextDirFor } from '../dist/context/node-file.js';
 // Paired local replay: fixed contract cases + existing real indexes.
 // Usage: node scripts/evaluate-circuit-accuracy.mjs BASELINE OUTPUT ROOT...
 // No network, model calls, graph refresh, or scanned-source execution.
@@ -31,7 +32,7 @@ for (const root of [baseline, candidate]) for (const file of files) {
 const contract = circuitAccuracyCases();
 const real = [];
 for (const rootArg of roots) {
-    const root = resolve(rootArg), path = join(root, 'grafly/.graph/wiring.json');
+    const root = resolve(rootArg), path = join(contextDirFor(root), '.graph/wiring.json');
     const raw = readFileSync(path), graph = JSON.parse(raw);
     inputs[path] = digest(raw);
     const names = [...new Set(graph.nodes.filter((n) => n.kind !== 'file').map((n) => n.name))]

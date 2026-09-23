@@ -5,7 +5,7 @@
 export function instructionBody() {
     return `## Grafly — repo context graph
 
-This repo is indexed in \`grafly/\`: small linked markdown nodes that explain each
+This repo is indexed in \`.grafly/\`: small linked markdown nodes that explain each
 system and carry exact file:line spans, kept in sync with the code through git.
 
 For ANY task here — understanding how something works, finding where code lives,
@@ -30,7 +30,7 @@ hotspots), no LLM, no key.
   Add \`--direction out\` for what it calls, or \`--depth N\` to walk
   transitively for the full blast radius. For structural questions, skip
   ranking and use this directly.
-- Or browse: \`grafly/INDEX.md\` lists every node; follow the links.
+- Or browse: \`.grafly/INDEX.md\` lists every node; follow the links.
 - Monorepos and folders of multiple repos rank fairly across sub-projects —
   hits carry \`[scope/]\` labels naming which one they're from. Narrow with
   \`grafly ask "<task>" --in <scope>/\` once you know where you're working.
@@ -45,7 +45,7 @@ no API key, $0).`;
 }
 export function cursorRule() {
     return `---
-description: Use the Grafly context graph in grafly/ before exploring source
+description: Use the Grafly context graph in .grafly/ before exploring source
 alwaysApply: true
 ---
 ${instructionBody()}

@@ -22,6 +22,7 @@ const PKG = fs.existsSync(path.join(LOCAL_DIST, 'claude', 'hooks.js'))
   ? LOCAL_DIST : path.join(process.env.APPDATA || '', 'npm', 'node_modules', 'grafly', 'dist');
 const ENTRY = path.join(PKG, 'claude', 'hooks.js');
 const CLI = path.join(PKG, 'cli.js');
+const { indexDir } = require(path.join(PKG, 'context', 'location.cjs'));
 const EVENT_NAMES = { 'session-start': 'SessionStart', prompt: 'UserPromptSubmit' };
 const BUILD_STALE_MS = 60 * 60 * 1000; // retry a failed build at most hourly
 const STARTUP_DEDUP_MS = 5000;
@@ -34,7 +35,7 @@ function claimStartup(root, input, context, now = Date.now()) {
   const id = input.session_id || input.thread_id || process.env.CODEX_THREAD_ID;
   if (!id || (input.source && input.source !== 'startup')) return true;
   const key = createHash('sha256').update(JSON.stringify([id, context])).digest('hex');
-  const file = path.join(root, 'grafly', '.cache', 'hook-startup', `${key}.stamp`);
+  const file = path.join(indexDir(root), '.cache', 'hook-startup', `${key}.stamp`);
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     try {
@@ -58,7 +59,7 @@ function claimStartup(root, input, context, now = Date.now()) {
 // Grafly builds write <repo>/grafly/; legacy <repo>/graft/ indexes still work
 // until `grafly migrate` rewrites them, so accept either.
 function hasIndex(dir) {
-  for (const name of ['grafly', 'graft']) {
+  for (const name of ['.grafly', 'grafly', 'graft']) {
     if (fs.existsSync(path.join(dir, name, '.graph', 'wiring.json')) ||
         fs.existsSync(path.join(dir, name, 'workspace.json'))) return true;
   }
@@ -117,7 +118,7 @@ function tryAutoBuild(start) {
   if (process.env.GRAFLY_NO_AUTO_INDEX || process.env.GRAFT_NO_AUTO_INDEX) return false;
   const root = findUp(start, (d) => fs.existsSync(path.join(d, '.git')));
   if (!root) return false;
-  const ctxDir = process.env.GRAFLY_DIR || process.env.GRAFT_DIR || 'grafly';
+  const ctxDir = process.env.GRAFLY_DIR || process.env.GRAFT_DIR || '.grafly';
   const stamp = path.join(root, ctxDir, '.cache', 'auto-build.stamp');
   try {
     if (fs.existsSync(stamp) && Date.now() - fs.statSync(stamp).mtimeMs < BUILD_STALE_MS) return false;
@@ -128,19 +129,19 @@ function tryAutoBuild(start) {
   } catch { return false; }
 }
 
-async function tryAutoDeep(start) {
+async function tryAutoDeep(start, input = {}) {
   const root = findUp(start, d => fs.existsSync(path.join(d, '.git')));
   if (!root) return false;
   try {
     const { scheduleAutoDeep } = await import(pathToFileURL(path.join(PKG, 'hosts', 'auto-deep.js')).href);
-    return scheduleAutoDeep(root);
+    return scheduleAutoDeep(root, { sessionId: EVENT === 'session-start' ? (input.session_id || input.thread_id || process.env.CODEX_THREAD_ID) : undefined, force: EVENT === 'session-start' });
   } catch { return false; }
 }
 
 // Use the installed federation and relevance gate directly: home prompts read
 // existing graphs without the CLI's automatic refresh, upkeep, or network work.
 async function homeWorkspace(root, input) {
-  const workspace = JSON.parse(fs.readFileSync(path.join(root, 'grafly', 'workspace.json'), 'utf8'));
+  const workspace = JSON.parse(fs.readFileSync(path.join(indexDir(root), 'workspace.json'), 'utf8'));
   if (workspace.version !== 1 || !Array.isArray(workspace.children)) return;
   if (EVENT === 'session-start') {
     const context = `[grafly] Home workspace: ${workspace.children.length} existing project indexes.\n` +
@@ -192,17 +193,17 @@ async function main() {
   const start = input.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const root = findIndex(start);
   if (!root) {
-    if (await tryAutoDeep(start))
+    if (await tryAutoDeep(start, input))
       emit('[grafly] no index yet — queued structural + deep indexing in the background. Retrieval starts when the structural graph is available; deep status: node "' + path.join(PKG, 'hosts', 'auto-deep.js') + '" status');
     else if (tryAutoBuild(start))
       emit('[grafly] no index yet — building this repo in the background (grafly build). Retrieval switches on automatically once it finishes.');
     return;
   }
-  if (samePath(root, homedir()) && fs.existsSync(path.join(root, 'grafly', 'workspace.json'))) {
+  if (samePath(root, homedir()) && fs.existsSync(path.join(indexDir(root), 'workspace.json'))) {
     await homeWorkspace(root, input);
     return;
   }
-  await tryAutoDeep(root);
+  await tryAutoDeep(root, input);
   process.env.CLAUDE_PROJECT_DIR = root;
   // hooks.js reads fd 0 synchronously (already consumed above); GRAFLY_TEST_STDIN
   // is its input seam, so hand the buffered payload through the env instead.

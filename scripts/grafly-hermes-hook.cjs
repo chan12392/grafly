@@ -16,7 +16,7 @@ function findIndex(start, home = homedir()) {
   let root = path.resolve(start);
   for (;;) {
     if (samePath(root, home) && !samePath(root, start)) return null;
-    for (const name of ['grafly', 'graft']) {
+    for (const name of ['.grafly', 'grafly', 'graft']) {
       const contextDir = path.join(root, name);
       if (existsSync(path.join(contextDir, 'workspace.json'))) return { root, contextDir, workspace: true };
       if (existsSync(path.join(contextDir, '.graph', 'wiring.json'))) return { root, contextDir };

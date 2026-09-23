@@ -89,7 +89,7 @@ test('repository hook retrieves short code queries and retains pointer deduplica
   assert.equal(f.run('loadGraph'), '');
   assert.equal(f.calls().length, 2);
   assert.deepEqual(f.calls()[0], ['ask', 'loadGraph', '.', '--json', '-n', '3']);
-  const session = JSON.parse(readFileSync(join(f.root, 'grafly/.cache/session/gate-test.json'), 'utf8'));
+  const session = JSON.parse(readFileSync(join(f.root, '.grafly/.cache/session/gate-test.json'), 'utf8'));
   assert.equal(session.lastQuery, 'loadGraph');
   assert.deepEqual(session.injectedPointers, ['src/graph.js:L1-L3']);
 });
