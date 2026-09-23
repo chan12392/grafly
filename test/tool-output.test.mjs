@@ -107,6 +107,16 @@ test("rewritten-text streams deliver deduped output; manifest keeps only a size 
     assert.equal(f2.text("stdout"), raw);
 });
 
+test("GRAFLY_TOOL_OUTPUT=0 disables archiving and reduction entirely", async () => {
+    const f = fixture();
+    f.options.env = { ...process.env, GRAFLY_TOOL_OUTPUT: "0" };
+    const result = await runCommand(process.execPath, ["-e", "console.log('x'.repeat(9000))"], f.options);
+    assert.equal(result.exit_code, 0); assert.equal(result.verdict, "passthrough");
+    assert.equal(result.reason, "streamed"); assert.equal(result.archive, null);
+    assert.equal(f.data("stdout").length, 9001);
+    assert.equal(existsSync(result.id ? join(f.options.archiveDir, result.id) : f.dir), false);
+});
+
 test("failure exit, UTF-8, stderr and literal shell metacharacters survive unchanged", async () => {
     const f = fixture(), value = "한글 `x` $HOME $(oops) ' \" ; & |";
     const result = await runCommand(process.execPath, ["-e", "process.stdout.write(process.argv[1]);process.stderr.write('failure details\\n');process.exit(7)", value], f.options);

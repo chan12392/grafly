@@ -131,8 +131,10 @@ export async function runCommand(command, args = [], options = {}) {
     const id = randomUUID(), dir = join(root, id);
     // Create evidence storage before running; if it cannot be created, run once
     // with inherited output instead. Never replay a completed command.
-    let archived = true, files = {}, hashes = {}, sizes = { stdout: 0, stderr: 0 };
+    // GRAFLY_TOOL_OUTPUT=0 disables archiving entirely — output streams live.
+    let archived = env.GRAFLY_TOOL_OUTPUT !== "0", files = {}, hashes = {}, sizes = { stdout: 0, stderr: 0 };
     try {
+        if (!archived) throw new Error("tool_output_disabled");
         mkdirSync(dir, { recursive: true, mode: 0o700 });
         startArchive(dir, id);
         for (const name of ["stdout", "stderr"]) {
