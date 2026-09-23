@@ -103,6 +103,12 @@ export function judge(payload, env, pinned = pinRuntime(env)) {
 }
 
 export function applyRanges(text, stream) {
+    // Rewritten-text streams (e.g. lossless search path dedup) carry their
+    // compressed payload directly instead of keep ranges — verified by bytes.
+    if (stream && typeof stream.text === "string") {
+        if (Buffer.byteLength(stream.text) !== stream.output_bytes) throw new Error("invalid_output_bytes");
+        return stream.text;
+    }
     const source = lines(text);
     if (!stream || !Array.isArray(stream.keep)) throw new Error("invalid_ranges");
     let end = 0, result = "";
@@ -224,7 +230,11 @@ export async function runCommand(command, args = [], options = {}) {
                 if (bytes + 512 < size && bytes < size * 0.9) {
                     reduced = candidate;
                     manifest.verdict = "reduced"; manifest.reason = result.reason_codes?.[0] ?? "reduced";
-                    manifest.input_bytes = size; manifest.output_bytes = bytes; manifest.ranges = decision.streams;
+                    manifest.input_bytes = size; manifest.output_bytes = bytes;
+                    // Keep the decision for audit, but never duplicate a rewritten
+                    // stream's full text into the manifest — its size marker suffices.
+                    manifest.ranges = Object.fromEntries(Object.entries(decision.streams).map(([s, st]) =>
+                        [s, st && typeof st.text === "string" ? { ...st, text: `<${st.text.length} chars>` } : st]));
                     manifest.lines = Object.fromEntries(["stdout", "stderr"].map(s => {
                         const st = decision.streams?.[s] ?? {};
                         const total = st.total_lines ?? lines(input[s]).length;

@@ -77,6 +77,36 @@ test("runner executes once, reduces real unittest output, and retrieves exact ra
     }
 });
 
+test("rewritten-text streams deliver deduped output; manifest keeps only a size marker", async (t) => {
+    if (spawnSync("rg", ["--version"], { encoding: "utf8" }).status !== 0) return t.skip("rg unavailable");
+    const f = fixture();
+    mkdirSync(join(f.dir, "data"));
+    writeFileSync(join(f.dir, "data", "hits.txt"), Array.from({ length: 300 }, (_, i) => `hit ${i}\n`).join(""));
+    const raw = spawnSync("rg", ["-n", "hit", "data"], { cwd: f.dir, encoding: "utf8" }).stdout;
+    const deduped = "data\\hits.txt\n1:hit 0\n2:hit 1\n";  // representative compressed payload
+    const textJudge = () => ({ status: "ok", channel_id: "tool_output", reason_codes: ["search_dedup"],
+        decision: { verdict: "reduced", streams: {
+            stdout: { text: deduped, output_bytes: Buffer.byteLength(deduped), shown_lines: 2, total_lines: 300, dedup: true },
+            stderr: { keep: [], output_bytes: 0, shown_lines: 0, total_lines: 0 } } } });
+    const result = await runCommand("rg", ["-n", "hit", "data"], { ...f.options, judge: textJudge });
+    assert.equal(result.verdict, "reduced"); assert.equal(result.reason, "search_dedup");
+    assert.equal(f.text("stdout"), deduped);
+    // Raw archive still holds the original stream byte-for-byte.
+    assert.deepEqual(readOutput(result.id, { archiveDir: f.options.archiveDir }).toString(), raw);
+    // Manifest audits the decision without duplicating the rewritten payload.
+    const manifest = JSON.parse(readFileSync(join(result.archive, "manifest.json"), "utf8"));
+    assert.match(manifest.ranges.stdout.text, /^<\d+ chars>$/);
+    // A byte-count lie must still fall back to raw.
+    const lieJudge = () => ({ status: "ok", channel_id: "tool_output", reason_codes: ["search_dedup"],
+        decision: { verdict: "reduced", streams: {
+            stdout: { text: deduped, output_bytes: Buffer.byteLength(deduped) + 1 },
+            stderr: { keep: [], output_bytes: 0 } } } });
+    const f2 = fixture(); f2.options.cwd = f.dir;
+    const liar = await runCommand("rg", ["-n", "hit", "data"], { ...f2.options, judge: lieJudge });
+    assert.equal(liar.verdict, "passthrough");
+    assert.equal(f2.text("stdout"), raw);
+});
+
 test("failure exit, UTF-8, stderr and literal shell metacharacters survive unchanged", async () => {
     const f = fixture(), value = "한글 `x` $HOME $(oops) ' \" ; & |";
     const result = await runCommand(process.execPath, ["-e", "process.stdout.write(process.argv[1]);process.stderr.write('failure details\\n');process.exit(7)", value], f.options);
