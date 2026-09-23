@@ -11,18 +11,52 @@ const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { homedir } = require('os');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const { createHash } = require('crypto');
 
 const EVENT = process.argv[2] || 'prompt';
 // In a checkout/package, use the adjacent source so branch tests exercise it.
-// A standalone installed shim retains the global npm package fallback.
-const LOCAL_DIST = path.resolve(__dirname, '..', 'dist');
-const PKG = fs.existsSync(path.join(LOCAL_DIST, 'claude', 'hooks.js'))
-  ? LOCAL_DIST : path.join(process.env.APPDATA || '', 'npm', 'node_modules', 'grafly', 'dist');
+// Otherwise find the global npm install: the prefix is %APPDATA%\npm for the
+// per-user layout but equals the node install dir for a single-dir layout
+// (e.g. node in %LOCALAPPDATA%\Programs\nodejs), so probe both then npm itself.
+function pkgDist() {
+  const candidates = [
+    path.resolve(__dirname, '..', 'dist'),
+    path.join(path.dirname(process.execPath), 'node_modules', 'grafly', 'dist'),
+    path.join(process.env.APPDATA || '', 'npm', 'node_modules', 'grafly', 'dist'),
+  ];
+  for (const dir of candidates) {
+    if (fs.existsSync(path.join(dir, 'claude', 'hooks.js'))) return dir;
+  }
+  try {
+    const root = execSync('npm root -g', {
+      encoding: 'utf8', timeout: 10000, windowsHide: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const dir = path.join(root, 'grafly', 'dist');
+    if (fs.existsSync(path.join(dir, 'claude', 'hooks.js'))) return dir;
+  } catch { /* npm unavailable — fall through to the default */ }
+  return candidates[2];
+}
+const PKG = pkgDist();
 const ENTRY = path.join(PKG, 'claude', 'hooks.js');
 const CLI = path.join(PKG, 'cli.js');
-const { indexDir } = require(path.join(PKG, 'context', 'location.cjs'));
+let indexDir;
+try {
+  ({ indexDir } = require(path.join(PKG, 'context', 'location.cjs')));
+} catch {
+  // Fail-open copy of location.cjs so a broken/partial package never kills
+  // the hook load; hosts must not stall the prompt on a missing shim dep.
+  indexDir = (root, override) => {
+    if (override) return path.isAbsolute(override) ? override : path.join(root, override);
+    for (const name of ['.grafly', 'grafly', 'graft']) {
+      const dir = path.join(root, name);
+      if (fs.existsSync(path.join(dir, '.graph', 'wiring.json')) ||
+          fs.existsSync(path.join(dir, 'workspace.json'))) return dir;
+    }
+    return path.join(root, '.grafly');
+  };
+}
 const EVENT_NAMES = { 'session-start': 'SessionStart', prompt: 'UserPromptSubmit' };
 const BUILD_STALE_MS = 60 * 60 * 1000; // retry a failed build at most hourly
 const STARTUP_DEDUP_MS = 5000;
