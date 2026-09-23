@@ -257,8 +257,9 @@ export function extractGeneric(rel, source, langName) {
         });
         defs.push({ id, startIndex: whole.startIndex, endIndex: whole.endIndex });
     };
+    const bound = GENERIC_BINDINGS[langName]?.(tree.rootNode) ?? null;
     if (entry.query) {
-        tagsExtract(entry.query, tree.rootNode, rel, mkDef, defs, rawEdges, langName);
+        tagsExtract(entry.query, tree.rootNode, rel, mkDef, defs, rawEdges, langName, bound?.bindings);
     }
     else {
         walkExtract(tree.rootNode, mkDef); // no tags.scm → symbols only
@@ -272,6 +273,8 @@ export function extractGeneric(rel, source, langName) {
         extractUses(tree.rootNode, rel, rawEdges);
     else if (langName === "php")
         extractPhpUses(tree.rootNode, rel, rawEdges);
+    for (const spec of bound?.specs ?? [])
+        rawEdges.push({ source: rel, relation: "imports", specifier: spec, file: rel });
     return { nodes, rawEdges };
 }
 /** PHP `use App\Models\User;` → a file→class-file `imports` raw edge, one per imported
@@ -369,9 +372,416 @@ function extractIncludes(root, rel, rawEdges) {
     };
     visit(root);
 }
+/** Per-language import binding: local name → {name, specifier}. An entry WITH
+ * `name` is a bare binding (`import {work as w}` → `w()` calls the exported
+ * `work`); an entry WITHOUT one is a namespace binding (`import ... as m` →
+ * `m.f()`). `specifier` uses the vocabulary resolve.ts already dispatches on:
+ * relative path for solidity/dart, `crate/a/b/Item` for rust, dotted name for
+ * scala, ns name for clojure, module name for elixir, require arg for lua.
+ * Collectors also return `specs` — every seen specifier — which become
+ * file→file `imports` edges for languages that had none. */
+const GENERIC_BINDINGS = {
+    rust: rustBindings, solidity: solidityBindings, dart: dartBindings,
+    scala: scalaBindings, clojure: clojureBindings, elixir: elixirBindings,
+    lua: luaBindings,
+};
+/** Per-language qualifier read on a captured call-name node: is the call
+ * qualified (`m.f`, `a::b`, `ns/f`) or bare? Returns null for a bare call,
+ * {unbound:true} for an unbindable qualification, {specifier} for a
+ * self-contained qualified path (rust `crate::x::f`, clojure `full.ns/f`),
+ * or {local, mids} to look up the qualifier in the bindings map (mids = extra
+ * module-path segments between qualifier and callee — rust `a::b::f`). */
+const GENERIC_QUALIFIER = {
+    rust: rustQualifier, solidity: solidityQualifier, clojure: clojureQualifier,
+    elixir: elixirQualifier, lua: luaQualifier,
+};
+const visitAll = (root, fn) => {
+    const visit = (n) => {
+        fn(n);
+        for (let i = 0; i < (n.namedChildCount ?? 0); i++) {
+            const c = n.namedChild?.(i);
+            if (c)
+                visit(c);
+        }
+    };
+    visit(root);
+};
+const firstId = (n) => {
+    if (!n)
+        return null;
+    if (n.type === "identifier")
+        return n.text;
+    for (let i = 0; i < (n.namedChildCount ?? 0); i++) {
+        const hit = firstId(n.namedChild(i));
+        if (hit)
+            return hit;
+    }
+    return null;
+};
+/** Rust `use` declaration → bare/qualified bindings. Only `crate::` paths are
+ * in-repo (mirroring extractUses); `self::`/`super::`/external crates bind
+ * nothing resolvable. */
+function rustBindings(root) {
+    const bindings = new Map();
+    const segsOf = (n) => {
+        if (!n)
+            return null;
+        if (n.type === "scoped_identifier")
+            return [...(segsOf(n.childForFieldName("path")) ?? []), n.childForFieldName("name")?.text];
+        if (n.type === "identifier" || n.type === "crate" || n.type === "self" || n.type === "super")
+            return [n.text];
+        return null;
+    };
+    // Expand one use-tree into leaf items: {segs, alias?}.
+    const items = (n, prefix, out) => {
+        if (!n)
+            return out;
+        if (n.type === "use_as_clause") {
+            const t = n.namedChild(0), alias = n.namedChild(n.namedChildCount - 1)?.text;
+            for (const it of items(t, prefix, []))
+                out.push({ ...it, alias });
+            return out;
+        }
+        if (n.type === "scoped_use_list") {
+            const p = [...prefix, ...(segsOf(n.childForFieldName("path")) ?? [])];
+            const list = n.namedChildren.find((c) => c.type === "use_list");
+            for (let i = 0; i < (list?.namedChildCount ?? 0); i++)
+                items(list.namedChild(i), p, out);
+            return out;
+        }
+        if (n.type === "use_list") {
+            for (let i = 0; i < n.namedChildCount; i++)
+                items(n.namedChild(i), prefix, out);
+            return out;
+        }
+        if (n.type === "use_wildcard")
+            return out; // glob — binds nothing nameable
+        const segs = segsOf(n);
+        if (segs)
+            out.push({ segs: [...prefix, ...segs] });
+        return out;
+    };
+    visitAll(root, (n) => {
+        if (n.type !== "use_declaration")
+            return;
+        const arg = n.namedChildren.find((c) => c.type !== "visibility_modifier" && c.type !== "attribute_item");
+        for (const it of items(arg, [], [])) {
+            const segs = it.segs;
+            if (segs[0] !== "crate" || segs.length < 2)
+                continue;
+            const name = segs[segs.length - 1];
+            const local = it.alias ?? name;
+            bindings.set(local, { name, specifier: `crate/${segs.slice(1).join("/")}` });
+        }
+    });
+    return { bindings, specs: new Set() }; // extractUses already emits module imports
+}
+function rustQualifier(nameNode) {
+    const p = nameNode.parent;
+    if (p?.type !== "scoped_identifier" || p.childForFieldName("name") !== nameNode)
+        return null;
+    const mids = [];
+    let cur = p.childForFieldName("path");
+    while (cur?.type === "scoped_identifier") {
+        mids.unshift(cur.childForFieldName("name")?.text);
+        cur = cur.childForFieldName("path");
+    }
+    const first = cur?.text;
+    if (first === "crate")
+        return { specifier: mids.length ? `crate/${mids.join("/")}` : "crate" };
+    if (first === "self" || first === "super" || !first)
+        return { unbound: true };
+    return { local: first, mids };
+}
+/** Solidity `import {X as Y} from "p"` / `import * as M from "p"`. The grammar
+ * flattens the named-import list to bare identifiers, so the brace section is
+ * text-parsed (same convention as rustUseModule/phpUseNames above). */
+function solidityBindings(root) {
+    const bindings = new Map(), specs = new Set();
+    visitAll(root, (n) => {
+        if (n.type !== "import_directive")
+            return;
+        const text = n.text;
+        const named = /\{([^}]*)\}\s*from\s*["']([^"']+)["']/.exec(text);
+        if (named) {
+            specs.add(named[2]);
+            for (const part of named[1].split(",")) {
+                const m = /^\s*([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?\s*$/.exec(part);
+                if (m)
+                    bindings.set(m[2] ?? m[1], { name: m[1], specifier: named[2] });
+            }
+            return;
+        }
+        const star = /\*\s*as\s+([A-Za-z_$][\w$]*)\s+from\s*["']([^"']+)["']/.exec(text);
+        if (star) {
+            specs.add(star[2]);
+            bindings.set(star[1], { specifier: star[2] }); // namespace
+            return;
+        }
+        const bare = /import\s+["']([^"']+)["']/.exec(text);
+        if (bare)
+            specs.add(bare[1]);
+    });
+    return { bindings, specs };
+}
+function solidityQualifier(nameNode) {
+    const p = nameNode.parent;
+    if (p?.type !== "member_expression")
+        return null;
+    const obj = p.childForFieldName("object") ?? p.namedChild(0);
+    return obj?.type === "identifier" ? { local: obj.text, mids: [] } : { unbound: true };
+}
+/** Dart `import 'u.dart' show A` binds bare `A`. `as p` prefixes are namespaces,
+ * but dart.scm only captures bare calls — a prefix binding could never fire, so
+ * only `show` combinators are collected. `hide` binds nothing. */
+function dartBindings(root) {
+    const bindings = new Map(), specs = new Set();
+    visitAll(root, (n) => {
+        if (n.type !== "library_import")
+            return;
+        for (let i = 0; i < n.namedChildCount; i++) {
+            const spec_node = n.namedChild(i);
+            if (spec_node.type !== "import_specification")
+                continue;
+            const uriLit = (function find(n2) {
+                if (n2.type === "string_literal")
+                    return n2.text;
+                for (let j = 0; j < n2.namedChildCount; j++) {
+                    const hit = find(n2.namedChild(j));
+                    if (hit)
+                        return hit;
+                }
+                return null;
+            })(spec_node);
+            if (!uriLit)
+                continue;
+            const uri = uriLit.replace(/^["']|["']$/g, "");
+            if (uri.includes(":"))
+                continue; // package:/dart: — never in-repo
+            const spec = uri.startsWith(".") ? uri : `./${uri}`;
+            specs.add(spec);
+            for (let j = 0; j < spec_node.namedChildCount; j++) {
+                const comb = spec_node.namedChild(j);
+                if (comb.type !== "combinator" || !comb.text.startsWith("show"))
+                    continue;
+                for (let k = 0; k < comb.namedChildCount; k++) {
+                    const id = comb.namedChild(k);
+                    if (id.type === "identifier")
+                        bindings.set(id.text, { name: id.text, specifier: spec });
+                }
+            }
+        }
+    });
+    return { bindings, specs };
+}
+/** Scala `import a.b.{C => D, E}` / `import a.b.C`. The specifier keeps the
+ * full dotted name including the item (`a.b.C`) — resolve.ts retries the
+ * enclosing name, which covers `import a.b.Obj.member`. Wildcards bind
+ * nothing nameable. */
+function scalaBindings(root) {
+    const bindings = new Map(), specs = new Set();
+    visitAll(root, (n) => {
+        if (n.type !== "import_declaration")
+            return;
+        const ids = [];
+        let selectors = null;
+        for (let i = 0; i < n.namedChildCount; i++) {
+            const c = n.namedChild(i);
+            if (c.type === "identifier")
+                ids.push(c.text);
+            else if (c.type === "namespace_selectors")
+                selectors = c;
+        }
+        if (!selectors) {
+            if (ids.length >= 2) {
+                specs.add(ids.join("."));
+                bindings.set(ids[ids.length - 1], { name: ids[ids.length - 1], specifier: ids.join(".") });
+            }
+            return;
+        }
+        const base = ids.join(".");
+        for (let i = 0; i < selectors.namedChildCount; i++) {
+            const sel = selectors.namedChild(i);
+            if (sel.type === "arrow_renamed_identifier") {
+                const pair = sel.namedChildren.filter((c) => c.type === "identifier");
+                if (pair.length === 2 && pair[1].text !== "_")
+                    bindings.set(pair[1].text, { name: pair[0].text, specifier: `${base}.${pair[0].text}` });
+            }
+            else if (sel.type === "identifier") {
+                bindings.set(sel.text, { name: sel.text, specifier: `${base}.${sel.text}` });
+            }
+            // `_` wildcard / `=> _` — unnameable
+        }
+        if (base)
+            specs.add(base);
+    });
+    return { bindings, specs };
+}
+/** Clojure `(:require [a.b :refer [f g] :as ab])` / `(require '[...])`. `:refer`
+ * names bind bare; `:as` binds a namespace (`ab/f` qualifies via the captured
+ * symbol's `sym_ns`); a fully qualified `a.b/f` carries its own ns. */
+function clojureBindings(root) {
+    const bindings = new Map(), specs = new Set();
+    const childOfType = (n, t) => {
+        for (let i = 0; i < (n?.namedChildCount ?? 0); i++) {
+            const c = n.namedChild(i);
+            if (c.type === t)
+                return c;
+        }
+        return null;
+    };
+    const parseVec = (vec) => {
+        const ns = childOfType(vec, "sym_lit")?.text;
+        if (!ns)
+            return;
+        specs.add(ns);
+        for (let i = 0; i < vec.namedChildCount; i++) {
+            const c = vec.namedChild(i);
+            if (c.type !== "kwd_lit")
+                continue;
+            const next = vec.namedChild(i + 1);
+            if (c.text === ":refer" && next?.type === "vec_lit") {
+                for (let j = 0; j < next.namedChildCount; j++) {
+                    const s = next.namedChild(j);
+                    if (s.type === "sym_lit")
+                        bindings.set(s.text, { name: s.text, specifier: ns });
+                }
+            }
+            else if (c.text === ":as" && next?.type === "sym_lit") {
+                bindings.set(next.text, { specifier: ns }); // namespace
+            }
+            else if (c.text === ":rename" && next?.type === "map_lit") {
+                const syms = next.namedChildren.filter((x) => x.type === "sym_lit");
+                for (let j = 0; j + 1 < syms.length; j += 2)
+                    bindings.set(syms[j + 1].text, { name: syms[j].text, specifier: ns });
+            }
+        }
+    };
+    visitAll(root, (n) => {
+        if (n.type !== "list_lit")
+            return;
+        const head = childOfType(n, "sym_lit")?.text;
+        if (head === "ns" || head === "in-ns")
+            for (let i = 0; i < n.namedChildCount; i++) {
+                const inner = n.namedChild(i);
+                if (inner.type === "list_lit" && inner.namedChild(0)?.type === "kwd_lit" && inner.namedChild(0).text === ":require")
+                    for (let j = 1; j < inner.namedChildCount; j++) {
+                        if (inner.namedChild(j).type === "vec_lit")
+                            parseVec(inner.namedChild(j));
+                    }
+            }
+        else if (head === "require" || head === "use")
+            visitAll(n, (v) => {
+                if (v.type === "vec_lit")
+                    parseVec(v);
+            });
+    });
+    return { bindings, specs };
+}
+function clojureQualifier(nameNode) {
+    const lit = nameNode.parent;
+    if (lit?.type !== "sym_lit")
+        return null;
+    const ns = lit.namedChildren.find((c) => c.type === "sym_ns")?.text;
+    if (!ns)
+        return null; // bare (f)
+    return ns.includes(".") ? { specifier: ns } : { local: ns, mids: [] };
+}
+/** Elixir `alias Foo.Bar` (and `, as: Q`) — qualified `Bar.f()` only. `import`
+ * is deliberately not collected: it makes every public name bare, so stamping
+ * its specifier would force resolution into one module and lose calls to names
+ * living elsewhere. */
+function elixirBindings(root) {
+    const bindings = new Map(), specs = new Set();
+    visitAll(root, (n) => {
+        if (n.type !== "call" || n.namedChild(0)?.text !== "alias")
+            return;
+        const args = n.namedChildren.find((c) => c.type === "arguments");
+        const mod = args?.namedChildren.find((c) => c.type === "alias")?.text;
+        if (!mod || mod.includes("{"))
+            return; // `alias A.{B,C}` group form — unsupported
+        specs.add(mod);
+        let local = mod.split(".").pop();
+        const kw = args.namedChildren.find((c) => c.type === "keywords");
+        const pair = kw?.namedChildren.find((c) => c.type === "pair" && c.text.startsWith("as:"));
+        const asName = pair?.namedChildren.find((c) => c.type === "alias")?.text;
+        if (asName)
+            local = asName;
+        bindings.set(local, { specifier: mod });
+    });
+    return { bindings, specs };
+}
+function elixirQualifier(nameNode) {
+    const p = nameNode.parent;
+    if (p?.type !== "dot" || p.childForFieldName("right") !== nameNode)
+        return null;
+    const left = p.childForFieldName("left");
+    const text = left?.type === "alias" || left?.type === "identifier" || left?.type === "dot" ? left.text : null;
+    if (!text)
+        return { unbound: true };
+    return { local: text.split(".").pop(), mids: [] };
+}
+/** Lua `local m = require("a.b")` / `require "a/b"` — namespace binding only
+ * (`m.f()`, `m:f()` qualify through the table). */
+function luaBindings(root) {
+    const bindings = new Map(), specs = new Set();
+    visitAll(root, (n) => {
+        if (n.type !== "assignment_statement")
+            return;
+        const vars = n.namedChildren.find((c) => c.type === "variable_list");
+        const vals = n.namedChildren.find((c) => c.type === "expression_list");
+        const call = vals?.namedChildren.find((c) => c.type === "function_call");
+        if (call?.childForFieldName("name")?.text !== "require")
+            return;
+        const args = call.namedChildren.find((c) => c.type === "arguments" || c.type === "string");
+        let spec = null;
+        visitAll(args ?? call, (s) => {
+            if (spec === null && (s.type === "string_content" || s.type === "string"))
+                spec = s.text.replace(/^["']|["']$/g, "");
+        });
+        const local = firstId(vars?.namedChild(0));
+        if (spec && local) {
+            specs.add(spec);
+            bindings.set(local, { specifier: spec });
+        }
+    });
+    return { bindings, specs };
+}
+function luaQualifier(nameNode) {
+    const p = nameNode.parent;
+    const field = p?.type === "dot_index_expression" ? "field" : p?.type === "method_index_expression" ? "method" : null;
+    if (!field || p.childForFieldName(field) !== nameNode)
+        return null;
+    const table = p.childForFieldName("table");
+    return table?.type === "identifier" ? { local: table.text, mids: [] } : { unbound: true };
+}
+/** Stamp a call/reference edge with its import binding: a bare name bound by a
+ * named import is rewritten to the exported name and pinned to the module; a
+ * qualified call pins the module and keeps the member name. resolve.ts resolves
+ * inside that file only — turning repo-wide-ambiguous names into in-file hits. */
+function stampImport(edge, nameNode, bindings, qualifierOf) {
+    const q = qualifierOf?.(nameNode);
+    if (q) {
+        if (q.unbound)
+            return;
+        const spec = q.specifier ??
+            (() => {
+                const b = bindings?.get(q.local);
+                return b ? b.specifier + (q.mids?.length ? `/${q.mids.join("/")}` : "") : null;
+            })();
+        if (spec)
+            edge.specifier = spec;
+        return;
+    }
+    const b = bindings?.get(edge.name);
+    if (b?.name) {
+        edge.name = b.name;
+        edge.specifier = b.specifier;
+    }
+}
 /** tags.scm path: @definition.<kind> → nodes, @reference.call/@reference.send →
  * bare-name call edges attributed to the innermost enclosing definition. */
-function tagsExtract(query, root, rel, mkDef, defs, rawEdges, langName) {
+function tagsExtract(query, root, rel, mkDef, defs, rawEdges, langName, bindings) {
     const q = query;
     const matches = q.matches(root);
     // Some grammars' tags.scm capture a definition's own NAME token as a
@@ -390,7 +800,7 @@ function tagsExtract(query, root, rel, mkDef, defs, rawEdges, langName) {
             mkDef(cap.name.text, KIND[defKey.slice("definition.".length)] ?? "function", defScope(cap[defKey], langName));
         }
         if (("reference.call" in cap || "reference.send" in cap) && cap.name)
-            calls.push({ name: cap.name.text, at: cap.name.startIndex });
+            calls.push({ name: cap.name.text, at: cap.name.startIndex, node: cap.name });
         // Structural references the grammar already marks: a supertype (extends), an
         // implemented interface, an object creation (`new Foo`), a module alias. Grammars
         // label these @reference.class/.interface/.implementation/.module — heterogeneous
@@ -400,17 +810,20 @@ function tagsExtract(query, root, rel, mkDef, defs, rawEdges, langName) {
         // class that's only ever extended or instantiated stops being an orphan.
         if (("reference.class" in cap || "reference.interface" in cap ||
             "reference.implementation" in cap || "reference.module" in cap) && cap.name)
-            refs.push({ name: cap.name.text, at: cap.name.startIndex });
+            refs.push({ name: cap.name.text, at: cap.name.startIndex, node: cap.name });
     }
     // innermost enclosing definition of a token at byte offset `at`
     const enclosing = (at) => defs
         .filter((d) => d.startIndex <= at && at < d.endIndex)
         .sort((a, b) => (a.endIndex - a.startIndex) - (b.endIndex - b.startIndex))[0];
+    const qualifierOf = GENERIC_QUALIFIER[langName];
     for (const c of calls) {
         if (defNameAt.has(c.at))
             continue;
         const enc = enclosing(c.at);
-        rawEdges.push({ source: enc ? enc.id : rel, relation: "calls", file: rel, name: c.name });
+        const edge = { source: enc ? enc.id : rel, relation: "calls", file: rel, name: c.name };
+        stampImport(edge, c.node, bindings, qualifierOf);
+        rawEdges.push(edge);
     }
     for (const r of refs) {
         if (defNameAt.has(r.at))
@@ -418,7 +831,9 @@ function tagsExtract(query, root, rel, mkDef, defs, rawEdges, langName) {
         const enc = enclosing(r.at);
         if (!enc)
             continue; // a reference with no enclosing definition has no sound source
-        rawEdges.push({ source: enc.id, relation: "references", file: rel, name: r.name });
+        const edge = { source: enc.id, relation: "references", file: rel, name: r.name };
+        stampImport(edge, r.node, bindings, qualifierOf);
+        rawEdges.push(edge);
     }
 }
 // Node-type → Kind for the walker fallback. A node is a definition when its type

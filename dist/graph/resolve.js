@@ -32,6 +32,13 @@ const PY_CTOR_KINDS = ["class"];
  * implicit-self widening) have found nothing. */
 const SWIFT_EXT = /\.swift$/i;
 const SWIFT_CTOR_KINDS = ["class", "struct", "enum"];
+/** Breadth-tier module naming: Scala dotted paths, Clojure namespaces, Elixir
+ * modules and Lua require strings all mirror a directory path under an unknown
+ * source root, so they get the same every-boundary-suffix index as Java/PHP. */
+const SCALA_EXT = /\.(scala|sc)$/i;
+const CLJ_EXT = /\.(clj|cljs|cljc|bb)$/i;
+const ELIXIR_EXT = /\.(ex|exs)$/i;
+const LUA_EXT = /\.lua$/i;
 /**
  * Languages whose symbols can genuinely reach each other. A call edge may not
  * cross a family boundary.
@@ -107,6 +114,12 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
     // node ids. A `use App\Models\User` names a PSR-4 class whose file mirrors the namespace
     // tail under some (unknown) source root, so the suffix is the portable key.
     const phpFilesBySuffix = new Map();
+    const scalaFilesBySuffix = new Map();
+    const cljFilesBySuffix = new Map();
+    const exFilesBySuffix = new Map();
+    const luaFilesBySuffix = new Map();
+    const SUFFIX_INDEX = [[SCALA_EXT, scalaFilesBySuffix], [CLJ_EXT, cljFilesBySuffix],
+        [ELIXIR_EXT, exFilesBySuffix], [LUA_EXT, luaFilesBySuffix]];
     const hasGoModules = !!opts.goModules?.length;
     for (const n of nodes) {
         if (n.kind === "file") {
@@ -131,6 +144,13 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
                 const parts = toPosixPath(n.path).split("/");
                 for (let i = 0; i < parts.length; i++)
                     push(phpFilesBySuffix, parts.slice(i).join("/"), n.id);
+            }
+            for (const [ext, map] of SUFFIX_INDEX) {
+                if (!ext.test(n.path))
+                    continue;
+                const parts = toPosixPath(n.path).split("/");
+                for (let i = 0; i < parts.length; i++)
+                    push(map, parts.slice(i).join("/"), n.id);
             }
             {
                 const p = toPosixPath(n.path);
@@ -181,6 +201,28 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
     }
     const out = [];
     const seen = new Set();
+    // One specifier→file dispatch for every relation that carries a specifier —
+    // an edge that names its module resolves inside that module, whether it is
+    // an `imports`, a `references` or a `calls` edge.
+    const moduleTarget = (spec, file) => hasGoModules && file.endsWith(".go")
+        ? resolveGoImport(spec, opts.goModules, goFilesByDir)
+        : file.endsWith(".java")
+            ? resolveJavaImport(spec, javaFilesBySuffix)
+            : C_EXT.test(file)
+                ? resolveCInclude(spec, file, byId, cFilesBySuffix)
+                : file.endsWith(".rs")
+                    ? resolveRustUse(spec, file, byId, rustCrateRoots)
+                    : file.endsWith(".php")
+                        ? resolvePhpUse(spec, phpFilesBySuffix)
+                        : SCALA_EXT.test(file)
+                            ? resolveScalaImport(spec, scalaFilesBySuffix)
+                            : CLJ_EXT.test(file)
+                                ? resolveClojureNs(spec, cljFilesBySuffix)
+                                : ELIXIR_EXT.test(file)
+                                    ? resolveElixirModule(spec, exFilesBySuffix)
+                                    : LUA_EXT.test(file)
+                                        ? resolveLuaRequire(spec, luaFilesBySuffix)
+                                        : resolveImport(spec, file, byId);
     const add = (source, target, relation, confidence) => {
         const key = `${source}\0${relation}\0${target}`;
         if (seen.has(key))
@@ -193,18 +235,7 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
             add(e.source, e.targetId, "contains", "extracted");
         }
         else if (e.relation === "imports" && e.specifier) {
-            const target = hasGoModules && e.file.endsWith(".go")
-                ? resolveGoImport(e.specifier, opts.goModules, goFilesByDir)
-                : e.file.endsWith(".java")
-                    ? resolveJavaImport(e.specifier, javaFilesBySuffix)
-                    : C_EXT.test(e.file)
-                        ? resolveCInclude(e.specifier, e.file, byId, cFilesBySuffix)
-                        : e.file.endsWith(".rs")
-                            ? resolveRustUse(e.specifier, e.file, byId, rustCrateRoots)
-                            : e.file.endsWith(".php")
-                                ? resolvePhpUse(e.specifier, phpFilesBySuffix)
-                                : resolveImport(e.specifier, e.file, byId);
-            add(e.source, target, "imports", "extracted");
+            add(e.source, moduleTarget(e.specifier, e.file), "imports", "extracted");
         }
         else if (e.relation === "extends" || e.relation === "implements") {
             // `implements` also resolves to a `trait` — PHP models trait composition
@@ -219,9 +250,7 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
                 // A named import gives both halves needed for sound resolution: the module
                 // it came from and the exported name. Resolve inside that file only, so a
                 // same-named symbol elsewhere in the repo cannot become a false edge.
-                const targetFile = e.file.endsWith(".php")
-                    ? resolvePhpUse(e.specifier, phpFilesBySuffix)
-                    : resolveImport(e.specifier, e.file, byId);
+                const targetFile = moduleTarget(e.specifier, e.file);
                 if (!byId.has(targetFile))
                     continue; // external or unresolved module
                 const candidates = perFileName.get(targetFile)?.get(e.name) ?? [];
@@ -330,9 +359,7 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
                 // inside it only (the references branch above does the same).
                 // Ctor-call kinds are widened in: `import {Widget}` then
                 // `new Widget()` must find a class, not just a function.
-                const targetFile = e.file.endsWith(".php")
-                    ? resolvePhpUse(e.specifier, phpFilesBySuffix)
-                    : resolveImport(e.specifier, e.file, byId);
+                const targetFile = moduleTarget(e.specifier, e.file);
                 if (!byId.has(targetFile))
                     continue; // external/unresolved module — not in-repo
                 const importKinds = [...new Set([...callKinds, "class", "struct", "enum"])];
@@ -608,6 +635,78 @@ function resolvePhpUse(fqn, bySuffix) {
             break; // ambiguous at the most specific level — do not guess
     }
     return fqn;
+}
+/**
+ * Resolve a Scala import's dotted name (`a.b.C`) to the in-repo `a/b/C.scala`
+ * (or `.sc`) — the same path-suffix convention as resolveJavaImport. A selector
+ * import names an item, so a miss retries the enclosing name
+ * (`a.b.Obj.member` → `a/b/Obj.scala`). Ambiguous or absent keeps the raw name.
+ */
+function resolveScalaImport(spec, bySuffix) {
+    const hit = (fqn) => {
+        for (const ext of [".scala", ".sc"]) {
+            const files = bySuffix.get(`${fqn.split(".").join("/")}${ext}`);
+            if (files?.length === 1)
+                return files[0];
+            if (files && files.length > 1)
+                return null;
+        }
+        return null;
+    };
+    const direct = hit(spec);
+    if (direct)
+        return direct;
+    const dot = spec.lastIndexOf(".");
+    if (dot > 0) {
+        const enclosing = hit(spec.slice(0, dot));
+        if (enclosing)
+            return enclosing;
+    }
+    return spec;
+}
+/**
+ * Resolve a Clojure namespace (`my-app.util.string`) to the in-repo file —
+ * dashes become underscores on disk and `.cljs`/`.cljc`/`.bb` share the
+ * convention. Unique match only; a shared or absent ns keeps the raw name.
+ */
+function resolveClojureNs(spec, bySuffix) {
+    const base = spec.split(".").map((s) => s.replaceAll("-", "_")).join("/");
+    const hits = [];
+    for (const ext of [".clj", ".cljs", ".cljc", ".bb"])
+        for (const f of bySuffix.get(`${base}${ext}`) ?? [])
+            hits.push(f);
+    return hits.length === 1 ? hits[0] : spec;
+}
+/**
+ * Resolve an Elixir module (`Foo.Bar`) to the in-repo `foo/bar.ex` — the mix
+ * convention maps CamelCase segments to snake_case path parts. `.exs` shares
+ * it. Unique match only.
+ */
+function resolveElixirModule(spec, bySuffix) {
+    const base = spec.split(".")
+        .map((s) => s.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase())
+        .join("/");
+    const hits = [];
+    for (const ext of [".ex", ".exs"])
+        for (const f of bySuffix.get(`${base}${ext}`) ?? [])
+            hits.push(f);
+    return hits.length === 1 ? hits[0] : spec;
+}
+/**
+ * Resolve a Lua `require` argument (`"a.b"`, `"a/b"`, `"./x.lua"`) to the
+ * in-repo module file — `a/b.lua` or `a/b/init.lua` under an unknown package
+ * root. Unique path-suffix match only, like the `-I` header rule in
+ * resolveCInclude; anything else stays the raw require string.
+ */
+function resolveLuaRequire(spec, bySuffix) {
+    let base = spec.replace(/^\.\/+/, "").replace(/\.lua$/, "");
+    if (!base.includes("/"))
+        base = base.replace(/\./g, "/");
+    const hits = [];
+    for (const cand of [`${base}.lua`, `${base}/init.lua`])
+        for (const f of bySuffix.get(cand) ?? [])
+            hits.push(f);
+    return hits.length === 1 ? hits[0] : spec;
 }
 /**
  * Resolve a Rust `crate`-relative module path (`crate/a/b`, from `use crate::a::b::Item`)
