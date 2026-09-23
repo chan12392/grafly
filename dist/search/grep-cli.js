@@ -10,7 +10,7 @@
 import { resolve } from "node:path";
 import { contextDirFor } from "../context/node-file.js";
 import { withSavings } from "../context/savings.js";
-import { loadGraphCached } from "../graph/load.js";
+import { loadTraverseCached } from "../graph/load.js";
 import { grepGraph } from "./grep.js";
 function groupHeader(g) {
     if (g.symbol)
@@ -77,7 +77,7 @@ export function zeroHitNote(result) {
 export function runGrepCommand(pattern, dir, opts) {
     const root = resolve(dir);
     const contextDir = contextDirFor(root, opts.globalDir);
-    const graph = loadGraphCached(contextDir);
+    const graph = loadTraverseCached(contextDir);
     if (!graph) {
         console.error("✗ no graph — run grafly build first");
         process.exit(1);

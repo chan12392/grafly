@@ -5,6 +5,7 @@ import type { GraphV1 } from "./types.js";
 export declare const __parseCount: {
     graph: number;
     askIndex: number;
+    traverse: number;
 };
 /** Test-only: zero the counters (module state persists across a test file). */
 export declare function __resetParseCounts(): void;
@@ -15,6 +16,15 @@ export declare function loadGraphCached(outDir: string): GraphV1 | null;
 /** Cached `readAskIndex(outDir)` — same semantics, keyed on the sidecar file.
  * Returns a shared cached reference; callers must not mutate the returned index. */
 export declare function loadAskIndexCached(outDir: string): AskIndex | null;
+/**
+ * Slim traversal graph for callers/grep/trace: `wiring-traverse.json` when it
+ * exists and is at least as fresh as wiring.json (it's written right after
+ * wiring in `writeGraph`, so an older sidecar is stale — e.g. a checkpoint
+ * killed between the two writes — and must not be served). Old indexes have
+ * no sidecar at all, and a corrupt sidecar reads as null — both fall back to
+ * the full wiring graph, which satisfies the same consumer contract.
+ */
+export declare function loadTraverseCached(outDir: string): GraphV1 | null;
 /**
  * Drop the cached graph + sidecar for `outDir`, forcing the next load to re-read.
  *

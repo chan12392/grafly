@@ -15,7 +15,7 @@ import { resolve, join } from "node:path";
 import { fileReader, referenceLine, wordRe } from "../blast/evidence.js";
 import { contextDirFor } from "../context/node-file.js";
 import { withSavings, savingsFor } from "../context/savings.js";
-import { loadGraphCached } from "./load.js";
+import { loadTraverseCached } from "./load.js";
 import { resolveSymbol } from "./traverse.js";
 import { WALK_RELATIONS } from "./relations.js";
 import { judgeSymbols, cwdContextTokens, ABSTAIN_GAP } from "../circuit/judge.js";
@@ -214,7 +214,7 @@ function resolveDirection(raw) {
 export function runCallersCommand(query, dir, opts) {
     const root = resolve(dir);
     const contextDir = contextDirFor(root, opts.globalDir);
-    const graph = loadGraphCached(contextDir);
+    const graph = loadTraverseCached(contextDir);
     if (!graph) {
         console.error(`✗ no graph found at ${contextDir} — run \`grafly build\` first`);
         process.exit(1);

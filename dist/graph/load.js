@@ -24,17 +24,19 @@
  * `mcp/tools.ts` without creating an import cycle.
  */
 import { statSync } from "node:fs";
-import { readGraph, wiringPath } from "./write.js";
+import { readGraph, wiringPath, traversePath } from "./write.js";
 import { readAskIndex, askIndexPath } from "../ask/index-file.js";
 const graphCache = new Map();
 const askIndexCache = new Map();
+const traverseCache = new Map();
 /** Real parses performed (cache misses), not cache hits — exported for tests
  * so the invalidation contract can be pinned down without spying on `fs`. */
-export const __parseCount = { graph: 0, askIndex: 0 };
+export const __parseCount = { graph: 0, askIndex: 0, traverse: 0 };
 /** Test-only: zero the counters (module state persists across a test file). */
 export function __resetParseCounts() {
     __parseCount.graph = 0;
     __parseCount.askIndex = 0;
+    __parseCount.traverse = 0;
 }
 function statOf(path) {
     try {
@@ -81,6 +83,27 @@ export function loadAskIndexCached(outDir) {
     });
 }
 /**
+ * Slim traversal graph for callers/grep/trace: `wiring-traverse.json` when it
+ * exists and is at least as fresh as wiring.json (it's written right after
+ * wiring in `writeGraph`, so an older sidecar is stale — e.g. a checkpoint
+ * killed between the two writes — and must not be served). Old indexes have
+ * no sidecar at all, and a corrupt sidecar reads as null — both fall back to
+ * the full wiring graph, which satisfies the same consumer contract.
+ */
+export function loadTraverseCached(outDir) {
+    const slim = traversePath(outDir);
+    const slimStat = statOf(slim);
+    const wiringStat = statOf(wiringPath(outDir));
+    if (slimStat && wiringStat && slimStat.mtimeMs >= wiringStat.mtimeMs) {
+        const value = loadCached(traverseCache, slim, () => readGraph(slim), () => {
+            __parseCount.traverse++;
+        });
+        if (value)
+            return value;
+    }
+    return loadGraphCached(outDir);
+}
+/**
  * Drop the cached graph + sidecar for `outDir`, forcing the next load to re-read.
  *
  * The `(mtimeMs, size)` key above is a good invalidator for a build that happened
@@ -93,5 +116,6 @@ export function loadAskIndexCached(outDir) {
 export function invalidateGraphCaches(outDir) {
     graphCache.delete(wiringPath(outDir));
     askIndexCache.delete(askIndexPath(outDir));
+    traverseCache.delete(traversePath(outDir));
 }
 //# sourceMappingURL=load.js.map

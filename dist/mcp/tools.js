@@ -6,7 +6,7 @@ import { Grafly } from '../engine.js';
 import { formatAsk, skeleton, formatSkeleton } from '../ask/ask.js';
 import { formatCheckReport } from '../context/check.js';
 import { formatGraphCheckReport } from '../graph/check.js';
-import { loadGraphCached } from '../graph/load.js';
+import { loadGraphCached, loadTraverseCached } from '../graph/load.js';
 import { ensureFreshChildren, ensureFreshGraph, refreshNote } from '../graph/refresh.js';
 import { contextDirFor } from '../context/node-file.js';
 import { resolveSymbol } from '../graph/traverse.js';
@@ -254,7 +254,7 @@ async function callSingleTool(root, name, args, dirOverride) {
             if (!symbol)
                 return { text: 'grafly_trace_calls requires a symbol', isError: true };
             const contextDir = contextDirFor(root, dirOverride);
-            const w = loadGraphCached(contextDir);
+            const w = loadTraverseCached(contextDir);
             if (!w)
                 return { text: NO_GRAPH, isError: true };
             const inOpt = typeof args.in === 'string' && args.in ? { in: args.in } : {};
@@ -309,7 +309,7 @@ async function callSingleTool(root, name, args, dirOverride) {
             const pattern = String(args.pattern ?? '');
             if (!pattern)
                 return { text: 'grafly_find_all requires a pattern', isError: true };
-            const w = loadGraphCached(contextDirFor(root, dirOverride));
+            const w = loadTraverseCached(contextDirFor(root, dirOverride));
             if (!w)
                 return { text: NO_GRAPH, isError: true };
             const result = grepGraph(w, root, pattern, {

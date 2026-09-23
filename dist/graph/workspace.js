@@ -24,8 +24,9 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { contextDirFor } from "../context/node-file.js";
+import { archiveIndex } from '../context/archive-index.js';
 import { checkGraph } from "./check.js";
-import { loadGraphCached } from "./load.js";
+import { loadGraphCached, loadTraverseCached } from "./load.js";
 import { buildRepoMap, formatRepoMap } from "./map.js";
 import { discoverWorkspaceChildren } from "./scopes.js";
 import { callersSavings, headerOf, hitLine, looseNoteFor, judgeAndRank, circuitVerdictLine, circuitLogPath, logCircuit, walkAdjacency, sharedEdgeWalk, } from "./traverse-cli.js";
@@ -98,19 +99,20 @@ export function migrationNote(children) {
  * workspace.json. Child graphs live in sibling `<child>/grafly/`, never under
  * this dir, so they are untouched. */
 export function clearParentGraft(root, override) {
-    rmSync(contextDirFor(root, override), { recursive: true, force: true });
+    archiveIndex(contextDirFor(root, override));
 }
-/** Load each child's graph via `loadGraphCached`. Children come from
+/** Load each child's graph via `load` (default `loadGraphCached`; traversal
+ * callers pass `loadTraverseCached` for the slim sidecar). Children come from
  * workspace.json when present, otherwise from live git-child discovery (a
  * not-yet-built workspace). A child without a built graph is counted into
  * `missing`, not dropped. */
-export function loadWorkspaceGraphs(root, override) {
+export function loadWorkspaceGraphs(root, override, load = loadGraphCached) {
     const ws = readWorkspace(root, override);
     const children = (ws ? ws.children : discoverWorkspaceChildren(root)).slice().sort();
     const loaded = [];
     const missing = [];
     for (const child of children) {
-        const graph = loadGraphCached(contextDirFor(join(root, child)));
+        const graph = load(contextDirFor(join(root, child)));
         if (graph)
             loaded.push({ child, graph });
         else
@@ -472,7 +474,7 @@ export function federateAsk(root, override, query, opts = {}) {
  * child dir and re-sorting by coupling (inDegree desc, path asc) across repos.
  * In-degree stays each child's own — it comes from that child's graph. */
 export function federateGrep(root, override, pattern, opts = {}) {
-    const wg = loadWorkspaceGraphs(root, override);
+    const wg = loadWorkspaceGraphs(root, override, loadTraverseCached);
     const allChildren = [...wg.loaded.map((l) => l.child), ...wg.missing];
     const { onlyChild, childIn } = splitWorkspaceScope(opts.in, allChildren);
     const groups = [];
@@ -563,7 +565,7 @@ export async function federateCheck(root, override) {
 /** Resolve a symbol across every child, grouped per child. Reuses the shared
  * traverse-cli formatters so each block reads exactly like `grafly callers`. */
 export function federateCallers(root, override, symbol, opts = {}) {
-    const wg = loadWorkspaceGraphs(root, override);
+    const wg = loadWorkspaceGraphs(root, override, loadTraverseCached);
     const allChildren = [...wg.loaded.map((l) => l.child), ...wg.missing];
     const { onlyChild, childIn } = splitWorkspaceScope(opts.in, allChildren);
     const direction = opts.direction ?? "in";

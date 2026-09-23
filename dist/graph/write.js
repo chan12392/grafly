@@ -13,9 +13,16 @@ import { dirname, join } from "node:path";
 /** Hidden subdir under the context dir that holds machine-only graph artifacts. */
 export const GRAPH_DIR = ".graph";
 export const GRAPH_FILE = "wiring.json";
+/** Slim traversal sidecar: callers/grep consume only id/name/kind/path/span
+ * (+ origin, chars, ambiguousCalls) and edges — signature/summary/crux are the
+ * bulk of wiring.json bytes at scale, so they stay out of this file. */
+export const TRAVERSE_FILE = "wiring-traverse.json";
 /** Absolute path to the wiring graph for a context dir: `<dir>/.graph/wiring.json`. */
 export function wiringPath(outDir) {
     return join(outDir, GRAPH_DIR, GRAPH_FILE);
+}
+export function traversePath(outDir) {
+    return join(outDir, GRAPH_DIR, TRAVERSE_FILE);
 }
 /**
  * Read an existing wiring graph for use as the Tier-2 cache. Returns null when the
@@ -51,6 +58,7 @@ export function writeGraph(graph, outDir) {
     try {
         writeFileSync(tmp, JSON.stringify(sorted, null, 2) + "\n");
         renameSync(tmp, path);
+        writeTraverseAtomic(sorted, traversePath(outDir));
     }
     catch (e) {
         try {
@@ -62,6 +70,37 @@ export function writeGraph(graph, outDir) {
         throw e;
     }
     return path;
+}
+/** Project the fields the traversal surfaces (callers/grep/trace) read —
+ * everything else stays in wiring.json only. */
+function traverseNode(n) {
+    const out = { id: n.id, name: n.name, kind: n.kind, path: n.path, span: n.span, origin: n.origin };
+    if (n.chars !== undefined)
+        out.chars = n.chars;
+    return out;
+}
+/** Same temp+rename discipline as the wiring write above — a killed --deep
+ * checkpoint must not leave a half-written sidecar behind. */
+function writeTraverseAtomic(sorted, path) {
+    const slim = {
+        nodes: sorted.nodes.map(traverseNode),
+        edges: sorted.edges.map((e) => ({ source: e.source, relation: e.relation, target: e.target })),
+        ...(sorted.ambiguousCalls ? { ambiguousCalls: sorted.ambiguousCalls } : {}),
+    };
+    const tmp = `${path}.${process.pid}.tmp`;
+    try {
+        writeFileSync(tmp, JSON.stringify(slim, null, 2) + "\n");
+        renameSync(tmp, path);
+    }
+    catch (e) {
+        try {
+            rmSync(tmp, { force: true });
+        }
+        catch {
+            /* nothing more we can do */
+        }
+        throw e;
+    }
 }
 /**
  * Drop `body_text` from the SERIALIZED copy of a node — it is ~65% of
