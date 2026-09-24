@@ -4,8 +4,8 @@
  * Antigravity loads "shared" skills — available to every workspace — from
  * `~/.gemini/skills/`. graft's skill card is the same one Claude Code and AdaL get;
  * placing it here is the skill half of first-class Antigravity support (#62). The
- * instruction file (AGENTS.md) and MCP registration are handled by the `antigravity`
- * host in the registry and `mcp-config.ts` respectively.
+ * instruction file (AGENTS.md) is handled by the `antigravity`
+ * host in the registry.
  *
  * `antigravitySkillTargets()` is the pure "which files would this touch" half (for
  * `graft init --dry-run` / the picker); `installAntigravitySkill()` does the write.

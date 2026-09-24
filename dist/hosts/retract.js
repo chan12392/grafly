@@ -9,7 +9,7 @@
  * `retract` + `init` converges the repo on exactly this version's intent.
  *
  * The target list is derived from the same registries `init` writes through
- * (`HOSTS`, `mcpTargets`, `hookTargets`, `claudeTargets`), so a host added
+ * (`HOSTS`, `hookTargets`, `claudeTargets`), so a host added
  * later is retractable for free — there is no second list to keep in sync.
  * Only {@link LEGACY_TARGETS} is hand-maintained, and only for paths that have
  * been *removed* from those registries: once a host is gone, nothing else
@@ -28,7 +28,6 @@ import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { HOSTS } from './registry.js';
 import { ALL_MARKERS } from './sections.js';
-import { mcpTargets, stripTomlSection } from './mcp-config.js';
 import { hookTargets } from './codex-hooks.js';
 import { archiveIndex } from '../context/archive-index.js';
 import location from '../context/location.cjs';
@@ -179,12 +178,54 @@ function removeJsonKey(path, topKey, apply) {
     writeFileSync(path, `${JSON.stringify(root, null, 2)}\n`);
     return 'removed';
 }
+/** Canonical and legacy MCP table headers. The MCP server is gone; these
+ * survive only so `retract` can strip the registrations older versions wrote. */
+const TOML_HEADER = '[mcp_servers.grafly]';
+const LEGACY_TOML_HEADER = '[mcp_servers.graft]';
+/**
+ * Remove either Grafly's canonical table or the legacy Graft table. Line-based
+ * on purpose: a real TOML parse-and-reserialize would reformat the user's whole
+ * file. The table runs from its header to the next `[`-header or EOF.
+ */
+function stripTomlSection(text) {
+    const lines = text.split('\n');
+    const start = lines.findIndex((l) => {
+        const t = l.trim();
+        return t === TOML_HEADER || t === LEGACY_TOML_HEADER;
+    });
+    if (start === -1)
+        return { rest: text, found: false };
+    let end = start + 1;
+    while (end < lines.length && !lines[end].trimStart().startsWith('['))
+        end++;
+    const rest = [...lines.slice(0, start), ...lines.slice(end)]
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/^\n+/, '');
+    return { rest, found: true };
+}
+/**
+ * The files older versions could have registered the MCP server in, kept so
+ * `retract` still cleans the residue after the server itself was removed.
+ * `format` picks the stripper; `topKey`/`what` describe the graft-owned key.
+ */
+function mcpRemovalTargets(repo, home) {
+    const j = (hostId, path, topKey, scope = 'repo') => ({ hostId, path, topKey, format: 'json', scope, what: `${topKey}.grafly` });
+    const t = (hostId, path, scope = 'repo') => ({ hostId, path, format: 'toml', scope, what: TOML_HEADER });
+    return [
+        j('cursor', join(repo, '.cursor', 'mcp.json'), 'mcpServers'),
+        j('gemini', join(repo, '.gemini', 'settings.json'), 'mcpServers'),
+        j('antigravity', join(home, '.gemini', 'config', 'mcp_config.json'), 'mcpServers', 'global'),
+        j('kiro', join(repo, '.kiro', 'settings', 'mcp.json'), 'mcpServers'),
+        t('grok', join(repo, '.grok', 'config.toml')),
+        t('agents', join(home, '.codex', 'config.toml'), 'global'),
+        j('agents', join(repo, 'opencode.json'), 'mcp'),
+        j('claude', join(repo, '.mcp.json'), 'mcpServers'),
+        j('claude', join(home, '.claude.json'), 'mcpServers', 'global'),
+    ];
+}
 /**
  * Delete the `[mcp_servers.graft]` table from a TOML config.
- *
- * Line-based on purpose: a real TOML parse-and-reserialize would reformat the
- * user's whole file. The table runs from its header to the next `[`-header or
- * EOF, which is exactly what `upsertCodexToml` appends.
  */
 function removeTomlSection(path, apply) {
     if (!existsSync(path))
@@ -351,11 +392,11 @@ function removeDir(path, apply) {
 /**
  * Every target graft could have written, in removal order.
  *
- * Derived from the live registries, NOT hand-listed: `HOSTS` gives the
- * instruction files, `mcpTargets` over *all* host ids gives the MCP configs
- * (with the format and top-level key each one needs), and `claudeTargets`
- * gives the Claude Code layer. That's what keeps this complete as hosts are
- * added — see the module note.
+ * Derived from the live registries plus one hand-kept table: `HOSTS` gives the
+ * instruction files, `claudeTargets` gives the Claude Code layer, and
+ * {@link mcpRemovalTargets} lists the configs older versions could have
+ * registered the (now removed) MCP server in. That's what keeps this complete
+ * as hosts are added — see the module note.
  */
 function targets(repo, opts) {
     const home = opts.home ?? homedir();
@@ -376,8 +417,9 @@ function targets(repo, opts) {
         if (exclude.has(host.id))
             keptPaths.add(join(repo, host.relPath));
     }
-    for (const t of mcpTargets(repo, [...exclude], { home }))
-        keptPaths.add(t.path);
+    for (const t of mcpRemovalTargets(repo, home))
+        if (exclude.has(t.hostId))
+            keptPaths.add(t.path);
     if (exclude.has('claude')) {
         for (const t of claudeTargets(repo))
             keptPaths.add(t.path);
@@ -416,26 +458,25 @@ function targets(repo, opts) {
             run: (a) => (legacy.kind === 'owned' ? removeFile(path, a) : stripSection(path, a)),
         });
     }
-    // 2. MCP registrations. Asking for every host id at once yields the union of
-    //    config files, each already carrying its format and top-level key.
-    const allIds = HOSTS.map((h) => h.id).filter((id) => !exclude.has(id));
-    for (const t of mcpTargets(repo, allIds, { home })) {
-        if (opts.global === false && t.scope === 'global')
+    // 2. MCP registrations — residue from older versions only. The server is
+    //    gone, but a config that still names `grafly mcp` fails loudly in the host.
+    for (const t of mcpRemovalTargets(repo, home)) {
+        if (exclude.has(t.hostId) || (opts.global === false && t.scope === 'global'))
             continue;
         add({
             hostId: t.hostId, path: t.path, what: t.what, scope: t.scope,
             run: (a) => (t.format === 'toml' ? removeTomlSection(t.path, a) : removeJsonKey(t.path, t.topKey, a)),
         });
     }
-    // 3. Claude Code: settings fragments, both shims, the skill, and the .mcp.json key.
+    // 3. Claude Code: settings fragments, both shims, and the skill. The
+    //    `.mcp.json`/`~/.claude.json` keys are in the removal table above.
     if (!exclude.has('claude')) {
-        const [settings, statusline, hooks, skill, mcp] = claudeTargets(repo).map((t) => t.path);
+        const [settings, statusline, hooks, skill] = claudeTargets(repo).map((t) => t.path);
         for (const t of [
             { hostId: 'claude', path: settings, what: 'statusline + hooks + allowlist + footer regex', scope: 'repo', run: (a) => stripClaudeSettings(settings, a) },
             { hostId: 'claude', path: statusline, what: 'statusline shim', scope: 'repo', run: (a) => removeFile(statusline, a) },
             { hostId: 'claude', path: hooks, what: 'hooks shim', scope: 'repo', run: (a) => removeFile(hooks, a) },
             { hostId: 'claude', path: skill, what: 'Grafly skill', scope: 'repo', run: (a) => removeFile(skill, a) },
-            { hostId: 'claude', path: mcp, what: 'mcpServers.grafly', scope: 'repo', run: (a) => removeJsonKey(mcp, 'mcpServers', a) },
             { hostId: 'legacy', path: join(repo, '.claude', 'helpers', 'graft-statusline.cjs'), what: 'legacy Graft statusline shim', scope: 'repo', run: (a) => removeFile(join(repo, '.claude', 'helpers', 'graft-statusline.cjs'), a) },
             { hostId: 'legacy', path: join(repo, '.claude', 'helpers', 'graft-hooks.cjs'), what: 'legacy Graft hooks shim', scope: 'repo', run: (a) => removeFile(join(repo, '.claude', 'helpers', 'graft-hooks.cjs'), a) },
             { hostId: 'legacy', path: join(repo, '.claude', 'skills', 'graft', 'SKILL.md'), what: 'legacy Graft skill', scope: 'repo', run: (a) => removeFile(join(repo, '.claude', 'skills', 'graft', 'SKILL.md'), a) },
@@ -446,11 +487,10 @@ function targets(repo, opts) {
     //    Antigravity's shared skill.
     if (opts.global !== false) {
         if (!exclude.has('claude')) {
-            const [shim, settings, mcp] = claudeGlobalTargets(home);
+            const [shim, settings] = claudeGlobalTargets(home);
             for (const t of [
                 { hostId: 'claude', path: shim.path, what: shim.what, scope: 'global', run: (a) => removeFile(shim.path, a) },
                 { hostId: 'claude', path: settings.path, what: settings.what, scope: 'global', run: (a) => stripClaudeSettings(settings.path, a) },
-                { hostId: 'claude', path: mcp.path, what: mcp.what, scope: 'global', run: (a) => removeJsonKey(mcp.path, 'mcpServers', a) },
                 { hostId: 'legacy', path: join(home, '.claude', 'helpers', 'graft-hooks.cjs'), what: 'legacy Graft user hooks shim', scope: 'global', run: (a) => removeFile(join(home, '.claude', 'helpers', 'graft-hooks.cjs'), a) },
             ])
                 add(t);

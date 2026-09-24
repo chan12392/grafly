@@ -1,7 +1,8 @@
 /**
- * Shared helpers for the host config writers. Both the hook installers (Codex,
- * user-level under `~/.codex`; Cursor, repo-local under `.cursor`) and the MCP
- * registration merge graft entries into a JSON config, own a generated shim, and
+ * Shared helpers for the host config writers. The hook installers (Codex,
+ * user-level under `~/.codex`; Cursor, repo-local under `.cursor`; Devin,
+ * user-level under its config dir) merge graft entries into a JSON config, own
+ * a generated shim, and
  * describe the outcome with the same little result record. The file-owning write,
  * the graft-entry test, and the load-or-skip JSON open are identical across them;
  * the merge itself differs per host, so only the genuinely-shared pieces live here.

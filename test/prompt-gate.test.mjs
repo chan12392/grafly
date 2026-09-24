@@ -10,7 +10,7 @@ import { shouldRetrievePrompt } from '../dist/claude/prompt-gate.js';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const shim = join(repo, 'scripts', 'grafly-devin-hook.cjs');
-const { findIndex } = createRequire(import.meta.url)(shim);
+const { findIndex, autoBuildRoot } = createRequire(import.meta.url)(shim);
 
 test('clear conversation and tool-usage questions skip retrieval (18 examples)', () => {
   for (const prompt of [
@@ -175,6 +175,20 @@ test('home adapter honors thread_id session isolation without a session_id', (t)
     assert.equal(result.status, 0, result.stderr);
     assert.equal(existsSync(join(f.root, `grafly/.cache/session/${thread}.json`)), true);
   }
+});
+
+test('auto-build root prefers the git checkout, falls back to the session folder, skips home', (t) => {
+  const f = fixture(t);
+  const loose = join(f.root, 'loose');
+  const repo = join(f.root, 'repo');
+  mkdirSync(loose);
+  mkdirSync(join(repo, '.git'), { recursive: true });
+  assert.equal(autoBuildRoot(join(repo, 'pkg', 'src'), f.root), repo);
+  assert.equal(autoBuildRoot(loose, f.root), loose);
+  assert.equal(autoBuildRoot(f.root, f.root), null, 'home stays silent');
+  assert.equal(autoBuildRoot(resolve(sep), f.root), null, 'filesystem root stays silent');
+  mkdirSync(join(f.root, '.git'));
+  assert.equal(autoBuildRoot(loose, f.root), loose, 'a home checkout must not swallow $HOME');
 });
 
 test('home indexes remain isolated from unindexed projects and unrelated directories', (t) => {

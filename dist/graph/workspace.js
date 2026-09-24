@@ -19,7 +19,7 @@
  * This module owns the pure/core pieces (the format, its readers/writers, graph
  * loading, and the federated command bodies that return renderable data). The
  * CLI print/exit wrappers and the per-child build orchestration live in
- * `workspace-cli.ts`; `mcp/tools.ts` calls the federate* functions directly.
+ * `workspace-cli.ts`, which calls the federate* functions directly.
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

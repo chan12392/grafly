@@ -13,12 +13,12 @@ import { formatUpdateNudge, formatWiringRefresh, maybeRefreshBrainRules, maybeRe
  * Re-write the wiring for exactly the hosts a previous `init` chose here, with
  * exactly the flags it was given.
  *
- * `build: false` matters: this runs at session start and at MCP boot, and a graph
+ * `build: false` matters: this runs at session start, and a graph
  * build there would stall the agent's first turn.
  *
  * The out-of-repo writes (`~/.codex/hooks.json`, `~/.codex/config.toml`) ARE
- * included, because nothing else would ever refresh them: no skill, rule file, or
- * MCP instruction tells an agent to run `graft init`, so leaving them out means a
+ * included, because nothing else would ever refresh them: no skill or rule file
+ * tells an agent to run `graft init`, so leaving them out means a
  * Codex user upgrades the binary and keeps the old hook config forever. They're
  * safe to replay — `installCodexHooks` no-ops when `~/.codex` is absent, rewrites
  * only its own entry (matched on `graft-hooks.cjs`), and reports `unchanged` when
@@ -33,7 +33,7 @@ function rewriteWiring(repo, hosts, opts) {
         runInit(repo, { build: false, cliPath: graftCliPath(), statusline: opts.statusline, global: opts.global });
     const others = hosts.filter((h) => h !== 'claude');
     if (others.length)
-        runHostsInit(repo, { agents: others, global: opts.global, mcp: opts.mcp, hooks: opts.hooks });
+        runHostsInit(repo, { agents: others, global: opts.global, hooks: opts.hooks });
 }
 /**
  * @param repo    the project dir

@@ -1,9 +1,10 @@
 // Devin/Codex hook shim for grafly: inside a repo that already has a grafly
 // index it delegates to grafly's own Claude-format hooks (same injection
-// contract, session state, and timeouts as upstream). Inside a git repo with
-// NO index it kicks off a background `grafly build` once, so the graph appears
+// contract, session state, and timeouts as upstream). Inside a directory with
+// NO index it kicks off a background `grafly build` once — a git checkout
+// indexes its root, any other folder indexes itself — so the graph appears
 // without the user ever typing a command. The explicit home workspace searches
-// saved project graphs; other unindexed non-Git directories stay silent.
+// saved project graphs; home itself and filesystem roots stay silent.
 // Usage: node grafly-devin-hook.cjs <session-start|prompt>
 // With ~/.grafly/auto-deep.json enabled, git projects also queue a cached
 // deep pass. The optional worker never delays retrieval or provisions a model.
@@ -147,10 +148,22 @@ function emit(context) {
   }));
 }
 
-// Kick one detached `grafly build` per git repo; the stamp debounces retries.
+// Pick what a background build indexes: the enclosing git checkout's root, or
+// the session folder itself when no checkout wraps it. A checkout rooted at
+// the home directory (dotfiles style) must not swallow all of $HOME, and
+// sessions opened at home or a filesystem root stay silent.
+function autoBuildRoot(start, home = homedir()) {
+  const git = findUp(start, (d) => fs.existsSync(path.join(d, '.git')));
+  if (git && !samePath(git, home)) return git;
+  const root = path.resolve(start);
+  if (samePath(root, home) || path.dirname(root) === root) return null;
+  return root;
+}
+
+// Kick one detached `grafly build` per directory; the stamp debounces retries.
 function tryAutoBuild(start) {
   if (process.env.GRAFLY_NO_AUTO_INDEX || process.env.GRAFT_NO_AUTO_INDEX) return false;
-  const root = findUp(start, (d) => fs.existsSync(path.join(d, '.git')));
+  const root = autoBuildRoot(start);
   if (!root) return false;
   const ctxDir = process.env.GRAFLY_DIR || process.env.GRAFT_DIR || '.grafly';
   const stamp = path.join(root, ctxDir, '.cache', 'auto-build.stamp');
@@ -178,11 +191,9 @@ async function homeWorkspace(root, input) {
   const workspace = JSON.parse(fs.readFileSync(path.join(indexDir(root), 'workspace.json'), 'utf8'));
   if (workspace.version !== 1 || !Array.isArray(workspace.children)) return;
   if (EVENT === 'session-start') {
-    const context = `[grafly] Home workspace: ${workspace.children.length} existing project indexes.\n` +
+    const context = `[grafly] Home workspace: ${workspace.children.length} project indexes.\n` +
       `Projects: ${workspace.children.join(', ')}\n` +
-      'Use grafly ask "<query>" . --source --no-refresh for ranked code locations, ' +
-      'or grafly grep "<pattern>" . --no-refresh for indexed occurrences.\n' +
-      'Results use saved project indexes; confirm source before editing. Refresh only the relevant project when needed.';
+      'grafly ask "<q>" . --source --no-refresh or grafly grep "<pat>" . --no-refresh over saved indexes; verify source before editing.';
     if (claimStartup(root, input, context)) emit(context);
     return;
   }
@@ -191,8 +202,7 @@ async function homeWorkspace(root, input) {
   // Cross-project ask can rank partial identifier tokens ahead of an exact
   // symbol. Route bare identifiers to the literal-search command instead.
   if (/^[A-Za-z_$][\w$]*$/.test(prompt)) {
-    emit(`[grafly home] Exact identifier lookup: grafly grep ${JSON.stringify(prompt)} . --fixed --no-refresh. ` +
-      'Use the literal search to locate all indexed occurrences.');
+    emit(`[grafly home] grafly grep ${JSON.stringify(prompt)} . --fixed --no-refresh — every indexed occurrence.`);
     return;
   }
   const [{ federateAsk }, { relevantRetrieval }, { readSession, writeSession }] = await Promise.all([
@@ -204,8 +214,7 @@ async function homeWorkspace(root, input) {
   const session = readSession(root, id);
   const result = federateAsk(root, undefined, prompt, { limit: 3 });
   const context = relevantRetrieval(result, session, 3);
-  if (context) emit('[grafly home] Saved project indexes; verify source freshness. ' +
-    'Add --no-refresh to home ask/grep commands; refresh only the relevant project when needed.\n' + context);
+  if (context) emit('[grafly home] Saved indexes — add --no-refresh; verify freshness before editing.\n' + context);
   writeSession(root, id, session);
 }
 
@@ -230,7 +239,7 @@ async function main() {
     if (await tryAutoDeep(start, input))
       emit('[grafly] no index yet — queued structural + deep indexing in the background. Retrieval starts when the structural graph is available; deep status: node "' + path.join(PKG, 'hosts', 'auto-deep.js') + '" status');
     else if (tryAutoBuild(start))
-      emit('[grafly] no index yet — building this repo in the background (grafly build). Retrieval switches on automatically once it finishes.');
+      emit('[grafly] no index yet — indexing this directory in the background (grafly build). Retrieval switches on automatically once it finishes.');
     return;
   }
   if (samePath(root, homedir()) && fs.existsSync(path.join(indexDir(root), 'workspace.json'))) {
@@ -249,5 +258,5 @@ async function main() {
   await m.main(EVENT);
 }
 
-module.exports = { findIndex, claimStartup };
+module.exports = { findIndex, claimStartup, autoBuildRoot };
 if (require.main === module) main().catch(() => { /* fail-open: never block the user's prompt */ });

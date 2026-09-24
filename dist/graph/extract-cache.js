@@ -37,11 +37,10 @@ export const EXTRACT_CACHE_PREFIX = "extract";
  *
  * The stamp is in the *filename*, not just inside the file, so two grafts working
  * on one repo keep separate memos instead of evicting each other. That is the
- * default install, not an exotic case: `graft init` wires the MCP server as
- * `npx -y @nanonets/graft` (which resolves the latest published version) while the
- * Claude Code hooks run the locally installed one. The moment those two versions
- * differ, a single shared file means the prompt hook and every MCP retrieval take
- * turns rejecting each other's entries and cold-re-parsing the whole repo — the memo
+ * default install, not an exotic case: a global `grafly` and a repo-pinned copy
+ * (or a hook shim pointing at another install) can differ in version the moment
+ * either is upgraded. With a single shared file the two would take turns
+ * rejecting each other's entries and cold-re-parsing the whole repo — the memo
  * would never help anyone.
  *
  * Null stamp → null path → no memo at all. See {@link extractorStamp}.
@@ -70,7 +69,7 @@ export function pruneSidecars(cacheDir, prefix, keep = 2) {
     }
 }
 /** Computed once per process — this can't change under a running process without
- * the module graph itself being swapped, and a long-lived MCP server holding the
+ * the module graph itself being swapped, and a process holding the
  * identity of the code it actually loaded is the correct answer anyway.
  * `undefined` = not computed yet; `null` = computed, and there is no identity. */
 let memoizedStamp;

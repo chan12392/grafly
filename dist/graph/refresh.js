@@ -17,7 +17,7 @@
  * - **Never fatal.** A failed refresh degrades to answering from the graph on
  *   disk. A query that works today must not start failing because a rebuild did.
  * - **Never a stampede.** It takes the same `graft/.cache/.sync.lock` the
- *   background sync uses, so concurrent MCP calls and the Stop hook can't pile up
+ *   background sync uses, so concurrent queries and the Stop hook can't pile up
  *   rebuilds on top of each other.
  * - **Writes only what a query reads** (`graphOnly`): the graph, the `ask` sidecar,
  *   the freshness record. Not the markdown cards, not `INDEX.md`, not `.gitignore`.
@@ -99,7 +99,7 @@ async function waitForLock(cache) {
 /**
  * Copy a parent checkout's graph in, holding the same lock a rebuild would.
  *
- * Two MCP tool calls in a fresh worktree arrive here at the same moment, and an 8 MB
+ * Two queries in a fresh worktree arrive here at the same moment, and an 8 MB
  * copy is long enough for both to start one. The loser waits, then finds the graph
  * already there and reports nothing — which is why the caller re-checks the file
  * rather than trusting this return value.
@@ -176,7 +176,7 @@ export async function ensureFreshGraph(root, opts = {}) {
             // We may have queued behind another process's rebuild for up to LOCK_WAIT_MS,
             // and that rebuild very likely fixed the same drift we saw. Re-probe rather
             // than rebuild on the strength of a stale observation: without this, four
-            // parallel MCP tool calls on one edited file produce four full rebuilds, three
+            // parallel queries on one edited file produce four full rebuilds, three
             // of them pure waste, and the last tool call pays for all of it. A null drift
             // means "no fingerprint" and still has to build.
             const now = drift ? probeDrift(dir, outDir) : null;
@@ -244,7 +244,7 @@ export async function ensureFreshChildren(root, children, opts = {}) {
         note: stale.length ? `${built}; stale: ${stale.join("; ")}` : built,
     };
 }
-/** The one-line note a CLI/MCP surface prints when a refresh actually happened.
+/** The one-line note a query surface prints when a refresh actually happened.
  * Null when there's nothing to say (the overwhelmingly common case). */
 export function refreshNote(r) {
     if (!r.refreshed)

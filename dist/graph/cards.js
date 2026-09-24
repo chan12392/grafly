@@ -190,12 +190,10 @@ export function writeIndex(outDir, files) {
         "`file:line`; open a source file only to edit the named span.",
         "",
         // Whoever reads this file has already decided to look at grafly, so this is the
-        // one place a pointer to the richer surface is welcome rather than noise. Stated
-        // as what exists, not as an instruction — see `mcp/instructions.ts` for why.
-        "The same graph is queryable as MCP tools (`grafly_find_code`, `grafly_find_all`,",
-        "`grafly_trace_calls`, `grafly_file_api`, `grafly_repo_map`) where a host exposes them, and",
-        "as the `grafly` CLI everywhere else. Edges — who calls what — live only in the",
-        "graph, not in these files: `grafly callers <symbol>` is the only way to read them.",
+        // one place a pointer to the richer surface is welcome rather than noise.
+        "The same graph is queryable through the `grafly` CLI. Edges — who calls",
+        "what — live only in the graph, not in these files: `grafly callers <symbol>`",
+        "is the only way to read them.",
         "",
     ];
     const concepts = readNodes(outDir).sort((a, b) => a.slug.localeCompare(b.slug));

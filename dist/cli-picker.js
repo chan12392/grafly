@@ -41,8 +41,6 @@ export function describeWrites(writes, repo, home, maxShown = 3) {
         // hardcoded slash produced `~\.codex/` — one path, both separators.
         parts.push(`+ ${globals.length} in ${where}${sep} (machine-wide)`);
     }
-    if (!writes.some((w) => w.kind === 'mcp'))
-        parts.push('no MCP');
     return parts.join(' · ');
 }
 /**

@@ -2,7 +2,7 @@
  * What `graft init` *would* write, computed before anything is written.
  *
  * The picker and `--dry-run` both need the exact path list up front, so every
- * writer in the init path (instruction files, MCP configs, hooks, the Claude
+ * writer in the init path (instruction files, hooks, the Claude
  * Code layer) exposes a pure `*Targets()` function and then consumes that same
  * list to do its writing. One source of truth, so a plan can never drift from
  * what a real run touches.
@@ -11,7 +11,6 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { statSync } from 'node:fs';
 import { HOSTS, detectHosts } from './registry.js';
-import { mcpTargets } from './mcp-config.js';
 import { hookTargets } from './codex-hooks.js';
 import { cursorHookTargets } from './cursor-hooks.js';
 import { antigravitySkillTargets } from './antigravity.js';
@@ -59,7 +58,6 @@ export function planInit(repo, opts = {}) {
             detected: detected.has(host.id),
             writes: [
                 instructionTarget(repo, host),
-                ...mcpTargets(repo, [host.id], { home }),
                 ...(host.id === 'agents' ? hookTargets(home) : []),
                 ...(host.id === 'cursor' ? cursorHookTargets(repo) : []),
                 ...(host.id === 'antigravity' ? antigravitySkillTargets(home) : []),

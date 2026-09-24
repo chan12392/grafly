@@ -24,7 +24,7 @@ const load = async (root) => ({
 const old = await load(baseline), next = await load(candidate);
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 const files = ['dist/circuit/judge.js', 'dist/circuit/weights.json',
-    'dist/graph/traverse-cli.js', 'dist/graph/workspace.js', 'dist/mcp/tools.js'];
+    'dist/graph/traverse-cli.js', 'dist/graph/workspace.js'];
 const inputs = {};
 for (const root of [baseline, candidate]) for (const file of files) {
     const path = join(root, file); inputs[path] = digest(readFileSync(path));

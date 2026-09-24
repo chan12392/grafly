@@ -36,7 +36,7 @@ function stamp() {
 }
 /** `<outDir>/.cache/fingerprint.<stamp>.json` — keyed by extractor identity for the
  * same reason the memo is (see {@link extractCachePath}): two grafts on one repo,
- * typically an `npx` MCP server and a locally installed hook binary, must not keep
+ * typically a global CLI and a repo-pinned copy, must not keep
  * invalidating each other's prints and forcing a cold rebuild on every call. */
 export function fingerprintPath(outDir) {
     return join(outDir, CACHE_DIR, `${FINGERPRINT_PREFIX}.${stamp()}.json`);

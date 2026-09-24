@@ -155,10 +155,5 @@ total is parsed from.
 - You may also grep / ls / cat inside \`.grafly/\` directly (plain markdown;
   \`.grafly/INDEX.md\` indexes the nodes), but the tools above are faster and
   exhaustive where it matters, so reach for them first.
-
-When the grafly MCP server is connected, these are exposed as tools too:
-\`grafly_find_code\`, \`grafly_find_all\`, \`grafly_file_api\`, \`grafly_trace_calls\` (with
-\`direction\` / \`depth\`), \`grafly_repo_map\`, \`grafly_check_freshness\`. Use whichever surface is
-available; the guidance is identical.
 `;
 }

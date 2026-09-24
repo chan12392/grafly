@@ -11,15 +11,13 @@
  *
  * The shim is the same one Claude Code and Codex use (`hooksShim`): it locates
  * the installed `grafly` package and calls `hooks.js`' `main(argv[2])`,
- * so the sub-command in each entry (`cursor-post-tool`, `cursor-mcp`,
+ * so the sub-command in each entry (`cursor-post-tool`,
  * `cursor-session-end`) routes to the matching handler in `../claude/hooks.ts`.
  *
  * Events, confirmed against the Cursor hooks docs (the matcher/tool-name shape
  * is load-bearing, so it is read from the docs, not guessed):
  *   - `postToolUse` (matcher `Read|Grep|Glob|Search|Shell`) → classify a source read
- *     vs a graft-CLI Shell call; MCP tools are skipped here so they aren't
- *     double-counted against `afterMCPExecution`.
- *   - `afterMCPExecution` → the graft MCP calls, savings parsed from `result_json`.
+ *     vs a graft-CLI Shell call.
  *   - `sessionEnd` → roll the closed session up into `session_summary` as Cursor.
  */
 import { writeFileSync } from 'node:fs';
@@ -51,14 +49,13 @@ export function cursorHookTargets(repo) {
         {
             hostId: 'cursor', id: 'cursor-hooks',
             path: configPathFor(repo),
-            scope: 'repo', kind: 'hook', what: 'postToolUse / afterMCPExecution / sessionEnd',
+            scope: 'repo', kind: 'hook', what: 'postToolUse / sessionEnd',
         },
     ];
 }
 function desiredEntries() {
     return [
         { event: 'postToolUse', matcher: 'Read|Grep|Glob|Search|Shell', sub: 'cursor-post-tool' },
-        { event: 'afterMCPExecution', sub: 'cursor-mcp' },
         { event: 'sessionEnd', sub: 'cursor-session-end' },
     ];
 }

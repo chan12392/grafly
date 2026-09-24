@@ -8,8 +8,8 @@
  * unit-testable without shelling out to the CLI on every case.
  *
  * `--direction out` subsumes the old `grafly callees`; `--depth N` subsumes the
- * old `grafly impact`. Exported formatters are reused by the MCP `grafly_trace_calls`
- * tool (`src/mcp/tools.ts`), so both surfaces render identical reports.
+ * old `grafly impact`. Exported formatters are reused by the workspace
+ * federation path (`workspace.js`), so both surfaces render identical reports.
  */
 import { resolve, join } from "node:path";
 import { fileReader, referenceLine, wordRe } from "../blast/evidence.js";
@@ -71,7 +71,7 @@ export function sharedEdgeWalk(graph, adj, byId, node, direction, depth) {
     }
     return hits;
 }
-/** Exported so the MCP `grafly_trace_calls` tool (`src/mcp/tools.ts`) can render the
+/** Exported so the workspace federation path (`workspace.js`) can render the
  * same human report format as the CLI, rather than re-implementing it — both
  * surfaces walk the same edges via the same `resolveSymbol` / `edgeWalk` core. */
 export function headerOf(n) {
@@ -105,8 +105,8 @@ function quoteFor(hit, name, read) {
 }
 /** Tokens-saved baseline for a callers/callees walk: the files of the matched
  * symbols plus every resolved edge endpoint, read whole — the files you'd open
- * to trace these edges by hand. Shared by the CLI and the MCP tool so both
- * surfaces report the same number. */
+ * to trace these edges by hand. Shared by the CLI and the workspace path so
+ * both surfaces report the same number. */
 export function callersSavings(graph, results) {
     const paths = [];
     for (const { symbol, hits } of results) {
@@ -445,8 +445,7 @@ export function runCallersCommand(query, dir, opts) {
  * {circuit, features} — circuit = the verdict block also embedded in --json
  * output, features = the per-candidate vectors the log keeps for retraining
  * (capped at the top 50: the head is where the signal lives). Shared by the
- * CLI, the MCP grafly_trace_calls tool, and the workspace federation path so
- * every surface judges identically.
+ * CLI and the workspace federation path so every surface judges identically.
  */
 export function judgeAndRank(graph, query, matches, ctx) {
     if (matches.length <= 1)
@@ -475,7 +474,7 @@ export function judgeAndRank(graph, query, matches, ctx) {
     };
 }
 /** The ⚖ verdict line — one line of judgment before the match blocks, same
- * text on CLI and MCP. Abstain names its best guess explicitly: an agent that
+ * text on every surface. Abstain names its best guess explicitly: an agent that
  * reads only the header still learns which symbol the circuit preferred. */
 export function circuitVerdictLine(circuit, matchCount) {
     return circuit.verdict === "abstain"

@@ -1,51 +1,44 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { contextDirFor } from "../dist/context/node-file.js";
 import { Grafly, Graft } from "../dist/engine.js";
-import { canonicalToolName, GRAFLY_MCP_TOOL_CANONICAL } from "../dist/mcp/tool-names.js";
 import { normalizeTraceDepth, splitWorkspaceScope } from "../dist/compat/options.js";
 import { posthogKey } from "../dist/telemetry/key.js";
 import { appendCircuitRecord, recordFollowup } from "../dist/circuit/feedback.js";
 
 test("Grafly is primary engine and Graft remains alias",()=>assert.equal(Graft,Grafly));
 test("default graph directory is .grafly",()=>{const root=mkdtempSync(join(tmpdir(),"grafly-"));assert.equal(contextDirFor(root),join(root,".grafly"));});
-test("MCP canonical names use grafly",()=>{assert.ok(GRAFLY_MCP_TOOL_CANONICAL.every(n=>n.startsWith("grafly_")));assert.equal(canonicalToolName("graft_find_code"),"grafly_find_code");});
 test("trace depth all is infinite",()=>{assert.equal(normalizeTraceDepth("all"),Infinity);assert.equal(normalizeTraceDepth("4"),4);});
 test("workspace scope splits child",()=>assert.deepEqual(splitWorkspaceScope("repoA/src",["repoA","repoB"]),{onlyChild:"repoA",childIn:"src"}));
 test("telemetry has no baked key",()=>{const a=process.env.GRAFLY_POSTHOG_KEY,b=process.env.GRAFT_POSTHOG_KEY;delete process.env.GRAFLY_POSTHOG_KEY;delete process.env.GRAFT_POSTHOG_KEY;try{assert.equal(posthogKey(),"");}finally{if(a!==undefined)process.env.GRAFLY_POSTHOG_KEY=a;if(b!==undefined)process.env.GRAFT_POSTHOG_KEY=b;}});
 test("narrowing is not adopt/reject",()=>{const d=mkdtempSync(join(tmpdir(),"grafly-log-")),p=join(d,"circuit-log.jsonl");appendCircuitRecord(p,{ts:new Date().toISOString(),type:"judge",jid:"j1",root:"/repo",query:"run",top1:"A",scores:[{id:"A",score:2},{id:"B",score:1},{id:"C",score:0}]});const ev=recordFollowup(p,"/repo","run",["A","B"]);assert.equal(ev.type,"narrow");const rows=readFileSync(p,"utf8").trim().split("\n").map(JSON.parse);assert.equal(rows.some(r=>r.type==="adopt"||r.type==="reject"),false);});
 
-import { serverEntry, mergeJsonKey, stripTomlSection } from "../dist/hosts/mcp-config.js";
+import { runRetract } from "../dist/hosts/retract.js";
 import { writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { sumSavingsFooters } from "../dist/context/savings.js";
 
-test("MCP registration launches Grafly and migrates legacy JSON key", () => {
-  assert.deepEqual(serverEntry(), { command: "grafly", args: ["mcp"] });
+test("retract strips MCP registrations the removed server left behind", () => {
   const d = mkdtempSync(join(tmpdir(), "grafly-mcp-"));
-  const p = join(d, "mcp.json");
-  writeFileSync(p, JSON.stringify({ mcpServers: { graft: { command: "graft", args: ["mcp"] }, other: { command: "x" } } }));
-  mergeJsonKey("x", p, "mcpServers", serverEntry());
-  const cfg = JSON.parse(readFileSync(p, "utf8"));
-  assert.deepEqual(cfg.mcpServers.grafly, { command: "grafly", args: ["mcp"] });
+  const home = mkdtempSync(join(tmpdir(), "grafly-home-"));
+  // A .mcp.json holding only grafly's entry is deleted whole once it leaves.
+  writeFileSync(join(d, ".mcp.json"), JSON.stringify({ mcpServers: { grafly: { command: "grafly", args: ["mcp"] } } }));
+  mkdirSync(join(d, ".grok"), { recursive: true });
+  writeFileSync(join(d, ".grok", "config.toml"), "[mcp_servers.graft]\ncommand = \"graft\"\n\n[other]\nx=1\n");
+  mkdirSync(join(d, ".cursor"), { recursive: true });
+  writeFileSync(join(d, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { graft: { command: "graft", args: ["mcp"] }, other: { command: "x" } } }));
+  runRetract(d, { home, apply: true, global: true, cache: false });
+  assert.equal(existsSync(join(d, ".mcp.json")), false);
+  const toml = readFileSync(join(d, ".grok", "config.toml"), "utf8");
+  assert.match(toml, /\[other\]/);
+  assert.doesNotMatch(toml, /mcp_servers\.graft/);
+  const cfg = JSON.parse(readFileSync(join(d, ".cursor", "mcp.json"), "utf8"));
   assert.equal(cfg.mcpServers.graft, undefined);
+  assert.equal(cfg.mcpServers.grafly, undefined);
   assert.deepEqual(cfg.mcpServers.other, { command: "x" });
-});
-
-test("TOML migration strips legacy Graft header", () => {
-  const r = stripTomlSection("[mcp_servers.graft]\ncommand = \"graft\"\n\n[other]\nx=1\n");
-  assert.equal(r.found, true);
-  assert.match(r.rest, /\[other\]/);
-  assert.doesNotMatch(r.rest, /mcp_servers\.graft/);
-});
-
-test("TOML migration also recognizes canonical Grafly header", () => {
-  const r = stripTomlSection("[mcp_servers.grafly]\ncommand = \"grafly\"\n");
-  assert.equal(r.found, true);
-  assert.equal(r.rest, "");
 });
 
 test("CLI exposes one-command migration", () => {
@@ -59,7 +52,7 @@ test("Grafly skill uses only Grafly-facing commands", async () => {
   const { skillTemplate } = await import("../dist/claude/skill-template.js");
   const skill = skillTemplate();
   assert.match(skill, /name: grafly/);
-  assert.match(skill, /grafly_trace_calls/);
+  assert.match(skill, /grafly callers/);
   assert.doesNotMatch(skill, /\bgraft_find_code\b/);
 });
 

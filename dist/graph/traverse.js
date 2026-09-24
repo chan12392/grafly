@@ -48,7 +48,7 @@ export function resolveSymbol(graph, query, opts = {}) {
  * when a document-order duplicate definition would otherwise collide with an
  * already-minted id (see extract.ts's mint-time uniqueness comment). Without
  * this, a qualified query like `C.m` only ever matches the bare id (`#C.m`),
- * silently hiding the `~2` duplicate from callers/ask/MCP lookups. The
+ * silently hiding the `~2` duplicate from callers/ask lookups. The
  * ordinal can land on any segment, not just the tail (a reopened class shows
  * up as `C~2.m`), so this strips at every segment boundary (`.` or end of
  * string), not just the very end of the string. Exported for judge.js so the
@@ -171,8 +171,8 @@ export function impactOfFile(graph, fileNode, maxDepth = 2, direction = "in") {
     return impactOfMany(graph, [fileNode, ...symbolsInFile(graph, fileNode)], maxDepth, direction);
 }
 /**
- * The single entry point behind `graft callers` and the MCP `graft_trace_calls`
- * tool, covering all of what were once three commands:
+ * The single entry point behind `grafly callers`, covering all of what were
+ * once three commands:
  *   - `direction:in,  depth:1`  → callers      (who calls/references this)
  *   - `direction:out, depth:1`  → callees      (what this calls/references)
  *   - `direction:in,  depth>1`  → blast radius  (transitive dependents)

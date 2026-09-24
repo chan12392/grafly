@@ -5,9 +5,9 @@
  * because plain `grep -rn` gives no way to tell a hit inside a
  * heavily-depended-on function from one inside dead code.
  *
- * Pure I/O + regex, no CLI/MCP concerns: `grep-cli.ts` formats this into
- * human text and wires the CLI command; `mcp/tools.ts` renders the same
- * shape for the `graft_find_all` tool.
+ * Pure I/O + regex, no CLI concerns: `grep-cli.ts` formats this into
+ * human text and wires the CLI command; the workspace path renders the same
+ * shape.
  */
 import { join } from "node:path";
 import { WALK_RELATIONS } from "../graph/relations.js";

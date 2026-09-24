@@ -3,7 +3,7 @@
  *
  * `graft/` is a local cache, so it is gitignored, so `git worktree add` never checks
  * it out: a worktree starts with `src/` and `.claude/` and no graph at all. Every
- * MCP tool then answers "no graph found — run graft build first" for the whole
+ * query then answers "no graph found — run graft build first" for the whole
  * session, and the passive surface (`INDEX.md`, the cards) is missing too. The agent
  * that was supposed to be cheapest in a fresh worktree is instead blind in one.
  *
@@ -172,7 +172,7 @@ function copyTree(srcDir, outDir) {
  * Put `wiring.json` in place last, via a temp file and a rename.
  *
  * Its presence is the flag every caller reads to mean "this repo has a graph"
- * (`refresh.ts`, `workspace.ts`, every MCP tool). So it must appear only once the
+ * (`refresh.ts`, `workspace.ts`, every query command). So it must appear only once the
  * rest of the copy has landed and must never appear half-written: a seed killed
  * midway then leaves no graph, and the next call simply seeds again.
  */

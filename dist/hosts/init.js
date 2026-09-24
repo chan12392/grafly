@@ -8,8 +8,8 @@ import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { HOSTS, detectHosts } from './registry.js';
 import { upsertSection } from './sections.js';
-import { registerMcpConfigs } from './mcp-config.js';
 import { installCodexHooks } from './codex-hooks.js';
+import { installDevinHooks } from './devin-hooks.js';
 import { installCursorHooks } from './cursor-hooks.js';
 import { installAntigravitySkill } from './antigravity.js';
 function probeFor(home, repo) {
@@ -56,13 +56,11 @@ export function runHostsInit(repo, opts = {}) {
         written.push({ id: host.id, path, action });
     }
     const skipped = HOSTS.filter((h) => !selected.includes(h)).map((h) => h.id);
-    const mcp = opts.mcp === false
-        ? []
-        : registerMcpConfigs(repo, selected.map((h) => h.id), { home, global: opts.global });
-    // The Codex hook targets are user-level (~/.codex), so --no-global suppresses them.
+    // The Codex/Devin hook targets are user-level (~/.codex, Devin config dir),
+    // so --no-global suppresses them.
     const hooks = opts.hooks === false || opts.global === false || !selected.some((h) => h.id === 'agents')
         ? []
-        : installCodexHooks(home);
+        : [...installCodexHooks(home), ...installDevinHooks(home)];
     // Cursor's hooks are repo-local (.cursor/hooks.json), matching the Cursor-only,
     // no-global posture — so --no-global does NOT suppress them; only --no-hooks does.
     const cursorHooks = opts.hooks === false || !selected.some((h) => h.id === 'cursor')
@@ -72,6 +70,6 @@ export function runHostsInit(repo, opts = {}) {
     const antigravitySkill = opts.global === false || !selected.some((h) => h.id === 'antigravity')
         ? []
         : installAntigravitySkill(home);
-    return { written, skipped, unknown, mcp, hooks: [...hooks, ...cursorHooks, ...antigravitySkill] };
+    return { written, skipped, unknown, hooks: [...hooks, ...cursorHooks, ...antigravitySkill] };
 }
 //# sourceMappingURL=init.js.map

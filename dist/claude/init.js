@@ -7,7 +7,6 @@ import { mergeGraftSettings } from './settings-merge.js';
 import { statuslineShim, hooksShim } from './shim-template.js';
 import { skillTemplate } from './skill-template.js';
 import { claudeDistDir } from './paths.js';
-import { mergeJsonKey, serverEntry } from '../hosts/mcp-config.js';
 import { hasGraflyIndex } from '../graph/root.js';
 /**
  * The files `runInit` writes — pure, no writes, so `--dry-run` and the picker
@@ -21,8 +20,6 @@ export function claudeTargets(dir) {
         t(join(dir, '.claude', 'helpers', 'grafly-statusline.cjs'), 'statusline shim'),
         t(join(dir, '.claude', 'helpers', 'grafly-hooks.cjs'), 'hooks shim'),
         t(join(dir, '.claude', 'skills', 'grafly', 'SKILL.md'), 'Grafly skill'),
-        // Tagged 'mcp' so the picker doesn't label Claude Code as having no MCP.
-        t(join(dir, '.mcp.json'), 'mcpServers.grafly', 'mcp'),
     ];
 }
 /**
@@ -47,7 +44,7 @@ export function buildGraphIfMissing(dir, opts) {
 }
 export function runInit(dir, opts = {}) {
     // Same list `--dry-run` and the picker report, so the two can't drift apart.
-    const [settings, statusline, hooks, skill, mcpTarget] = claudeTargets(dir).map((t) => t.path);
+    const [settings, statusline, hooks, skill] = claudeTargets(dir).map((t) => t.path);
     mkdirSync(dirname(statusline), { recursive: true });
     const settingsPath = settings;
     let existing = {};
@@ -69,16 +66,12 @@ export function runInit(dir, opts = {}) {
     const skillPath = skill;
     mkdirSync(dirname(skillPath), { recursive: true });
     writeFileSync(skillPath, skillTemplate());
-    // Register the Grafly MCP server in the project's .mcp.json so Claude Code
-    // exposes grafly_find_code/grafly_trace_calls/etc. as tools — the same keyed merge the
-    // other hosts use (existing servers preserved; unparseable files skipped).
-    const mcp = mergeJsonKey('claude', mcpTarget, 'mcpServers', serverEntry());
     // The same wiring again, one level up in `~/.claude`, because everything above
     // this line can be erased by a `.gitignore` and lost to `git worktree add`. See
     // hosts/claude-global.ts for the failure that motivates it. Gated on the same
-    // flag `registerMcpConfigs` uses, so `--no-global` still means "nothing outside
-    // this repo".
+    // flag the other global writes use, so `--no-global` still means "nothing
+    // outside this repo".
     const global = opts.global === false ? [] : installClaudeGlobal(opts.home ?? homedir());
     const built = buildGraphIfMissing(dir, opts);
-    return { settingsPath, shims: [sl, hk], skill: skillPath, mcp, global, warnings, built };
+    return { settingsPath, shims: [sl, hk], skill: skillPath, global, warnings, built };
 }

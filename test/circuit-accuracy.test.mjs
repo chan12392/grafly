@@ -8,7 +8,6 @@ import { judgeSymbols } from '../dist/circuit/judge.js';
 import { resolveSymbol } from '../dist/graph/traverse.js';
 import { judgeAndRank, circuitVerdictLine } from '../dist/graph/traverse-cli.js';
 import { federateCallers } from '../dist/graph/workspace.js';
-import { callTool } from '../dist/mcp/tools.js';
 import { circuitAccuracyCases } from './fixtures/circuit-accuracy-cases.mjs';
 
 for (const c of circuitAccuracyCases()) {
@@ -43,8 +42,8 @@ test('equally supported peer below a different-context runner-up still prevents 
     assert.equal(result.reason, 'equivalent_query_evidence');
 });
 
-// Build actual JS source once: tests cover CLI, single-repo MCP and both
-// workspace surfaces, including an explicit scoped query that can select one.
+// Build actual JS source once: tests cover the CLI and the workspace surface,
+// including an explicit scoped query that can select one.
 test('abstention preserves all candidates through installed entry points', async () => {
     const root = mkdtempSync(join(tmpdir(), 'grafly-circuit-surfaces-'));
     const child = join(root, 'child');
@@ -62,11 +61,11 @@ test('abstention preserves all candidates through installed entry points', async
     const result = run('callers', 'helper', '--json', '--top', '1');
     assert.equal(result.status, 0, result.stderr);
     assert.equal(JSON.parse(result.stdout).matches.length, 2);
-    const mcp = await callTool(child, 'grafly_trace_calls', { symbol: 'helper', top: 1 });
-    assert.equal(mcp.isError, false, mcp.text);
-    assert.match(mcp.text, /a\.js/);
-    assert.match(mcp.text, /b\.js/);
-    assert.doesNotMatch(mcp.text, /top 1 of 2/);
+    const text = run('callers', 'helper', '--top', '1');
+    assert.equal(text.status, 0, text.stderr);
+    assert.match(text.stdout, /a\.js/);
+    assert.match(text.stdout, /b\.js/);
+    assert.doesNotMatch(text.stdout, /top 1 of 2/);
     mkdirSync(join(root, 'grafly'));
     writeFileSync(join(root, 'grafly/workspace.json'), JSON.stringify({ version: 1, children: ['child'] }));
     const fed = federateCallers(root, undefined, 'helper', { top: 1 });
@@ -74,12 +73,8 @@ test('abstention preserves all candidates through installed entry points', async
     assert.match(fed.text, /a\.js/);
     assert.match(fed.text, /b\.js/);
     assert.doesNotMatch(fed.text, /top 1 of 2/);
-    const wmcp = await callTool(root, 'grafly_trace_calls', { symbol: 'helper', top: 1 });
-    assert.equal(wmcp.isError, false, wmcp.text);
-    assert.match(wmcp.text, /b\.js/);
-    assert.doesNotMatch(wmcp.text, /top 1 of 2/);
-    const scoped = await callTool(child, 'grafly_trace_calls', { symbol: 'helper', in: 'a.js', top: 1 });
-    assert.equal(scoped.isError, false, scoped.text);
-    assert.match(scoped.text, /a\.js/);
-    assert.doesNotMatch(scoped.text, /b\.js/);
+    const scoped = run('callers', 'helper', '--in', 'a.js', '--top', '1');
+    assert.equal(scoped.status, 0, scoped.stderr);
+    assert.match(scoped.stdout, /a\.js/);
+    assert.doesNotMatch(scoped.stdout, /b\.js/);
 });

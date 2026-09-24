@@ -12,7 +12,7 @@ import { runningVersion } from '../upkeep.js';
 import { flushClosedSessions, summarizeSession } from '../telemetry/sessions.js';
 import { hasSavingsTally, lastAssistantTurn, lastTurnBilling } from './tally.js';
 import { scopeOf, scopesOfGraph } from '../graph/scopes.js';
-import { classifyToolUse, isMcpToolName, isGraftMcpTool, parseSavings, recordToolUse } from './session-metrics.js';
+import { classifyToolUse, parseSavings, recordToolUse } from './session-metrics.js';
 import { shouldRetrievePrompt } from './prompt-gate.js';
 function readStdin() {
     const seam = process.env.GRAFLY_TEST_STDIN ?? process.env.GRAFT_TEST_STDIN;
@@ -253,7 +253,7 @@ export function lastFileScopeHint(dir, lastFile) {
  *      `session_summary` telemetry shipped 0/0 for every session.
  *   2. Sum any `[grafly] tokens saved ≈ N` footers in the output into the running
  *      `savedTokens` total, so the statusline's `~N tok saved` reflects the
- *      session across CLI and MCP.
+ *      session.
  *
  * A `[grafly]` footer is itself proof graft ran, so it also counts as a graft
  * read even when the tool name alone (a bare `Bash`) couldn't say so. A graft use
@@ -289,30 +289,12 @@ function classifyAndScore(toolName, command, payload) {
  * Cursor `postToolUse` (https://cursor.com/docs/hooks). Same job as
  * {@link handleToolUse} but over Cursor's payload shape: `tool_output` holds the
  * JSON-stringified result (a Shell `graft …` call's footer lives in its stdout),
- * and the session key is `conversation_id`. MCP graft calls are skipped here —
- * `afterMCPExecution` owns them, and counting both would double the graft tally.
- * The skip covers both the prefixed (`MCP:graft_find_code`) and bare
- * (`graft_find_code`) tool-name shapes, so the guard — not just the installed
- * matcher — is what prevents the double count.
+ * and the session key is `conversation_id`.
  */
 function handleCursorPostTool(input, dir) {
     const toolName = String(input?.tool_name ?? '');
-    if (isMcpToolName(toolName) || isGraftMcpTool(toolName))
-        return; // handled by handleCursorMcp
     const command = input?.tool_input?.command ?? input?.tool_input?.cmd;
     recordToolUse(dir, cursorSessionId(input), { ...classifyAndScore(toolName, command, () => input?.tool_output ?? input?.tool_response ?? input), host: 'cursor' });
-}
-/**
- * Cursor `afterMCPExecution`: fires only for MCP tools, so a graft tool is
- * recognised by its name and its savings read out of `result_json`. This is the
- * one place graft MCP calls are counted for Cursor.
- */
-function handleCursorMcp(input, dir) {
-    const toolName = String(input?.tool_name ?? '');
-    if (!isGraftMcpTool(toolName))
-        return;
-    const savedTokens = parseSavings(JSON.stringify(input?.result_json ?? input?.result ?? input ?? ''));
-    recordToolUse(dir, cursorSessionId(input), { kind: 'graft', savedTokens, host: 'cursor' });
 }
 /** Cursor keys a chat by `conversation_id` (its `session_id` equivalent). */
 function cursorSessionId(input) {
@@ -408,11 +390,11 @@ export async function main(event) {
         scheduleAutoDeep(dir, { sessionId: input.session_id || input.thread_id || process.env.CODEX_THREAD_ID, force: true });
         // Before anything is emitted: refresh this repo's wiring if it was written by
         // an older graft, and pick up any cached "newer version on npm" answer.
-        // background:false — a hook must never touch the network; the CLI and the MCP
-        // server fill that cache, this only reads it.
+        // background:false — a hook must never touch the network; the CLI
+        // fills that cache, this only reads it.
         const upkeep = runUpkeep(dir, runningVersion(), { background: false }).lines;
         // Roll up any session that ended since we were last here. Queue-only — the
-        // hook still touches no network; the CLI or the MCP server sends it later.
+        // hook still touches no network; the CLI sends it later.
         flushClosedSessions(dir);
         try {
             const idx = readFileSync(join(resolveContextDir(dir), 'INDEX.md'), 'utf8');
@@ -437,10 +419,6 @@ export async function main(event) {
     }
     if (event === 'cursor-post-tool') {
         handleCursorPostTool(input, dir);
-        return;
-    }
-    if (event === 'cursor-mcp') {
-        handleCursorMcp(input, dir);
         return;
     }
     // Cursor closes a chat: force-close THIS conversation into a bucketed

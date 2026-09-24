@@ -2,8 +2,8 @@
  * mtime-keyed in-process cache over the two readers `ask()` calls on every
  * query: the wiring graph (`readGraph`) and the ask sidecar (`readAskIndex`).
  * `graft ask` re-parses these from disk on every invocation; in a long-lived
- * process — the MCP server, or `graft ask` invoked repeatedly in one process —
- * that means re-parsing the same ~tens-of-MB JSON on every tool call.
+ * process — a workspace command, or `graft ask` invoked repeatedly in one
+ * process — that means re-parsing the same ~tens-of-MB JSON on every call.
  *
  * Keyed by `(path, mtimeMs, size)` from `statSync`, so a rebuild (`graft
  * build`) is picked up on the very next call with no polling and no TTL: the
@@ -20,8 +20,8 @@
  * so invalidation is immediate and reliable.
  *
  * Dependency-free by design: this module imports only `node:fs`, `./write.js`,
- * and `../ask/index-file.js`, so it can be imported from both `ask.ts` and
- * `mcp/tools.ts` without creating an import cycle.
+ * and `../ask/index-file.js`, so it can be imported from `ask.ts`, the CLI
+ * surfaces, and `workspace.js` without creating an import cycle.
  */
 import { statSync } from "node:fs";
 import { readGraph, wiringPath, traversePath } from "./write.js";

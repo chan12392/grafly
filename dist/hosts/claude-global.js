@@ -3,16 +3,11 @@
  * outside every repo.
  *
  * Why this exists. Everything `grafly init` writes for Claude Code lands *in* the
- * repo — `.mcp.json` and `.claude/settings.json`. A `.gitignore` is free to ignore
- * both, and `git worktree add` checks out tracked files only, so a worktree of such
- * a repo starts with graft's shims present and neither of the two files that *point
- * at* them. No settings.json means no SessionStart hook; no `.mcp.json` means no
- * tool server. graft is absent, silently, in a tree that looks correctly wired.
- *
- * graft already carries the repair for exactly that — `reconcileWiring` rewrites
- * both files — and it is unreachable here: `runUpkeep` is called only from the hook
- * and from the MCP server, which are the two things that are missing. Seeding can't
- * help either, since it runs on the query path, which needs the server.
+ * repo — `.claude/settings.json`. A `.gitignore` is free to ignore it, and
+ * `git worktree add` checks out tracked files only, so a worktree of such a repo
+ * starts with graft's shims present and nothing that *points at* them. No
+ * settings.json means no SessionStart hook: graft is absent, silently, in a tree
+ * that looks correctly wired.
  *
  * So the fix cannot live in the repo. `~/.claude/` is not in anyone's working tree,
  * no `.gitignore` reaches it, and Claude Code reads it for every project — worktrees
@@ -22,8 +17,7 @@
  * that gap, and is a deliberate mirror of that file.
  *
  * The repo-level writes stay exactly as they were. A project that has its own
- * `.mcp.json` and settings keeps using them; this is the floor underneath, not a
- * replacement.
+ * settings keeps using them; this is the floor underneath, not a replacement.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -32,28 +26,21 @@ import { claudeDistDir } from '../claude/paths.js';
 import { mergeGraftHooks } from '../claude/settings-merge.js';
 import { toPosixPath } from '../util/paths.js';
 import { readJsonObject, writeOwned } from './config-write.js';
-import { mergeJsonKey, serverEntry } from './mcp-config.js';
+
 /** The directory the user-level shim lives in — the base every hook command names. */
 export function globalHelpersDir(home) {
     return join(home, '.claude', 'helpers');
 }
 /**
  * The files a user-level install would touch — pure, no writes, so `--dry-run` and
- * the picker can report them up front. All three are scoped 'global': they apply to
+ * the picker can report them up front. Both are scoped 'global': they apply to
  * every project opened with Claude Code, not just this one.
- *
- * `~/.claude.json` holds the *user* MCP scope — the top-level `mcpServers` map, the
- * one `claude mcp add --scope user` writes. Not to be confused with the same file's
- * `projects["<abs path>"].mcpServers`, which is `--scope local` and per-directory:
- * a worktree is its own project entry there, so a local registration would miss it
- * for precisely the same reason the repo file does.
  */
 export function claudeGlobalTargets(home) {
     const g = (id, path, kind, what) => ({ hostId: 'claude', id, path, scope: 'global', kind, what });
     return [
         g('claude-global-shim', join(globalHelpersDir(home), 'grafly-hooks.cjs'), 'hook', 'hooks shim (user level)'),
         g('claude-global-hooks', join(home, '.claude', 'settings.json'), 'hook', 'SessionStart / UserPromptSubmit / PostToolUse / Stop'),
-        g('claude-global-mcp', join(home, '.claude.json'), 'mcp', 'mcpServers.grafly'),
     ];
 }
 /** Merge graft's hook blocks into a settings file, preserving everything else. */
@@ -71,8 +58,7 @@ function upsertGlobalHooks(id, path, helpers) {
     return { id, path, action: existed ? 'updated' : 'created' };
 }
 /**
- * Install the user-level copy: the shim, the hook entries that call it, and the
- * user-scope MCP registration.
+ * Install the user-level copy: the shim and the hook entries that call it.
  *
  * The shim is written to `home` and the hook commands name it by absolute path, for
  * the reason the repo form can't be reused: `${CLAUDE_PROJECT_DIR}/.claude/helpers/`
@@ -84,7 +70,7 @@ function upsertGlobalHooks(id, path, helpers) {
  * action, never raised, so a bad `~/.claude.json` can't fail a `grafly init`.
  */
 export function installClaudeGlobal(home) {
-    const [shim, settings, mcp] = claudeGlobalTargets(home);
+    const [shim, settings] = claudeGlobalTargets(home);
     const out = [];
     try {
         out.push(writeOwned(shim.id, shim.path, hooksShim(claudeDistDir()), 0o755));
@@ -106,12 +92,6 @@ export function installClaudeGlobal(home) {
         catch {
             out.push({ id: settings.id, path: settings.path, action: 'skipped-unparseable' });
         }
-    }
-    try {
-        out.push(mergeJsonKey(mcp.id, mcp.path, 'mcpServers', serverEntry()));
-    }
-    catch {
-        out.push({ id: mcp.id, path: mcp.path, action: 'skipped-unparseable' });
     }
     return out;
 }

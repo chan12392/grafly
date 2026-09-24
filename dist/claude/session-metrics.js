@@ -1,6 +1,6 @@
 /**
- * Session usage accounting, shared across every host (Claude Code, Cursor, and
- * plain MCP). It answers the one question the README rests on: when an agent had
+ * Session usage accounting, shared across every host (Claude Code and Cursor).
+ * It answers the one question the README rests on: when an agent had
  * both graft and grep in front of it, which did it reach for, and how much did
  * that save?
  *
@@ -19,22 +19,12 @@
  *   - Cursor `postToolUse`       — `{ tool_name, tool_input, tool_output, conversation_id }`
  *     (https://cursor.com/docs/hooks). `tool_output` is the JSON-stringified
  *     result; a Shell `graft …` call carries the same footer inside its stdout.
- *   - Cursor `afterMCPExecution` — `{ tool_name, tool_input, result_json, duration }`.
- *     Fires only for MCP tools, so a graft tool is recognised by its name and
- *     its savings read out of `result_json`.
- *
- * MCP tool names arrive host-prefixed in different shapes (`graft_find_code`,
- * `MCP:graft_find_code`, `mcp__graft__graft_find_code`). {@link isGraftMcpTool}
- * strips the prefix to the last delimited segment and checks it against the real
- * name list (`GRAFLY_MCP_TOOL_NAMES`), so a graft tool is recognised across every
- * host format while a third-party tool that merely contains "graft" is not.
  */
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { sumSavingsFooters } from '../context/savings.js';
 import { dollarsSaved, formatDollars } from '../context/price.js';
 import { readSession, writeSession, sessionDir, listSessionIds } from './state.js';
-import { GRAFLY_MCP_TOOL_NAMES } from '../mcp/tool-names.js';
 /** Native tools that mean "the agent went to read source itself" — the grep/read
  *  path graft is meant to replace. These are the host tool NAMES (Claude Code and
  *  Cursor both use Read/Grep/Glob; Cursor adds Search); shell builtins like `ls`
@@ -44,26 +34,6 @@ const SOURCE_TOOLS = new Set(['read', 'grep', 'glob', 'search']);
 /** The host's shell tool, whose `command` we then inspect for a graft invocation. */
 function isShellTool(t) {
     return t === 'bash' || t === 'shell';
-}
-/** An MCP-style tool name (server-prefixed), as opposed to a native Read/Shell.
- *  Used to hand graft MCP calls to the dedicated MCP hook so a host that fires
- *  BOTH a generic post-tool hook and an MCP hook can't double-count them. */
-export function isMcpToolName(toolName) {
-    const t = toolName.toLowerCase();
-    return t.startsWith('mcp') || t.includes(':') || t.includes('__');
-}
-/**
- * Whether a tool name is one of graft's MCP tools, across every host prefix.
- * Anchored on the real name list (`graft_find_code`, its legacy aliases, …), not
- * a loose `includes('graft')`: a third-party MCP tool whose name merely contains
- * "graft" (or a repo working on graft itself) must not count as a graft read —
- * the same care `commandInvokesGraft` takes for the CLI side. Strips the host
- * prefix first (`mcp__graft__graft_find_code`, `MCP:graft_find_code`) by taking
- * the last delimited segment. */
-export function isGraftMcpTool(toolName) {
-    const t = toolName.toLowerCase();
-    const bare = t.split(/[:./]|__/).pop() ?? t;
-    return GRAFLY_MCP_TOOL_NAMES.has(bare);
 }
 /** Whether a shell command line invokes the graft CLI (any of its install shapes). */
 export function commandInvokesGraft(command) {
@@ -83,8 +53,6 @@ export function classifyToolUse(toolName, command) {
     const t = (toolName ?? '').toLowerCase();
     if (!t)
         return null;
-    if (isGraftMcpTool(t))
-        return 'graft';
     if (SOURCE_TOOLS.has(t))
         return 'source';
     if (isShellTool(t) && command && commandInvokesGraft(command))
@@ -163,8 +131,8 @@ export function latestSession(dir) {
  * What this repo's most recent session has actually been paying per million
  * input tokens, or null when no turn has been billed yet.
  *
- * `latestSession` rather than a session id because the callers are CLI and MCP
- * processes answering one query: they know the repo, never the host's session
+ * `latestSession` rather than a session id because the callers are CLI
+ * invocations answering one query: they know the repo, never the host's session
  * id. The rate belongs to the repo's current session, which is the one whose
  * reply the number is about to appear in.
  */

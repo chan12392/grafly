@@ -37,7 +37,7 @@ export function savingsFor(graph, paths) {
  * one query for one session, and the alternative — threading a rate through
  * `withSavings` and all seven of its callers — would put a billing parameter in
  * the signature of every retrieval formatter for no gain. Set by the CLI's
- * `noteQuery` and by the MCP dispatch, both of which already resolve the repo
+ * `noteQuery`, which already resolves the repo
  * root; unset everywhere else, which is why every consumer treats null as
  * "report tokens only" rather than as zero.
  */

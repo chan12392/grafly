@@ -1,4 +1,4 @@
-// Reproduce paired candidate retention through actual MCP handlers and CLI.
+// Reproduce paired candidate retention through the CLI and workspace surfaces.
 // node scripts/evaluate-circuit-surfaces.mjs BASELINE OUTPUT
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -17,7 +17,7 @@ mkdirSync(dirname(output), { recursive: true });
 const root = mkdtempSync(join(dirname(output), 'surface-fixture-'));
 const engines = {};
 for (const [side, dir] of Object.entries({ before: baseline, after: candidate })) {
-    engines[side] = { dir, ...(await import(pathToFileURL(join(dir, 'dist/mcp/tools.js')))) };
+    engines[side] = { dir, ...(await import(pathToFileURL(join(dir, 'dist/graph/workspace.js')))) };
 }
 const rows = [];
 for (const family of ['equal', 'popularity']) {
@@ -33,7 +33,7 @@ for (const family of ['equal', 'popularity']) {
     assert.equal(built.status, 0, built.stderr);
     mkdirSync(join(workspace, 'grafly'));
     writeFileSync(join(workspace, 'grafly/workspace.json'), JSON.stringify({ version: 1, children: ['child'] }));
-    for (const surface of ['cli', 'mcp', 'workspace_mcp']) {
+    for (const surface of ['cli', 'workspace']) {
         const measure = async (side) => {
             const e = engines[side], start = performance.now();
             let ids, bytes, abstained;
@@ -47,9 +47,8 @@ for (const family of ['equal', 'popularity']) {
                 bytes = Buffer.byteLength(result.stdout);
                 abstained = data.circuit.verdict === 'abstain';
             } else {
-                const result = await e.callTool(surface === 'mcp' ? child : workspace,
-                    'grafly_trace_calls', { symbol: 'helper', top: 1 });
-                assert.equal(result.isError, false, result.text);
+                const result = e.federateCallers(workspace, undefined, 'helper', { top: 1 });
+                assert.equal(result.found, true, result.text);
                 ids = [...result.text.matchAll(/helper · function · ([ab]\.js):/g)].map((m) => m[1]).sort();
                 bytes = Buffer.byteLength(result.text);
                 abstained = result.text.includes('— abstain');
@@ -72,7 +71,7 @@ for (const family of ['equal', 'popularity']) {
 }
 const result = { node: process.version, createdAt: new Date().toISOString(), root, rows,
     limits: ['Two generated source fixtures; no execution of their source.',
-        'CLI timing includes process startup and rendering. MCP timing is handler wall time, excluding RPC transport.',
+        'CLI timing includes process startup and rendering. Workspace timing is in-process wall time.',
         'Bytes are output size, not provider input tokens. More retained evidence can increase output.'] };
 writeFileSync(output, JSON.stringify(result, null, 2) + '\n');
 console.log(JSON.stringify({ output, rows }));
