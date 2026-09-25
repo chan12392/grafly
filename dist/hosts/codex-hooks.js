@@ -1,13 +1,16 @@
 /**
- * Active-layer install for CLI agents that read user-level hooks.json with
- * PostToolUse semantics. Writes the shared hook shim and one PostToolUse
- * entry that runs post-edit + background sync after every file edit.
+ * Active-layer install for CLI agents that read user-level hooks.json.
+ * SessionStart/UserPromptSubmit run the self-contained devin-hook shim —
+ * it auto-indexes whatever folder the session opens (git root or not) and
+ * gates prompt retrieval. PostToolUse/Stop keep the generated shim: the
+ * devin shim's injected-context envelope only exists for those two events.
  */
 import { writeFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { hooksShim } from '../claude/shim-template.js';
 import { claudeDistDir } from '../claude/paths.js';
-import { writeOwned, isGraftEntry, readJsonObject } from './config-write.js';
+import { writeOwned, planOwned, isGraftEntry, readJsonObject } from './config-write.js';
+import { devinShimSource } from './devin-hooks.js';
 function dirExists(p) {
     try {
         return statSync(p).isDirectory();
@@ -30,7 +33,12 @@ export function hookTargets(home) {
         {
             hostId: 'agents', id: 'codex-hook-shim',
             path: join(base, 'hooks', 'grafly', 'grafly-hooks.cjs'),
-            scope: 'global', kind: 'hook', what: 'post-edit hook shim',
+            scope: 'global', kind: 'hook', what: 'post-edit/stop hook shim',
+        },
+        {
+            hostId: 'agents', id: 'codex-agent-shim',
+            path: join(base, 'hooks', 'grafly', 'grafly-devin-hook.cjs'),
+            scope: 'global', kind: 'hook', what: 'session-start/prompt hook shim',
         },
         {
             hostId: 'agents', id: 'codex-hooks',
@@ -39,43 +47,47 @@ export function hookTargets(home) {
         },
     ];
 }
-function desiredEntries() {
+function desiredEntries(shims) {
     return [
-        { event: 'SessionStart', matcher: 'startup|resume|compact', sub: 'session-start', timeout: 10000 },
-        { event: 'UserPromptSubmit', sub: 'prompt', timeout: 15000 },
-        { event: 'PostToolUse', matcher: 'apply_patch|Write|Edit|MultiEdit', sub: 'post-edit', timeout: 10000 },
-        { event: 'Stop', sub: 'stop', timeout: 10000 },
+        { event: 'SessionStart', matcher: 'startup|resume|compact', sub: 'session-start', timeout: 10000, shim: shims.agent },
+        { event: 'UserPromptSubmit', sub: 'prompt', timeout: 15000, shim: shims.agent },
+        { event: 'PostToolUse', matcher: 'apply_patch|Write|Edit|MultiEdit', sub: 'post-edit', timeout: 10000, shim: shims.gen },
+        { event: 'Stop', sub: 'stop', timeout: 10000, shim: shims.gen },
     ];
 }
-export function installCodexHooks(home) {
+export function installCodexHooks(home, { apply = true } = {}) {
     const targets = hookTargets(home);
     if (targets.length === 0)
         return [];
-    const shimPath = targets[0].path;
-    const shimWrite = writeOwned('codex-hook-shim', shimPath, hooksShim(claudeDistDir()), 0o755);
-    const cfgPath = targets[1].path;
+    const [shimT, agentT, cfgT] = targets;
+    const fileWrites = [
+        (apply ? writeOwned : planOwned)(shimT.id, shimT.path, hooksShim(claudeDistDir()), 0o755),
+        (apply ? writeOwned : planOwned)(agentT.id, agentT.path, devinShimSource(), 0o755),
+    ];
+    const cfgPath = cfgT.path;
     const skipped = { id: 'codex-hooks', path: cfgPath, action: 'skipped-unparseable' };
     const loaded = readJsonObject(cfgPath);
     if (loaded === 'unparseable')
-        return [shimWrite, skipped];
+        return [...fileWrites, skipped];
     const { root, existed } = loaded;
     const before = JSON.stringify(root);
     const hooks = (root.hooks ??= {});
     if (typeof hooks !== 'object' || hooks === null || Array.isArray(hooks))
-        return [shimWrite, skipped];
-    for (const d of desiredEntries()) {
+        return [...fileWrites, skipped];
+    for (const d of desiredEntries({ gen: shimT.path, agent: agentT.path })) {
         if (hooks[d.event] !== undefined && !Array.isArray(hooks[d.event]))
-            return [shimWrite, skipped];
+            return [...fileWrites, skipped];
         const prior = Array.isArray(hooks[d.event]) ? hooks[d.event] : [];
-        const handler = { type: 'command', command: `node "${shimPath}" ${d.sub}`, timeout: d.timeout };
+        const handler = { type: 'command', command: `node "${d.shim}" ${d.sub}`, timeout: d.timeout };
         const entry = d.matcher ? { matcher: d.matcher, hooks: [handler] } : { hooks: [handler] };
         // Preserve foreign entries in this event; replace any prior graft entry so an
         // upgrade re-points to the current shim/sub-command instead of stacking.
         hooks[d.event] = [...prior.filter((e) => !isGraftEntry(e)), entry];
     }
     if (JSON.stringify(root) === before)
-        return [shimWrite, { id: 'codex-hooks', path: cfgPath, action: 'unchanged' }];
-    writeFileSync(cfgPath, `${JSON.stringify(root, null, 2)}\n`);
-    return [shimWrite, { id: 'codex-hooks', path: cfgPath, action: existed ? 'updated' : 'created' }];
+        return [...fileWrites, { id: 'codex-hooks', path: cfgPath, action: 'unchanged' }];
+    if (apply)
+        writeFileSync(cfgPath, `${JSON.stringify(root, null, 2)}\n`);
+    return [...fileWrites, { id: 'codex-hooks', path: cfgPath, action: existed ? 'updated' : 'created' }];
 }
 //# sourceMappingURL=codex-hooks.js.map

@@ -12,6 +12,7 @@ import { homedir } from 'node:os';
 import { statSync } from 'node:fs';
 import { HOSTS, detectHosts } from './registry.js';
 import { hookTargets } from './codex-hooks.js';
+import { devinHookTargets } from './devin-hooks.js';
 import { cursorHookTargets } from './cursor-hooks.js';
 import { antigravitySkillTargets } from './antigravity.js';
 import { claudeTargets } from '../claude/init.js';
@@ -58,7 +59,7 @@ export function planInit(repo, opts = {}) {
             detected: detected.has(host.id),
             writes: [
                 instructionTarget(repo, host),
-                ...(host.id === 'agents' ? hookTargets(home) : []),
+                ...(host.id === 'agents' ? [...hookTargets(home), ...devinHookTargets(home)] : []),
                 ...(host.id === 'cursor' ? cursorHookTargets(repo) : []),
                 ...(host.id === 'antigravity' ? antigravitySkillTargets(home) : []),
             ],

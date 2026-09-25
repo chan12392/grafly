@@ -29,6 +29,7 @@ import { homedir } from 'node:os';
 import { HOSTS } from './registry.js';
 import { ALL_MARKERS } from './sections.js';
 import { hookTargets } from './codex-hooks.js';
+import { devinHookTargets } from './devin-hooks.js';
 import { archiveIndex } from '../context/archive-index.js';
 import location from '../context/location.cjs';
 import { antigravitySkillTargets } from './antigravity.js';
@@ -271,7 +272,7 @@ function stripClaudeSettings(path, apply) {
             const prior = root.hooks[event];
             if (!Array.isArray(prior))
                 continue;
-            const kept = prior.filter((e) => !/(?:grafly|graft)-hooks\.cjs/.test(JSON.stringify(e ?? '')));
+            const kept = prior.filter((e) => !/(?:grafly|graft)-(?:devin-hook|hooks)\.cjs/.test(JSON.stringify(e ?? '')));
             if (kept.length === 0)
                 delete root.hooks[event];
             else
@@ -341,6 +342,43 @@ function stripCodexHooks(path, apply) {
     if (Object.keys(root).length === 0)
         return removeFile(path, true);
     writeFileSync(path, `${JSON.stringify(root, null, 2)}\n`);
+    return 'removed';
+}
+/** Remove grafly's hook entries from Devin's config.json. Unlike Codex's
+ *  hooks.json this file is Devin's whole settings document, so it is never
+ *  deleted — emptied event lists and an emptied `hooks` key are cleaned up,
+ *  every other setting is preserved. */
+function stripDevinHooks(path, apply) {
+    if (!existsSync(path))
+        return 'absent';
+    let root;
+    try {
+        root = JSON.parse(readFileSync(path, 'utf8'));
+    }
+    catch {
+        return 'skipped-unparseable';
+    }
+    if (typeof root !== 'object' || root === null || Array.isArray(root))
+        return 'skipped-unparseable';
+    if (!root.hooks || typeof root.hooks !== 'object' || Array.isArray(root.hooks))
+        return 'absent';
+    const before = JSON.stringify(root);
+    for (const event of Object.keys(root.hooks)) {
+        const prior = root.hooks[event];
+        if (!Array.isArray(prior))
+            continue;
+        const kept = prior.filter((e) => !/(?:grafly|graft)-devin-hook\.cjs/.test(JSON.stringify(e ?? '')));
+        if (kept.length === 0)
+            delete root.hooks[event];
+        else
+            root.hooks[event] = kept;
+    }
+    if (Object.keys(root.hooks).length === 0)
+        delete root.hooks;
+    if (JSON.stringify(root) === before)
+        return 'absent';
+    if (apply)
+        writeFileSync(path, `${JSON.stringify(root, null, 2)}\n`);
     return 'removed';
 }
 /**
@@ -427,7 +465,7 @@ function targets(repo, opts) {
             keptPaths.add(t.path);
     }
     if (exclude.has('agents'))
-        for (const t of hookTargets(home))
+        for (const t of [...hookTargets(home), ...devinHookTargets(home)])
             keptPaths.add(t.path);
     if (exclude.has('antigravity'))
         for (const t of antigravitySkillTargets(home))
@@ -500,6 +538,12 @@ function targets(repo, opts) {
                 add({
                     hostId: t.hostId, path: t.path, what: t.what, scope: 'global',
                     run: (a) => (t.path.endsWith('.json') ? stripCodexHooks(t.path, a) : removeFile(t.path, a)),
+                });
+            }
+            for (const t of devinHookTargets(home)) {
+                add({
+                    hostId: t.hostId, path: t.path, what: t.what, scope: 'global',
+                    run: (a) => (t.path.endsWith('.json') ? stripDevinHooks(t.path, a) : removeFile(t.path, a)),
                 });
             }
             const legacyCodexShim = join(home, '.codex', 'hooks', 'graft', 'graft-hooks.cjs');

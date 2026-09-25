@@ -58,7 +58,7 @@ function fixture(t) {
     if (/^(?:GRAFLY|GRAFT)_/.test(name) || name === 'CLAUDE_PROJECT_DIR') delete env[name];
   }
   Object.assign(env, { USERPROFILE: root, HOME: root, CLAUDE_CONFIG_DIR: join(root, '.claude'),
-    GRAFLY_TEST_CLI: cli, GRAFLY_TEST_LOG: marker });
+    GRAFLY_TEST_CLI: cli, GRAFLY_TEST_LOG: marker, GRAFLY_NO_SELF_UPDATE: '1' });
   function run(prompt, { adapter = false, event = 'prompt', cwd = root, message = false, session = 'gate-test' } = {}) {
     const payload = JSON.stringify({ cwd, session_id: session, [message ? 'message' : 'prompt']: prompt });
     const args = adapter ? [shim, event] : ['--input-type=module', '-e',
@@ -169,7 +169,7 @@ test('home adapter honors thread_id session isolation without a session_id', (t)
   writeFileSync(join(f.root, 'grafly/workspace.json'), JSON.stringify({ version: 1, children: [] }));
   for (const thread of ['thread-a', 'thread-b']) {
     const result = spawnSync(process.execPath, [shim, 'prompt'], { cwd: f.root,
-      env: { ...process.env, USERPROFILE: f.root, HOME: f.root, GRAFLY_NO_AUTO_INDEX: '1' },
+      env: { ...process.env, USERPROFILE: f.root, HOME: f.root, GRAFLY_NO_AUTO_INDEX: '1', GRAFLY_NO_SELF_UPDATE: '1' },
       input: JSON.stringify({ cwd: f.root, thread_id: thread, prompt: 'Inspect request scheduling.' }),
       encoding: 'utf8', windowsHide: true, timeout: 15000 });
     assert.equal(result.status, 0, result.stderr);

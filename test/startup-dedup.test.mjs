@@ -50,7 +50,7 @@ test('later startup and inaccessible cache fail open', t => {
 
 test('real adapter deduplicates two concurrent registrations without changing orientation', async t => {
   const root = fixture(t);
-  const env = { ...process.env, USERPROFILE: root, HOME: root, GRAFLY_NO_AUTO_INDEX: '1' };
+  const env = { ...process.env, USERPROFILE: root, HOME: root, GRAFLY_NO_AUTO_INDEX: '1', GRAFLY_NO_SELF_UPDATE: '1' };
   const input = JSON.stringify({ cwd: root, session_id: 'concurrent', source: 'startup' });
   const run = () => new Promise((resolveRun, reject) => {
     const child = spawn(process.execPath, [shim, 'session-start'],

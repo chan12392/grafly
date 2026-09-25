@@ -106,32 +106,72 @@ export function readGlobalInstalledVersion(pkgName = PKG_NAME) {
         return null;
     }
 }
+/** The directory the running module's package.json lives in. */
+export function packageRoot(moduleUrl) {
+    return dirname(resolvePackageJsonPath(moduleUrl));
+}
+/** Private-fork installs are npm-linked checkouts — the update path is `git
+ * pull` in the package's own repo, not a registry. `dist/` IS the product, so
+ * a fast-forward pull upgrades the installed CLI byte-for-byte. */
+export function isGitCheckout(dir) {
+    return existsSync(join(dir, ".git"));
+}
+function gitRev(dir) {
+    try {
+        const res = spawnSync("git", ["-C", dir, "rev-parse", "--short", "HEAD"], {
+            encoding: "utf8", timeout: 10000, windowsHide: true,
+        });
+        return res.status === 0 ? res.stdout.trim() : null;
+    }
+    catch {
+        return null;
+    }
+}
 /** Pure formatter for a finished upgrade — no I/O, easy to unit-test. */
 export function formatUpgradeReport(result) {
     if (!result.ran) {
         if (result.reason === "unconfigured")
-            return "upgrade: disabled for this private Grafly fork — update from the Git repository instead.";
+            return "upgrade: no git checkout or GRAFLY_NPM_PACKAGE — reinstall Grafly from its source instead.";
         return "running via npx — use your configured Grafly package source for upgrades.";
     }
     if (!result.ok) {
-        return `✗ npm install -g ${PKG_NAME}@latest failed${result.errorMessage ? `: ${result.errorMessage}` : ""}`;
+        const what = result.source === "git" ? "git pull --ff-only" : `npm install -g ${PKG_NAME}@latest`;
+        return `✗ ${what} failed${result.errorMessage ? `: ${result.errorMessage}` : ""}`;
     }
-    return `grafly ${result.oldVersion ?? "?"} → ${result.newVersion ?? result.oldVersion ?? "?"}`;
+    if (result.source === "git" && !result.pulled)
+        return `grafly ${result.oldVersion ?? "?"} already up to date (${result.rev ?? "?"})`;
+    return `grafly ${result.oldVersion ?? "?"} → ${result.newVersion ?? result.oldVersion ?? "?"}${result.rev ? ` (${result.rev})` : ""}`;
 }
-/** Runs `npm install -g <GRAFLY_NPM_PACKAGE>@latest` (inheriting stdio so the
- * user sees npm's own progress/errors), then re-reads the freshly installed
- * version. Disabled unless GRAFLY_NPM_PACKAGE is set; no-ops via npx. */
-export function runUpgrade(moduleUrl) {
+/** Upgrade path, picked by install shape:
+ *  - package dir is a git checkout (npm link / clone install) → `git pull --ff-only`;
+ *  - GRAFLY_NPM_PACKAGE set → `npm install -g <pkg>@latest`;
+ *  - neither → report disabled. No-ops via npx. `spawn` is injectable for tests. */
+export function runUpgrade(moduleUrl, { spawn = spawnSync } = {}) {
     const oldVersion = readCurrentVersion(moduleUrl);
+    const root = packageRoot(moduleUrl);
+    if (isGitCheckout(root)) {
+        if (isRunningViaNpx(moduleUrl))
+            return { ran: false, ok: true, oldVersion };
+        const revBefore = gitRev(root);
+        const res = spawn("git", ["-C", root, "pull", "--ff-only"], {
+            encoding: "utf8", timeout: 120000, windowsHide: true,
+        });
+        if (res.error || (res.status ?? 1) !== 0) {
+            return { ran: true, ok: false, source: "git", oldVersion,
+                errorMessage: (res.stderr || res.error?.message || "").trim().slice(0, 300) };
+        }
+        return { ran: true, ok: true, source: "git", oldVersion,
+            newVersion: readCurrentVersion(moduleUrl), pulled: gitRev(root) !== revBefore, rev: gitRev(root) };
+    }
     if (!PKG_NAME)
         return { ran: false, ok: false, oldVersion, reason: "unconfigured" };
     if (isRunningViaNpx(moduleUrl)) {
         return { ran: false, ok: true, oldVersion };
     }
-    const res = spawnSync("npm", ["install", "-g", `${PKG_NAME}@latest`], { stdio: "inherit" });
+    const res = spawn("npm", ["install", "-g", `${PKG_NAME}@latest`], { stdio: "inherit" });
     if (res.error || (res.status ?? 1) !== 0) {
-        return { ran: true, ok: false, oldVersion, errorMessage: res.error?.message };
+        return { ran: true, ok: false, source: "npm", oldVersion, errorMessage: res.error?.message };
     }
     const newVersion = readGlobalInstalledVersion(PKG_NAME) ?? getNpmViewVersion(PKG_NAME).version ?? oldVersion;
-    return { ran: true, ok: true, oldVersion, newVersion };
+    return { ran: true, ok: true, source: "npm", oldVersion, newVersion };
 }

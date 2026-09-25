@@ -143,7 +143,7 @@ test('real shared hook schedules deep; model responses produce ready symbols and
     const f = fixture(t); const model = await modelServer(t);
     f.configure({ baseUrl: model.baseUrl });
     const shim = fileURLToPath(new URL('../scripts/grafly-devin-hook.cjs', import.meta.url));
-    const env = { ...process.env, GRAFLY_AUTO_DEEP_HOME: f.home, USERPROFILE: f.home, HOME: f.home };
+    const env = { ...process.env, GRAFLY_AUTO_DEEP_HOME: f.home, USERPROFILE: f.home, HOME: f.home, GRAFLY_NO_SELF_UPDATE: '1' };
     delete env.GRAFLY_NO_AUTO_INDEX; delete env.GRAFT_NO_AUTO_INDEX; delete env.GRAFLY_NO_AUTO_DEEP;
     const output = await new Promise((done, reject) => {
         const child = spawn(process.execPath, [shim, 'session-start'], { cwd: f.root, env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });

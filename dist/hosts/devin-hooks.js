@@ -18,7 +18,7 @@ import { copyFileSync, existsSync, readFileSync, statSync, writeFileSync } from 
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
-import { writeOwned, readJsonObject } from './config-write.js';
+import { writeOwned, planOwned, readJsonObject } from './config-write.js';
 function dirExists(p) {
     try {
         return statSync(p).isDirectory();
@@ -54,6 +54,11 @@ function devinHooksDir(base, home) {
         ?? candidates[0];
 }
 const PKG_SCRIPTS = fileURLToPath(new URL('../../scripts', import.meta.url));
+/** The packaged self-contained shim — Codex's session/prompt wiring installs
+ *  the same file, so both hosts read one source of truth. */
+export function devinShimSource() {
+    return readFileSync(join(PKG_SCRIPTS, 'grafly-devin-hook.cjs'), 'utf8');
+}
 function isDevinEntry(entry) {
     return JSON.stringify(entry ?? '').includes('grafly-devin-hook.cjs');
 }
@@ -73,14 +78,15 @@ export function devinHookTargets(home = homedir()) {
             scope: 'global', kind: 'hook', what: 'SessionStart / UserPromptSubmit / PreToolUse' },
     ];
 }
-export function installDevinHooks(home = homedir()) {
+export function installDevinHooks(home = homedir(), { apply = true } = {}) {
     const targets = devinHookTargets(home);
     if (targets.length === 0)
         return [];
     const [shimT, runnerT, cfgT] = targets;
+    const write = apply ? writeOwned : planOwned;
     const fileWrites = [
-        writeOwned(shimT.id, shimT.path, readFileSync(join(PKG_SCRIPTS, 'grafly-devin-hook.cjs'), 'utf8')),
-        writeOwned(runnerT.id, runnerT.path, readFileSync(join(PKG_SCRIPTS, 'stdin-complete-run.cjs'), 'utf8')),
+        write(shimT.id, shimT.path, devinShimSource()),
+        write(runnerT.id, runnerT.path, readFileSync(join(PKG_SCRIPTS, 'stdin-complete-run.cjs'), 'utf8')),
     ];
     const skipped = { id: 'devin-hooks', path: cfgT.path, action: 'skipped-unparseable' };
     const loaded = readJsonObject(cfgT.path);
@@ -113,8 +119,10 @@ export function installDevinHooks(home = homedir()) {
     }
     if (JSON.stringify(root) === before)
         return [...fileWrites, { id: 'devin-hooks', path: cfgT.path, action: 'unchanged' }];
-    if (existed)
-        copyFileSync(cfgT.path, `${cfgT.path}.grafly-bak`);
-    writeFileSync(cfgT.path, `${JSON.stringify(root, null, 2)}\n`);
+    if (apply) {
+        if (existed)
+            copyFileSync(cfgT.path, `${cfgT.path}.grafly-bak`);
+        writeFileSync(cfgT.path, `${JSON.stringify(root, null, 2)}\n`);
+    }
     return [...fileWrites, { id: 'devin-hooks', path: cfgT.path, action: existed ? 'updated' : 'created' }];
 }

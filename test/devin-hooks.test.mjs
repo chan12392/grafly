@@ -57,6 +57,22 @@ test('reinstall replaces grafly entries in place instead of stacking', (t) => {
   assert.equal(again.find((r) => r.id === 'devin-hooks').action, 'unchanged');
 });
 
+test('apply:false reports the drift without writing', (t) => {
+  const f = fixture(t);
+  installDevinHooks(f.home);
+  writeFileSync(join(f.devin, 'hooks', 'grafly-devin-hook.cjs'), 'tampered');
+  const cfgBefore = readFileSync(f.cfg, 'utf8');
+  const bakBefore = readFileSync(`${f.cfg}.grafly-bak`, 'utf8');
+  const plan = installDevinHooks(f.home, { apply: false });
+  const byId = Object.fromEntries(plan.map((r) => [r.id, r.action]));
+  assert.equal(byId['devin-hook-shim'], 'updated');
+  assert.equal(byId['devin-hook-runner'], 'unchanged');
+  assert.equal(byId['devin-hooks'], 'unchanged');
+  assert.equal(readFileSync(join(f.devin, 'hooks', 'grafly-devin-hook.cjs'), 'utf8'), 'tampered');
+  assert.equal(readFileSync(f.cfg, 'utf8'), cfgBefore);
+  assert.equal(readFileSync(`${f.cfg}.grafly-bak`, 'utf8'), bakBefore, 'no backup rewrite on dry-run');
+});
+
 test('an unparseable config is left byte-identical', (t) => {
   const f = fixture(t, { config: false });
   writeFileSync(f.cfg, '{ not json');

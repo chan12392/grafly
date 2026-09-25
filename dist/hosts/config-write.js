@@ -28,13 +28,24 @@ export function writeOwned(id, path, content, mode) {
         chmodSync(path, mode);
     return { id, path, action: existed ? 'updated' : 'created' };
 }
+/** `writeOwned`'s read-only twin: the same action the write would report,
+ *  without touching the file — used by `--dry-run` reconciliation. Mode is
+ *  accepted for the shared call shape but ignored, matching `writeOwned`,
+ *  which chmods silently and still reports 'unchanged' on mode-only drift. */
+export function planOwned(id, path, content, mode) {
+    if (!existsSync(path))
+        return { id, path, action: 'created' };
+    return { id, path, action: readFileSync(path, 'utf8') === content ? 'unchanged' : 'updated' };
+}
 /** Whether a hooks-config entry is one graft installed (so an upgrade replaces
  *  it in place instead of stacking a second copy next to the stale one). The
  *  `?? ''` guards a stray `undefined` entry: `JSON.stringify(undefined)` is
- *  `undefined`, whose `.includes` would throw. */
+ *  `undefined`, whose `.includes` would throw. The devin-hook shim serves both
+ *  Devin and Codex session/prompt events, so both names count as ours. */
 export function isGraftEntry(entry) {
     const raw = JSON.stringify(entry ?? '');
-    return raw.includes('grafly-hooks.cjs') || raw.includes('graft-hooks.cjs');
+    return raw.includes('grafly-hooks.cjs') || raw.includes('graft-hooks.cjs')
+        || raw.includes('grafly-devin-hook.cjs') || raw.includes('graft-devin-hook.cjs');
 }
 /**
  * Load a JSON config that graft is about to merge into, distinguishing the three

@@ -60,6 +60,7 @@ try {
 }
 const EVENT_NAMES = { 'session-start': 'SessionStart', prompt: 'UserPromptSubmit' };
 const BUILD_STALE_MS = 60 * 60 * 1000; // retry a failed build at most hourly
+const SELF_UPDATE_MS = 24 * 60 * 60 * 1000; // self-update probe at most daily
 const STARTUP_DEDUP_MS = 5000;
 
 // A home workspace can load both the account and project hook registrations.
@@ -176,6 +177,35 @@ function tryAutoBuild(start) {
   } catch { return false; }
 }
 
+// The daily self-update probe fires only on session-start, and only when the
+// stamp is missing or older than SELF_UPDATE_MS — exported for tests.
+function selfUpgradeDue(stampPath, now = Date.now(), staleMs = SELF_UPDATE_MS) {
+  try {
+    if (!fs.existsSync(stampPath)) return true;
+    return now - Math.floor(fs.statSync(stampPath).mtimeMs) >= staleMs;
+  } catch { return true; }
+}
+
+// Once a day, kick a detached `grafly _self-upgrade`: it git-pulls the linked
+// checkout (npm-linked installs ARE the repo — dist/ is the product, no build
+// step) and then reconciles hook wiring, so dropped registrations self-heal.
+// The stamp is written before spawn so a failing pull retries tomorrow, not
+// every session. GRAFLY_NO_SELF_UPDATE opts out.
+function maybeSelfUpgrade() {
+  if (EVENT !== 'session-start' ||
+      process.env.GRAFLY_NO_SELF_UPDATE || process.env.GRAFT_NO_SELF_UPDATE) return false;
+  const stamp = path.join(homedir(), '.grafly', '.cache', 'self-upgrade.stamp');
+  try {
+    if (!selfUpgradeDue(stamp)) return false;
+    fs.mkdirSync(path.dirname(stamp), { recursive: true });
+    fs.writeFileSync(stamp, new Date().toISOString());
+    // cwd is pinned to the home dir — a detached process must not hold the
+    // session's cwd (which can be a temp dir a caller later deletes).
+    spawn(process.execPath, [CLI, '_self-upgrade'], { cwd: homedir(), detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    return true;
+  } catch { return false; }
+}
+
 async function tryAutoDeep(start, input = {}) {
   const root = findUp(start, d => fs.existsSync(path.join(d, '.git')));
   if (!root) return false;
@@ -220,6 +250,7 @@ async function homeWorkspace(root, input) {
 
 async function main() {
   if (!fs.existsSync(ENTRY) || !fs.existsSync(CLI)) return;
+  maybeSelfUpgrade();
   const raw = await readStdin();
   let input = {};
   try { input = JSON.parse(raw); } catch { /* cwd fallback below */ }
@@ -258,5 +289,5 @@ async function main() {
   await m.main(EVENT);
 }
 
-module.exports = { findIndex, claimStartup, autoBuildRoot };
+module.exports = { findIndex, claimStartup, autoBuildRoot, selfUpgradeDue };
 if (require.main === module) main().catch(() => { /* fail-open: never block the user's prompt */ });
