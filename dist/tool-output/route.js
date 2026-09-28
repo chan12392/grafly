@@ -58,9 +58,10 @@ export function routeInput(host, tool, args, { shell = process.platform === 'win
     // Shell builtins can't be spawned, and PowerShell aliases aren't the
     // programs they resemble — only route them when readPath can serve the
     // exact invocation form, otherwise the host runs them raw as before.
-    if ((ps && ['cat', 'ls', 'where', 'find'].includes(name)) || ['type', 'get-content', 'gc', 'more'].includes(name)) {
+    if (!ps && ['type', 'get-content', 'gc'].includes(name)) return null;
+    if (ps && ['ls', 'where', 'find'].includes(name)) return null;
+    if (ps && ['cat', 'type', 'get-content', 'gc', 'more'].includes(name)) {
         if (!canServeReadCommand(argv[0], argv.slice(1))) return null;
-        if (ps && ['ls', 'where', 'find'].includes(name)) return null;
     }
     // .cmd/.bat require another shell on Windows; do not change their quoting.
     if (process.platform === 'win32' && /^(npm|pnpm|yarn)(\.(cmd|bat))?$/.test(name)) return null;
@@ -73,24 +74,14 @@ export function routeInput(host, tool, args, { shell = process.platform === 'win
     return { ...args, [key]: routed };
 }
 
-// Native read-tool names per host (lowercase compare). Gating only repeats —
-// a first native read always passes.
-const READ_TOOLS = {
-    devin: ['read', 'read_file', 'file_read', 'view', 'open', 'cat', 'get_content'],
-    codex: ['read_file', 'read', 'view', 'open'],
-    hermes: [],
-};
-const READ_PATH_KEYS = ['file_path', 'filePath', 'path', 'file', 'absolute_path'];
-
 /** Deny a repeat native read when the session already holds the file — the
  *  reason carries the freshness answer and the `grafly read` escape hatch. */
 function routeReadGate(host, tool, args, cwd, sessionId) {
-    if (!(host === 'devin' || host === 'codex') || !args) return null;
-    if (!READ_TOOLS[host].includes(String(tool ?? '').toLowerCase())) return null;
-    const raw = READ_PATH_KEYS.map(k => args[k]).find(v => typeof v === 'string' && v.length);
-    if (!raw) return null;
+    if (host !== 'devin' || tool !== 'read' || !args) return null;
+    const raw = args.file_path;
+    if (typeof raw !== 'string' || !raw.length) return null;
     const full = isAbsolute(raw) ? raw : resolve(cwd ?? process.cwd(), raw);
-    const whole = !['offset', 'limit', 'start', 'count', 'start_line', 'end_line', 'lines']
+    const whole = !['offset', 'limit']
         .some(k => args[k] !== undefined);
     const verdict = gateNativeRead(full, { whole, sessionId });
     if (!verdict.deny) return null;
@@ -107,7 +98,8 @@ export function routeHook(host, input) {
     // Codex requires an allow decision to rewrite. Only do that in an already
     // non-asking mode: enabling this hook must never grant new approval rights.
     // (The read gate below is a deny — it restricts, so no mode gate applies.)
-    if (!(host === 'codex' && !['dontAsk', 'bypassPermissions'].includes(input.permission_mode))) {
+    const mayRewrite = host !== 'codex' || ['dontAsk', 'bypassPermissions'].includes(input.permission_mode);
+    if (mayRewrite) {
         const updated = routeInput(host, tool, args,
             { shell: input.shell || (host === 'codex' && process.platform === 'win32' ? 'powershell' : 'bash'), sessionId });
         if (updated) {

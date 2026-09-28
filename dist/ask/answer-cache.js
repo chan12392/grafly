@@ -6,7 +6,7 @@
  * replays the previous rendered answer verbatim when everything it depended
  * on is unchanged.
  *
- * Key = normalized query + the option bits that shape the answer (limit,
+ * Key = original query + the option bits that shape the answer (limit,
  * --source/--full, --in, graph-rank, --json), so differently-shaped asks of
  * the same words can never replay each other's output. Freshness = an
  * (mtimeMs, size) fingerprint over every file the answer covered — the source
@@ -27,7 +27,7 @@ import { askIndexPath } from "./index-file.js";
 /** Cap on stored answers per context dir — a session re-asks a handful of
  * questions; beyond this the oldest (`ts`) is evicted first. */
 const MAX_ANSWERS = 30;
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 /** Cache file for a context dir: `<dir>/.cache/answers.json` — the same
  * uncommitted local-cache location the ask sidecar already uses. */
 function answersPath(ctxDir) {
@@ -41,7 +41,7 @@ function emptyCache() {
 export function loadAnswers(ctxDir) {
     try {
         const raw = readJson(answersPath(ctxDir));
-        if (!raw || typeof raw !== "object" || !raw.entries || typeof raw.entries !== "object")
+        if (!raw || raw.version !== CACHE_VERSION || !raw.entries || typeof raw.entries !== "object")
             return emptyCache();
         return raw;
     }
@@ -58,21 +58,12 @@ export function saveAnswers(ctxDir, cache) {
     }
     catch { /* fail-open */ }
 }
-/** Canonicalize a query for the cache key: case, surrounding quotes, and
- * whitespace shape don't change the answer, so they don't change the key. */
-export function normalizeAsk(q) {
-    let s = String(q ?? "").toLowerCase().trim().replace(/\s+/g, " ");
-    const open = s[0];
-    if (s.length > 1 && (open === '"' || open === "'") && s[s.length - 1] === open)
-        s = s.slice(1, -1).trim().replace(/\s+/g, " ");
-    return s;
-}
-/** The full cache key: the normalized query plus every option bit that
+/** The full cache key: the original query plus every option bit that
  * changes the rendered answer, so a `--source`/`--full`/`--limit`/`--in`/
  * `--no-graph-rank`/`--json` variant of the same words gets its own entry. */
 export function cacheKey(query, opts) {
     return JSON.stringify([
-        normalizeAsk(query),
+        String(query ?? ""),
         Number(opts.limit),
         !!opts.source,
         !!opts.full,

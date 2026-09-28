@@ -1,4 +1,4 @@
-// answers.json answer cache: normalized query keys carrying the option bits,
+// answers.json answer cache: original query keys carrying the option bits,
 // (mtime,size) freshness fingerprints over covered + index files, ~30-entry
 // eviction, fail-open on missing/corrupt state. The tail is a CLI replay
 // check: second identical ask answers from cache, an edit invalidates.
@@ -8,24 +8,21 @@ import { mkdtempSync, writeFileSync, mkdirSync, utimesSync, rmSync, existsSync }
 import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
-import { loadAnswers, saveAnswers, normalizeAsk, cacheKey, stampFiles, indexDeps, lookup, verify, store } from "../dist/ask/answer-cache.js";
+import { loadAnswers, saveAnswers, cacheKey, stampFiles, indexDeps, lookup, verify, store } from "../dist/ask/answer-cache.js";
 
 const CLI = join(process.cwd(), "dist", "cli.js");
-const run = (d, args) => spawnSync(process.execPath, [CLI, ...args], { cwd: d, encoding: "utf8" });
+const run = (d, args) => spawnSync(process.execPath, [CLI, ...args], { windowsHide: true, cwd: d, encoding: "utf8" });
 const tmp = () => mkdtempSync(join(tmpdir(), "grafly-anscache-"));
-const fresh = () => ({ version: 1, entries: {} });
+const fresh = () => ({ version: 2, entries: {} });
 
-test("normalizeAsk: case, whitespace, and surrounding quotes collapse", () => {
-    assert.equal(normalizeAsk('  "How does   writeSession   work?" '), "how does writesession work?");
-    assert.equal(normalizeAsk("how does writesession work?"), "how does writesession work?");
-    assert.equal(normalizeAsk("'where is X'"), "where is x");
-    // Only a matching pair strips — an unbalanced quote is literal text.
-    assert.equal(normalizeAsk('"unbalanced'), '"unbalanced');
+test("cache keys preserve exact case, whitespace and surrounding quotes", () => {
+    const queries = ['getUserName', 'getusername', '"getUserName"', "'getUserName'", 'a b', 'a  b'];
+    assert.equal(new Set(queries.map(q => cacheKey(q, {}))).size, queries.length);
 });
 
 test("cacheKey: normalized query plus every shaping option bit", () => {
     const base = { limit: "8" };
-    assert.equal(cacheKey("How  does X work?", base), cacheKey('"how does x work?"', base));
+    assert.notEqual(cacheKey("How  does X work?", base), cacheKey('"how does x work?"', base));
     for (const variant of [
         { limit: "8", source: true },
         { limit: "8", full: true },
@@ -126,6 +123,7 @@ test("cli: second identical ask replays from cache; an edit invalidates", () => 
     const second = run(d, ["ask", q]);
     assert.equal(second.status, 0, second.stderr);
     assert.ok(second.stdout.includes("cache hit"), second.stdout);
+    assert.doesNotMatch(second.stdout, /tokens saved ≈/, "cache replay saves computation, not model context");
     // Same answer, replayed verbatim, with one marker line appended.
     assert.ok(second.stdout.startsWith(first.stdout), "replayed text is verbatim");
     // A covered-file edit invalidates the replay.
@@ -133,4 +131,29 @@ test("cli: second identical ask replays from cache; an edit invalidates", () => 
     const third = run(d, ["ask", q]);
     assert.equal(third.status, 0, third.stderr);
     assert.ok(!third.stdout.includes("cache hit"), "edited repo re-asks");
+});
+
+test("cli cache preserves identifier case and literal quotes and rejects legacy keys", () => {
+    const d = tmp();
+    writeFileSync(join(d, 'user.ts'), 'export function getUserName() { return "name"; }\n');
+    const built = run(d, ['build']); assert.equal(built.status, 0, built.stderr);
+    const cache = join(d, '.grafly', '.cache', 'answers.json');
+    for (const query of ['getusername', '"getUserName"']) {
+        const primed = run(d, ['ask', 'getUserName', '--no-refresh']);
+        assert.equal(primed.status, 0, primed.stderr);
+        const result = run(d, ['ask', query, '--no-refresh']);
+        assert.equal(result.status, 0, result.stderr);
+        assert.doesNotMatch(result.stdout, /answer cache hit/);
+        rmSync(cache);
+        const cold = run(d, ['ask', query, '--no-refresh']);
+        assert.equal(cold.status, 0, cold.stderr);
+        assert.equal(result.stdout, cold.stdout, 'warm variant equals a cold query');
+        rmSync(cache);
+    }
+    writeFileSync(cache, JSON.stringify({ version: 1, entries: { [cacheKey('getusername', { limit: '8' })]: {
+        text: 'wrong legacy answer', stamp: {}, ts: Date.now(),
+    } } }));
+    const fresh = run(d, ['ask', 'getusername', '--no-refresh']);
+    assert.equal(fresh.status, 0, fresh.stderr);
+    assert.doesNotMatch(fresh.stdout, /wrong legacy answer|answer cache hit/);
 });

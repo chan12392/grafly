@@ -178,27 +178,29 @@ function readInvocation(command, args = []) {
     const operands = [];
     let flagN;
     const valueFlags = { "get-content": /^-(?:TotalCount|Tail)$/i, "gc": /^-(?:TotalCount|Tail)$/i, "head": /^-(?:n|lines)$/i, "tail": /^-(?:n|lines)$/i };
-    const flagName = a => a.split("=")[0];
     for (let i = 0; i < args.length; i++) {
         const a = args[i];
         if (a.startsWith("-")) {
-            const inline = /^-(?:n|lines)(\d+)$/i.exec(a); // tail -n5 f
-            if (inline && valueFlags[name]?.test("-" + (a.match(/^-(n|lines)/i)?.[1] ?? a.slice(1))))
-                { flagN = flagN ?? { flag: flagName(a), n: Number(inline[1]) }; continue; }
-            if (!valueFlags[name]?.test(flagName(a))) return null;
+            const inline = /^-(n|lines)(\d+)$/i.exec(a); // tail -n5 f
+            if (inline && valueFlags[name]?.test("-" + inline[1])) {
+                const n = Number(inline[2]);
+                if (flagN !== undefined || !Number.isSafeInteger(n) || n < 1) return null;
+                flagN = { flag: "-" + inline[1], n }; continue;
+            }
+            if (!valueFlags[name]?.test(a)) return null;
             if (flagN !== undefined) return null; // one range flag only
             const n = Number(args[i + 1]);
             if (!Number.isSafeInteger(n) || n < 1 || args[i + 1] === undefined) return null;
-            flagN = { flag: flagName(a), n }; i++;
+            flagN = { flag: a, n }; i++;
         }
         else operands.push(a);
     }
     if (!["cat", "type", "more", "get-content", "gc", "head", "tail"].includes(name)
-        || operands.length !== 1 || (["cat", "type", "more"].includes(name) && flagN !== undefined))
+        || operands.length !== 1)
         return null;
     const opts = {};
     if (flagN) {
-        if (/^-(?:Tail|n|lines)/i.test(flagN.flag) && name !== "head" && !/^-(?:TotalCount)/i.test(flagN.flag)) opts.tail = flagN.n;
+        if (/^-(?:Tail|n|lines)/i.test(flagN.flag) && name !== "head") opts.tail = flagN.n;
         else opts.count = flagN.n;
     }
     else if (["head", "tail"].includes(name)) opts[name === "head" ? "count" : "tail"] = 10;

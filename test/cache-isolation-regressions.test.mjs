@@ -6,24 +6,24 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { readPath } from '../dist/tool-output/output.js';
 import { routeHook } from '../dist/tool-output/route.js';
-import { statScope, checkDeadend } from '../dist/search/deadends.js';
 
 const cli = join(process.cwd(), 'dist/cli.js');
 const light = join(process.cwd(), 'dist/tool-output/cli.js');
 function fixture() {
     const dir = mkdtempSync(join(tmpdir(), 'grafly-cache-regression-'));
-    mkdirSync(join(dir, '.grafly', '.cache'), { recursive: true });
+    mkdirSync(join(dir, '.grafly', '.graph'), { recursive: true });
+    writeFileSync(join(dir, '.grafly', '.graph', 'wiring.json'), '{}');
     return dir;
 }
 function run(dir, args, entry = cli, extraEnv = {}) {
     const r = spawnSync(process.execPath, [entry, ...args], {
-        cwd: dir, encoding: 'utf8', env: { ...process.env, GRAFLY_SESSION_ID: '', ...extraEnv },
+        windowsHide: true, cwd: dir, encoding: 'utf8', env: { ...process.env, GRAFLY_SESSION_ID: '', ...extraEnv },
     });
     assert.equal(r.status, 0, r.stderr);
     return r;
 }
 
-test('a cached grep miss cannot hide different case, whitespace or literal quotes', () => {
+test('grep preserves case, whitespace and literal quotes after a miss', () => {
     const dir = fixture();
     writeFileSync(join(dir, 'file.ts'), 'export const helper = "a  b";\n');
     run(dir, ['build']);
@@ -35,7 +35,7 @@ test('a cached grep miss cannot hide different case, whitespace or literal quote
     }
 });
 
-test('a rebuild and non-newest source edits invalidate a cached grep miss', () => {
+test('grep sees rebuilt files and edits to non-newest source files', () => {
     const dir = fixture(), a = join(dir, 'a.ts'), b = join(dir, 'b.ts');
     writeFileSync(a, 'export const initial = 1;\n');
     run(dir, ['build']);
@@ -46,14 +46,8 @@ test('a rebuild and non-newest source edits invalidate a cached grep miss', () =
     const future = new Date(Date.now() + 86400000);
     utimesSync(b, future, future);
     run(dir, ['grep', 'newSymbol', '--fixed', '--no-refresh']);
-    const before = statScope(dir);
     writeFileSync(a, 'export const newSymbol = 1;\n');
-    const after = statScope(dir);
-    assert.equal(before.maxMtimeMs, after.maxMtimeMs);
-    assert.notEqual(before.digest, after.digest);
     assert.match(run(dir, ['grep', 'newSymbol', '--fixed', '--no-refresh']).stdout, /1 hits/);
-    assert.equal(checkDeadend([{ q: 'x', scope: '', scopeFingerprint: { files: 2, maxMtimeMs: 1 } }],
-        { query: 'x', scope: '' }, after), null, 'legacy stamps must be cold');
 });
 
 test('deletions mixed with edits or equal-length insertions return a complete file', () => {
@@ -73,21 +67,23 @@ test('deletions mixed with edits or equal-length insertions return a complete fi
     }
 });
 
-test('request session and host isolate native reads despite a shared legacy marker', () => {
+test('native gates require a complete read in the same request session and host', () => {
     const dir = fixture(), file = join(dir, 'file.js');
     writeFileSync(file, 'const value = 1;\n');
-    writeFileSync(join(dir, '.grafly', '.cache', 'active-session'), 'B');
-    const input = session_id => ({ session_id, tool_name: 'read_file', tool_input: { path: file }, cwd: dir });
-    assert.deepEqual(routeHook('codex', input('A')), {});
-    assert.deepEqual(routeHook('codex', input('B')), {});
+    const input = session_id => ({ session_id, tool_name: 'read', tool_input: { file_path: file }, cwd: dir });
     assert.deepEqual(routeHook('devin', input('A')), {});
-    assert.equal(routeHook('codex', input('A')).hookSpecificOutput.permissionDecision, 'deny');
-    assert.equal(routeHook('codex', input('B')).hookSpecificOutput.permissionDecision, 'deny');
-    assert.deepEqual(routeHook('codex', input(undefined)), {});
-    assert.deepEqual(routeHook('codex', input(undefined)), {});
-    assert.deepEqual(routeHook('devin', { ...input('A'), tool_input: { path: file, start_line: 1, end_line: 1 } }), {});
-    assert.match(readPath(file, { sessionId: null }), /const value/);
-    assert.match(readPath(file, { sessionId: null }), /const value/);
+    assert.deepEqual(routeHook('devin', input('A')), {}, 'pre-tool attempts are not proof of delivery');
+    readPath(file, { sessionId: 'devin:A' });
+    assert.deepEqual(routeHook('devin', input('B')), {});
+    assert.deepEqual(routeHook('codex', input('A')), {});
+    assert.equal(routeHook('devin', input('A')).hookSpecificOutput.permissionDecision, 'deny');
+    assert.deepEqual(routeHook('devin', input('A')), {}, 'retry passes');
+    assert.deepEqual(routeHook('devin', input(undefined)), {});
+    assert.deepEqual(routeHook('devin', { ...input('A'), tool_input: { file_path: file, offset: 0, limit: 1 } }), {});
+    writeFileSync(file, 'const changed = 2;\n');
+    assert.deepEqual(routeHook('devin', input('A')), {}, 'changed content passes');
+    assert.match(readPath(file, { sessionId: 'devin:A' }), /const changed/);
+    assert.match(readPath(file, { sessionId: null }), /const changed/);
 });
 
 test('both CLI entrypoints carry session identity and support a fresh read', () => {
@@ -103,7 +99,7 @@ test('both CLI entrypoints carry session identity and support a fresh read', () 
     for (const [i, entry] of [cli, light].entries()) {
         const args = ['run', '--session-id', `shell-${i}`, '--', shell, flag, 'cat file.js'];
         assert.match(run(dir, args, entry).stdout, /const value/);
-        assert.match(run(dir, args, entry).stdout, /unchanged since/);
+        assert.equal(run(dir, args, entry).stdout.trim(), 'const value = 1;', 'shell wrappers stay raw');
         const raw = run(dir, args, entry, { GRAFLY_TOOL_OUTPUT: '0' });
         assert.equal(raw.stdout.trim(), 'const value = 1;');
         assert.doesNotMatch(raw.stdout, /grafly/);

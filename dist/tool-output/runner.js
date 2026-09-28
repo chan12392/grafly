@@ -14,7 +14,7 @@ const MINIMUM = 4096;
 const KILL_GRACE_MS = 2000;
 export const lines = (text) => text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
 
-const READ_COMMANDS = new Set(["cat", "head", "tail", "type", "get-content", "gc", "more"]);
+const READ_COMMANDS = new Set(["cat", "head", "tail", "more"]);
 const SEARCH_COMMANDS = new Set(["rg", "grep", "egrep", "fgrep", "findstr", "find", "ls", "where", "which", "tree"]);
 const NO_MATCH_COMMANDS = new Set(["rg", "grep", "egrep", "fgrep", "findstr"]);
 const BUILD_COMMANDS = new Set(["npm", "pnpm", "yarn"]);
@@ -64,6 +64,8 @@ export function classifyCommand(command, args = []) {
     if (name === "pytest" || (name === "node" && args[0] === "--test" && !args.includes("-e") && !args.includes("--eval"))
         || (["npm", "pnpm"].includes(name) && (args[0] === "test" || (args[0] === "run" && args[1] === "test")))) return "test";
     if (READ_COMMANDS.has(name)) return "read";
+    if (process.platform === "win32" && command.toLowerCase() === name
+        && ["type", "get-content", "gc"].includes(name)) return "read";
     if (SEARCH_COMMANDS.has(name)) return "search";
     if (BUILD_COMMANDS.has(name) && BUILD_ACTIONS.has(args[0])) return "build";
     if (name === "git") return gitKind(args);
@@ -125,45 +127,17 @@ export function applyRanges(text, stream) {
 export async function runCommand(command, args = [], options = {}) {
     const env = options.env ?? process.env;
     const pinned = pinRuntime(env); // An in-flight command retains its starting version.
-    // A simple single-file read command is served by the index read path —
-    // same bounded output, plus the conditional-read cache dedups repeats.
-    // Hosts that wrap commands (`powershell -NoProfile -Command 'cat f'`,
-    // `bash -c 'cat f'`) are unwrapped first so the inner read is what gets
-    // classified and served.
+    // Shell wrappers stay raw. Serve only simple, directly invoked file reads.
     if (env.GRAFLY_TOOL_OUTPUT !== "0") {
-        let eff = [command, ...args], unwrapped = false;
-        const shellName = commandName(command);
-        if (["powershell", "pwsh", "cmd", "bash", "sh", "zsh"].includes(shellName)) {
-            const i = args.findIndex(a => /^-(?:c|command)$/i.test(a) || /^\/c$/i.test(a));
-            if (i >= 0 && typeof args[i + 1] === "string" && i + 2 === args.length) {
-                try {
-                    const { literalArgv } = await import("./route.js");
-                    const inner = literalArgv(args[i + 1], shellName);
-                    if (inner) { eff = inner; unwrapped = true; }
-                } catch { /* keep outer */ }
-            }
-        }
         try {
-            const { serveReadCommand, canServeReadCommand } = await import("./output.js");
-            if (classifyCommand(eff[0], eff.slice(1)) === "read") {
-                if (canServeReadCommand(eff[0], eff.slice(1))) {
-                    const out = serveReadCommand(eff[0], eff.slice(1), {
-                        cwd: options.cwd, sessionId: options.sessionId ?? env.GRAFLY_SESSION_ID ?? null,
-                    });
-                    if (out !== null) {
-                        (options.stdout ?? process.stdout).write(out);
-                        return { exit_code: 0, archive: null, served: "read-path" };
-                    }
-                }
-                else if (!unwrapped && ["type", "get-content", "gc", "more"].includes(commandName(eff[0]))) {
-                    // Shell builtins cannot be spawned — route only rewrites
-                    // serveable forms, so a direct `grafly run -- type` reaching
-                    // here gets an explicit answer instead of spawn ENOENT.
-                    // (A wrapped builtin still spawns the real shell, which can
-                    // run its own builtin in forms we cannot serve.)
-                    (options.stderr ?? process.stderr).write(
-                        `grafly run: ${commandName(eff[0])} is a shell builtin; use grafly read <path>\n`);
-                    return { exit_code: 1, archive: null };
+            const { serveReadCommand } = await import("./output.js");
+            if (classifyCommand(command, args) === "read") {
+                const out = serveReadCommand(command, args, {
+                    cwd: options.cwd, sessionId: options.sessionId === undefined ? env.GRAFLY_SESSION_ID : options.sessionId,
+                });
+                if (out !== null) {
+                    (options.stdout ?? process.stdout).write(out);
+                    return { exit_code: 0, archive: null, served: "read-path" };
                 }
             }
         } catch { /* serve failure → run the real command */ }

@@ -1,232 +1,117 @@
-/**
- * Conditional read — "304 for context". A file already read in this session
- * must not be re-sent: identical content answers `unchanged @hash`, and a
- * changed file answers only the changed hunks (below a threshold), not the
- * whole file again. The runtime does all diffing — the model never expands a
- * hash; it only gets real text or a one-line freshness proof.
- *
- * State lives in `.grafly/.cache/session-reads.json` keyed by session id:
- * `{session: {path: {hash, snap}}}`. `snap` points at a content snapshot in
- * `.grafly/.cache/snaps/<hash>` kept so changed-line ranges can be located
- * after the working file moved on. Session id comes from the host request
- * (namespaced by host), or an explicitly supplied GRAFLY_SESSION_ID;
- * no session → no dedup (a "unchanged" answer would lie to a reader who
- * never saw the content).
- *
- * Everything is fail-open: any error anywhere falls back to a normal read.
+/** Hash-only receipts for complete Grafly reads; never store file contents.
+ * Missing identity, stale receipts and cache errors return real content.
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import { hasGraflyIndex } from "../graph/root.js";
+import { contextDirFor as indexDir } from "../context/node-file.js";
+import { acquireLockIn, releaseLockIn, readJson, writeJsonAtomic } from "../util/state.js";
 
-const SNAP_MAX_FILE = 256 * 1024; // don't snapshot files bigger than this
-const SNAP_MAX_COUNT = 60;        // prune oldest snapshots beyond this
-const DIFF_MAX_LINES = 2000;      // LCS is O(n·m) memory too; above this just re-read
-const DIFF_CHANGE_RATIO = 0.4;    // hunks worth it only under this change share
-const HUNK_CONTEXT = 2;
+const MAX_SESSIONS = 32, MAX_FILES = 60, MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const NATIVE_MAX_CHARS = 20000;
+const hashText = text => createHash("sha256").update(text).digest("hex");
 
-const sha1 = (s) => createHash("sha1").update(s).digest("hex").slice(0, 10);
-const split = (t) => t.split("\n");
-
-/** Nearest enclosing `.grafly` dir walking up from `p`, or null. */
-function contextDirFor(p) {
-    let dir = p;
-    try { if (statSync(dir).isFile()) dir = join(dir, ".."); } catch { return null; }
-    for (let i = 0; i < 40; i++) {
-        const g = join(dir, ".grafly");
-        if (existsSync(g)) return g;
-        const up = join(dir, "..");
-        if (up === dir) return null;
+function contextDirFor(full) {
+    let dir = dirname(realpathSync(full));
+    const home = realpathSync(homedir());
+    for (;;) {
+        // Global state must never become a repository cache.
+        if (dir === home) return null;
+        if (hasGraflyIndex(dir)) return indexDir(dir);
+        const up = dirname(dir);
+        if (up === dir || existsSync(join(dir, ".git"))) return null;
         dir = up;
     }
-    return null;
-}
-
-function loadState(ctxDir) {
-    try { return JSON.parse(readFileSync(join(ctxDir, ".cache", "session-reads.json"), "utf8")); }
-    catch { return {}; }
-}
-
-function saveState(ctxDir, state) {
-    try {
-        const dir = join(ctxDir, ".cache");
-        mkdirSync(dir, { recursive: true });
-        writeFileSync(join(dir, "session-reads.json"), JSON.stringify(state));
-    }
-    catch { /* fail-open */ }
 }
 
 function sessionId(explicit = process.env.GRAFLY_SESSION_ID) {
-    // A shared repository marker belongs to the last prompt, not this reader.
-    // Without a request-bound identity, never suppress file contents.
     return typeof explicit === "string" ? explicit.trim() || null : null;
 }
 
-function snapPath(ctxDir, hash) { return join(ctxDir, ".cache", "snaps", hash); }
+function statePath(ctxDir) { return join(ctxDir, ".cache", "session-reads.json"); }
 
-function writeSnap(ctxDir, hash, text) {
+function loadState(ctxDir) {
+    const raw = readJson(statePath(ctxDir));
+    // Legacy pre-tool stamps did not prove content delivery.
+    const sessions = raw?.version === 2 ? raw.sessions : null;
+    const now = Date.now();
+    return Object.fromEntries(Object.entries(sessions ?? {})
+        .filter(([, s]) => s && Number.isFinite(s.ts) && now - s.ts < MAX_AGE_MS && s.files)
+        .sort((a, b) => b[1].ts - a[1].ts).slice(0, MAX_SESSIONS)
+        .map(([id, s]) => [id, { ts: s.ts, files: Object.fromEntries(Object.entries(s.files)
+            .filter(([, f]) => f && typeof f.hash === "string" && Number.isFinite(f.ts) && now - f.ts < MAX_AGE_MS)
+            .sort((a, b) => b[1].ts - a[1].ts).slice(0, MAX_FILES)) }]));
+}
+
+/** Serialize updates; contention skips caching rather than blocking a read. */
+function updateState(ctxDir, update) {
+    const lockDir = join(ctxDir, ".cache", "read-state");
+    if (!acquireLockIn(lockDir)) return false;
     try {
-        if (text.length > SNAP_MAX_FILE) return null;
-        const dir = join(ctxDir, ".cache", "snaps");
-        mkdirSync(dir, { recursive: true });
-        const p = snapPath(ctxDir, hash);
-        if (!existsSync(p)) writeFileSync(p, text);
-        return p;
-    }
-    catch { return null; }
+        const state = loadState(ctxDir);
+        if (!update(state)) return false;
+        const sessions = Object.fromEntries(Object.entries(state)
+            .sort((a, b) => b[1].ts - a[1].ts).slice(0, MAX_SESSIONS));
+        writeJsonAtomic(statePath(ctxDir), { version: 2, sessions }, true);
+        return true;
+    } finally { releaseLockIn(lockDir); }
 }
 
-/** Longest-common-subsequence diff over line arrays → changed ranges on `cur`. */
-function changedRanges(prev, cur) {
-    const n = prev.length, m = cur.length;
-    if (n > DIFF_MAX_LINES || m > DIFF_MAX_LINES) return null;
-    // Trim common prefix/suffix — the LCS runs on the middle only.
-    let lo = 0, hi = 0;
-    while (lo < n - hi && lo < m - hi && prev[lo] === cur[lo]) lo++;
-    while (hi < n - lo && hi < m - lo && prev[n - 1 - hi] === cur[m - 1 - hi]) hi++;
-    const a = prev.slice(lo, n - hi), b = cur.slice(lo, m - hi);
-    const dp = Array.from({ length: a.length + 1 }, () => new Uint32Array(b.length + 1));
-    for (let i = a.length - 1; i >= 0; i--)
-        for (let j = b.length - 1; j >= 0; j--)
-            dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-    const ranges = [];
-    let i = 0, j = 0, start = -1, removed = 0, added = 0;
-    while (i < a.length && j < b.length) {
-        if (a[i] === b[j]) {
-            if (removed && removed !== added) return null;
-            if (start >= 0) { ranges.push([start, lo + j - 1]); start = -1; }
-            removed = 0; added = 0;
-            i++; j++;
-        }
-        else if (dp[i + 1][j] >= dp[i][j + 1]) { if (start < 0) start = lo + j; removed++; i++; }
-        else { if (start < 0) start = lo + j; added++; j++; }
-    }
-    // Current-line-only hunks cannot describe removed lines. Equal-size
-    // replacements are safe; a deletion requires the complete current file.
-    removed += a.length - i; added += b.length - j;
-    if (removed && removed !== added) return null;
-    // Any unmatched inserted tail is one last hunk.
-    if (start >= 0 || j < b.length || i < a.length)
-        ranges.push([start >= 0 ? start : Math.max(0, lo + j - 1), m - hi - 1]);
-    return ranges.filter(([s, e]) => e >= s);
-}
-
-function hunkOutput(full, cur, ranges, oldHash, newHash) {
-    const out = [`[grafly read ${full}: changed since @${oldHash} → @${newHash}; ${ranges.length} hunk(s); unchanged lines elided; force full: grafly read "${full}" --fresh]\n`];
-    for (const [s, e] of ranges) {
-        const from = Math.max(0, s - HUNK_CONTEXT), to = Math.min(cur.length - 1, e + HUNK_CONTEXT);
-        for (let i = from; i <= to; i++) out.push(`${i + 1}: ${cur[i]}\n`);
-        out.push("  ⋮\n");
-    }
-    return out.join("");
-}
-
-/**
- * Conditional variant of a plain file read. Returns a string to serve INSTEAD
- * of the normal read when a hit applies, or null for "do a normal read".
- * Records the read + snapshot on the miss path the caller returns.
- */
 export function conditionalRead(full, text, { fresh = false, whole = true, sessionId: identity } = {}) {
     try {
-        // Dedup claims "you already have this content" — only true when the
-        // earlier read was a whole-file read and this request is too. A --fresh
-        // read still re-records: the caller now holds this exact content.
-        if (!whole) return { replay: null, record: null };
+        const session = sessionId(identity);
+        if (!whole || !session) return { replay: null, record: null };
         const ctxDir = contextDirFor(full);
         if (!ctxDir) return { replay: null, record: null };
-        const session = sessionId(identity);
-        if (!session) return { replay: null, record: null };
-        const hash = sha1(text);
-        const state = loadState(ctxDir);
-        const prior = state[session]?.[full];
-        const snap = writeSnap(ctxDir, hash, text);
-        const record = { path: full, hash, snap };
-        if (fresh) return { replay: null, record, ctxDir, session };
-        if (prior?.hash === hash)
-            return { replay: `[grafly read ${full}: unchanged since your previous read @${hash} — ${split(text).length} lines, ${text.length} bytes already in context; force full: grafly read "${full}" --fresh]\n`, record, ctxDir, session };
-        if (prior?.snap && existsSync(prior.snap)) {
-            const ranges = changedRanges(split(readFileSync(prior.snap, "utf8")), split(text));
-            if (ranges) {
-                const changed = ranges.reduce((a, [s, e]) => a + e - s + 1, 0);
-                if (ranges.length && changed / Math.max(split(text).length, 1) < DIFF_CHANGE_RATIO)
-                    return { replay: hunkOutput(full, split(text), ranges, prior.hash, hash), record, ctxDir, session };
-            }
-        }
-        return { replay: null, record, ctxDir, session };
-    }
-    catch { return { replay: null, record: null }; }
+        const hash = hashText(text);
+        const prior = loadState(ctxDir)[session]?.files[full];
+        const replay = !fresh && prior?.hash === hash
+            ? `[grafly read ${full}: unchanged since your previous read @${hash.slice(0, 12)} — ${text.split("\n").length} lines, ${Buffer.byteLength(text)} bytes already in context; force full: grafly read "${full}" --fresh]\n`
+            : null;
+        return { replay, record: { path: full, hash }, ctxDir, session };
+    } catch { return { replay: null, record: null }; }
 }
 
-/**
- * PreToolUse gate for native read tools: deny only a REPEAT read of a file
- * this session already holds — first reads always pass (blocking them costs a
- * round trip and saves nothing). The denial reason carries the answer: either
- * "unchanged, you have it" or "changed — grafly read serves just the hunks".
- * A once-per-session journal lets an insistent read through on retry so the
- * gate can never loop a caller.
- *
- * A first read also RECORDS itself (pre-tool knows the content already) so the
- * next native read can be gated — closing the "native read twice" hole. Edge:
- * if the host's approval flow vetoes the read after we stamp it, the record
- * says "seen" when it wasn't — the deny reason offers `--fresh` and the
- * once-journal lets a retry through, so it self-heals.
- *
- * `whole`: false when the request carries a range (offset/limit etc.) — a
- * partial read must not claim whole-file knowledge.
- *
- * Returns { deny: true, reason } | { deny: false }. Fail-open throughout.
+/** Devin's default read is bounded to 20,000 characters. Pre-tool attempts
+ * cannot prove delivery. Only a prior complete Grafly read can deny an
+ * unchanged read, once per receipt; changes and explicit ranges pass through.
  */
 export function gateNativeRead(full, { whole = true, sessionId: identity } = {}) {
     try {
+        const session = sessionId(identity);
+        if (!whole || !session) return { deny: false };
+        const stat = statSync(full);
+        if (!stat.isFile() || stat.size > NATIVE_MAX_CHARS) return { deny: false };
         const ctxDir = contextDirFor(full);
         if (!ctxDir) return { deny: false };
-        if (!whole) return { deny: false };
-        const session = sessionId(identity);
-        if (!session) return { deny: false };
-        const stat = statSync(full);
-        if (!stat.isFile() || stat.size > SNAP_MAX_FILE) return { deny: false };
-        const text = readFileSync(full, 'utf8');
-        if (text.includes('\0')) return { deny: false };
-        const hash = sha1(text);
-        const state = loadState(ctxDir);
-        const prior = state[session]?.[full];
-        if (!prior?.hash) {
-            if (whole) {
-                const snap = writeSnap(ctxDir, hash, text);
-                const files = state[session] ?? (state[session] = {});
-                files[full] = { hash, snap };
-                saveState(ctxDir, state);
-            }
-            return { deny: false };
-        }
-        const reason = hash === prior.hash
-            ? `unchanged since your earlier read @${hash} — the content is already in context; to force a full re-read run: grafly read "${full}" --fresh`
-            : `changed since your earlier read @${prior.hash} — run \`grafly read "${full}"\` for only the changed hunks, or call this read tool again to force a full re-read`;
-        // Loop guard: a second native read of the same path this session is the
-        // caller asserting it really wants the full body — let it through.
-        const journalPath = join(ctxDir, '.cache', 'read-gate-denied.json');
-        let journal = {};
-        try { journal = JSON.parse(readFileSync(journalPath, 'utf8')) ?? {}; } catch { /* fresh journal */ }
-        const denied = journal[session] ?? [];
-        if (denied.includes(full)) return { deny: false };
-        journal[session] = [...denied, full];
-        try { writeFileSync(journalPath, JSON.stringify(journal)); } catch { /* fail-open */ }
-        return { deny: true, reason };
-    }
-    catch { return { deny: false }; }
+        const text = new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(full));
+        if (text.includes("\0") || text.length > NATIVE_MAX_CHARS) return { deny: false };
+        const hash = hashText(text);
+        const denied = updateState(ctxDir, state => {
+            const prior = state[session]?.files[full];
+            if (prior?.hash !== hash || prior.denied) return false;
+            prior.denied = true;
+            return true;
+        });
+        return denied ? { deny: true, reason: `unchanged since your earlier read @${hash.slice(0, 12)} — the content is already in context; to force a full re-read run: grafly read "${full}" --fresh` } : { deny: false };
+    } catch { return { deny: false }; }
 }
 
-/** Persist a read record after the (normal or replayed) response is served. */
+/** Persist only after the caller has produced a complete response. */
 export function commitRead(result) {
     try {
         if (!result?.record || !result.ctxDir || !result.session) return;
-        const state = loadState(result.ctxDir);
-        const files = state[result.session] ?? (state[result.session] = {});
-        files[result.record.path] = { hash: result.record.hash, snap: result.record.snap };
-        const keys = Object.keys(files);
-        if (keys.length > SNAP_MAX_COUNT)
-            for (const k of keys.slice(0, keys.length - SNAP_MAX_COUNT)) delete files[k];
-        saveState(result.ctxDir, state);
-    }
-    catch { /* fail-open */ }
+        updateState(result.ctxDir, state => {
+            const { path, hash } = result.record;
+            const prior = state[result.session]?.files[path];
+            const files = { ...state[result.session]?.files };
+            delete files[path];
+            const ts = Date.now();
+            state[result.session] = { ts, files: { [path]: { hash, ts, denied: prior?.hash === hash && prior.denied === true },
+                ...Object.fromEntries(Object.entries(files).slice(0, MAX_FILES - 1)) } };
+            return true;
+        });
+    } catch { /* cache failure must never prevent a read */ }
 }
