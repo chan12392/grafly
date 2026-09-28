@@ -211,13 +211,6 @@ async function autoIngestVocab(dir, onlyFile) {
         const prior = readJson(seenPath);
         const seen = prior?.files ?? {};
         const files = onlyFile ? [onlyFile] : (await import('../ingest/fs.js')).walkDir(dir);
-        // Drop `seen` keys whose file vanished, so the map mirrors live sources
-        // rather than every path ever ingested.
-        if (!onlyFile) {
-            const live = new Set(files);
-            for (const f of Object.keys(seen))
-                if (!live.has(f)) delete seen[f];
-        }
         const changed = [];
         for (const f of files) {
             if (underGraft(dir, f)) continue;
