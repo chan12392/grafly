@@ -20,7 +20,6 @@ import { relPosix } from "../util/paths.js";
 import matter from "gray-matter";
 import { CACHE_DIR, readNodes } from "../context/node-file.js";
 import { GRAPH_DIR } from "./write.js";
-import { loadVocab, formatDialectLines } from "../vocab.js";
 const INDEX_FILE = "INDEX.md";
 /** Where a root-level file card goes when `grafly/<stem>.md` is already a concept
  * node (same stem as a slug — Laravel `server.php` vs a "Server" concept). */
@@ -197,15 +196,6 @@ export function writeIndex(outDir, files) {
         "is the only way to read them.",
         "",
     ];
-    // Dialect block rides INSIDE the orientation budget (1500B slice of this
-    // file): placed before Concepts so every SessionStart injection carries it.
-    // Written per build; skipped when no vocab store exists yet.
-    try {
-        const dialect = formatDialectLines(loadVocab(outDir));
-        if (dialect.length)
-            lines.push(...dialect);
-    }
-    catch { /* vocab store absent or unreadable — INDEX.md still valid without it */ }
     const concepts = readNodes(outDir).sort((a, b) => a.slug.localeCompare(b.slug));
     if (concepts.length) {
         lines.push("## Concepts", "");

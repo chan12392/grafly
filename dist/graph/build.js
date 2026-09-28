@@ -31,7 +31,6 @@ import { filterByOnlyDirs, listSourceStats } from "./source-files.js";
 import { resolveEdges } from "./resolve.js";
 import { enrichGraph } from "./enrich.js";
 import { readGraph, writeGraph, wiringPath } from "./write.js";
-import { extractVocab, mergeVocab, finalizeVocab, saveRepoVocab } from "../vocab.js";
 import { writeCards, writeIndex, writeCovers } from "./cards.js";
 import { writeAskIndex } from "../ask/index-file.js";
 import { discoverScopes, scopeOf } from "./scopes.js";
@@ -278,21 +277,6 @@ export async function buildGraph(dir, opts = {}) {
     }
     catch (err) {
         errors.push(`ask-index: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    // Dialect vocabulary (.grafly/vocab.json, `repo` source): a regex-only pass
-    // over the same `sources` map the graph was built from — cache-replayed files
-    // included, so this costs no second read. Runs on `graphOnly` refreshes too,
-    // like the ask sidecar. Best-effort, same posture: record and keep going.
-    try {
-        const vocabAcc = {};
-        for (const [rel, source] of sources) {
-            const lang = languageLabelOf(rel) ?? containerLangOf(rel)?.name ?? genericLangOf(rel)?.name ?? "unknown";
-            mergeVocab(vocabAcc, extractVocab(rel, source, lang));
-        }
-        saveRepoVocab(outDir, finalizeVocab(vocabAcc));
-    }
-    catch (err) {
-        errors.push(`vocab: ${err instanceof Error ? err.message : String(err)}`);
     }
     // The fingerprint claims exactly one thing: "the graph on disk was built from
     // these source bytes." Nothing about the projections below — which is why it is
