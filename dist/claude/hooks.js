@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { execFileSync, spawn } from 'node:child_process';
 import { join, basename, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
@@ -439,6 +439,15 @@ export async function main(event) {
         return;
     }
     if (event === 'prompt') {
+        // Stamp the active session id for tools that scope state per session
+        // (conditional read). Cheap bookkeeping — runs before the gate on
+        // purpose so the stamp stays fresh even on skipped prompts.
+        try {
+            const cacheDir = join(resolveContextDir(dir), '.cache');
+            mkdirSync(cacheDir, { recursive: true });
+            writeFileSync(join(cacheDir, 'active-session'), String(input.session_id || 'default'));
+        }
+        catch { /* bookkeeping is best-effort */ }
         const prompt = String(input?.prompt ?? '').trim();
         if (!shouldRetrievePrompt(prompt))
             return;

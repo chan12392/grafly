@@ -1,6 +1,9 @@
 /** Host-owned argument rewrite. Only a single literal external command is eligible. */
 import { fileURLToPath } from 'node:url';
+import { isAbsolute, resolve } from 'node:path';
 import { classifyCommand } from './runner.js';
+import { gateNativeRead } from './conditional.js';
+import { canServeReadCommand } from './output.js';
 
 export const ROUTE_HOSTS = new Set(['codex', 'devin', 'hermes']);
 const entry = fileURLToPath(new URL('./cli.js', import.meta.url));
@@ -52,8 +55,13 @@ export function routeInput(host, tool, args, { shell = process.platform === 'win
     if (!argv || !classifyCommand(argv[0], argv.slice(1))) return null;
     const ps = /powershell|pwsh/i.test(effectiveShell);
     const name = argv[0].replaceAll('\\', '/').split('/').at(-1).toLowerCase();
-    // These names are PowerShell aliases, not the external programs they resemble.
-    if (ps && ['cat', 'ls', 'where', 'find'].includes(name)) return null;
+    // Shell builtins can't be spawned, and PowerShell aliases aren't the
+    // programs they resemble — only route them when readPath can serve the
+    // exact invocation form, otherwise the host runs them raw as before.
+    if ((ps && ['cat', 'ls', 'where', 'find'].includes(name)) || ['type', 'get-content', 'gc', 'more'].includes(name)) {
+        if (!canServeReadCommand(argv[0], argv.slice(1))) return null;
+        if (ps && ['ls', 'where', 'find'].includes(name)) return null;
+    }
     // .cmd/.bat require another shell on Windows; do not change their quoting.
     if (process.platform === 'win32' && /^(npm|pnpm|yarn)(\.(cmd|bat))?$/.test(name)) return null;
     const q = ps ? value => "'" + value.replaceAll("'", "''") + "'"
@@ -64,15 +72,46 @@ export function routeInput(host, tool, args, { shell = process.platform === 'win
     return { ...args, [key]: routed };
 }
 
+// Native read-tool names per host (lowercase compare). Gating only repeats —
+// a first native read always passes.
+const READ_TOOLS = {
+    devin: ['read', 'read_file', 'file_read', 'view', 'open', 'cat', 'get_content'],
+    codex: ['read_file', 'read', 'view', 'open'],
+    hermes: [],
+};
+const READ_PATH_KEYS = ['file_path', 'filePath', 'path', 'file', 'absolute_path'];
+
+/** Deny a repeat native read when the session already holds the file — the
+ *  reason carries the freshness answer and the `grafly read` escape hatch. */
+function routeReadGate(host, tool, args, cwd) {
+    if (!(host === 'devin' || host === 'codex') || !args) return null;
+    if (!READ_TOOLS[host].includes(String(tool ?? '').toLowerCase())) return null;
+    const raw = READ_PATH_KEYS.map(k => args[k]).find(v => typeof v === 'string' && v.length);
+    if (!raw) return null;
+    const full = isAbsolute(raw) ? raw : resolve(cwd ?? process.cwd(), raw);
+    const whole = !['offset', 'limit', 'start', 'count', 'start_line', 'end_line', 'lines']
+        .some(k => args[k] !== undefined);
+    const verdict = gateNativeRead(full, { whole });
+    if (!verdict.deny) return null;
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse',
+        permissionDecision: 'deny', permissionDecisionReason: verdict.reason } };
+}
+
 export function routeHook(host, input) {
+    const args = input.tool_input ?? input.toolInput ?? input.args;
+    const tool = input.tool_name ?? input.toolName;
     // Codex requires an allow decision to rewrite. Only do that in an already
     // non-asking mode: enabling this hook must never grant new approval rights.
-    if (host === 'codex' && !['dontAsk', 'bypassPermissions'].includes(input.permission_mode)) return {};
-    const args = input.tool_input ?? input.toolInput ?? input.args;
-    const updated = routeInput(host, input.tool_name ?? input.toolName, args,
-        { shell: input.shell || (host === 'codex' && process.platform === 'win32' ? 'powershell' : 'bash') });
-    if (!updated) return {};
-    if (host === 'hermes') return { action: 'modify', args: updated };
-    return { hookSpecificOutput: { hookEventName: 'PreToolUse',
-        ...(host === 'codex' ? { permissionDecision: 'allow' } : {}), updatedInput: updated } };
+    // (The read gate below is a deny — it restricts, so no mode gate applies.)
+    if (!(host === 'codex' && !['dontAsk', 'bypassPermissions'].includes(input.permission_mode))) {
+        const updated = routeInput(host, tool, args,
+            { shell: input.shell || (host === 'codex' && process.platform === 'win32' ? 'powershell' : 'bash') });
+        if (updated) {
+            if (host === 'hermes') return { action: 'modify', args: updated };
+            return { hookSpecificOutput: { hookEventName: 'PreToolUse',
+                ...(host === 'codex' ? { permissionDecision: 'allow' } : {}), updatedInput: updated } };
+        }
+    }
+    const gated = routeReadGate(host, tool, args, input.cwd ?? input.workdir);
+    return gated ?? {};
 }

@@ -16,7 +16,11 @@ test('complex shell, native read, interactive and modifying commands stay with h
     for (const command of ['rg foo .; Remove-Item x', 'rg foo . | head', 'rg "$secret" .', 'rg $(cmd) .', 'git reset --hard', 'cd x && rg a .', 'rg x *.js', 'rg x .\nGet-Content secret'])
         assert.equal(routeInput('devin', 'exec', { command }), null, command);
     for (const property of ['pty', 'tty', 'background']) assert.equal(routeInput('hermes', 'terminal', { command: 'rg a .', [property]: true }), null);
-    assert.deepEqual(routeHook('devin', { tool_name: 'read', tool_input: { file_path: 'README.md' } }), {});
+    // A fresh session id keeps the conditional-read gate from consulting
+    // whatever a concurrent real session recorded in .grafly/.cache.
+    process.env.GRAFLY_SESSION_ID = `test-route-${process.pid}`;
+    try { assert.deepEqual(routeHook('devin', { tool_name: 'read', tool_input: { file_path: 'README.md' } }), {}); }
+    finally { delete process.env.GRAFLY_SESSION_ID; }
 });
 test('quoting preserves literals and host contracts preserve approval mode', () => {
     assert.deepEqual(literalArgv("rg 'it''s' 'C:\\space dir'", 'powershell'), ['rg', "it's", 'C:\\space dir']);
