@@ -7,10 +7,15 @@
  * is exported so the workspace surface renders the identical
  * report, rather than re-implementing it.
  */
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { contextDirFor } from "../context/node-file.js";
 import { withSavings } from "../context/savings.js";
 import { loadTraverseCached } from "../graph/load.js";
+import { pathUnderPrefix } from "../graph/scopes.js";
+import { wiringPath } from "../graph/write.js";
+import { normalizePathPrefix } from "../util/paths.js";
+import { checkDeadend, loadDeadends, recordMiss, saveDeadends, statScope } from "./deadends.js";
 import { grepGraph } from "./grep.js";
 function groupHeader(g) {
     if (g.symbol)
@@ -68,15 +73,62 @@ export function zeroHitNote(result) {
     return `${base} — note: ${files} indexed file${files === 1 ? "" : "s"} could not be read (stale graph? run grafly build)`;
 }
 /**
+ * The journal's scope key: the `--in` prefix plus the match mode, JSON-encoded
+ * so no separator choice can collide with a path character. Match mode
+ * belongs in the key because a miss proves only what that exact search tried
+ * — a case-sensitive miss for `Foo` must not answer a later `--ignore-case
+ * foo`, which could legitimately hit on `foo`/`FOO`.
+ */
+function deadendScope(opts) {
+    const inPrefix = opts.in ? normalizePathPrefix(opts.in) : "";
+    return JSON.stringify([inPrefix, opts.fixed ? "f" : "r", opts.ignoreCase ? "i" : ""]);
+}
+/** Predicate narrowing the scope stamp to the `--in` prefix — the same
+ * segment-aware rule `grepGraph` applies to file nodes, so the stamp covers
+ * exactly the files the search would read. */
+function deadendIgnore(inArg) {
+    const prefix = inArg ? normalizePathPrefix(inArg) : "";
+    return prefix === "" ? undefined : (rel) => !pathUnderPrefix(rel, prefix);
+}
+/**
  * Resolve the graph at `dir` (respecting `--dir`), run `grepGraph`, and print
  * either the human report or `--json`. Exits the process (code 1) when
  * there's no graph at all or the pattern fails to compile as a regex — both
  * are caller-facing mistakes, not recoverable states. Zero hits is NOT an
  * error: it prints a loud note to stderr and exits 0.
+ *
+ * Dead-end journal: a verified-empty search is recorded in
+ * `<contextDir>/.cache/deadends.json` together with a stamp of the searched
+ * scope. A repeat of the same query on an unchanged scope is answered from
+ * the journal — before the graph is even parsed — with the same zero-hit
+ * note plus a `dead-end hit` marker. Journaling is fail-open throughout and
+ * skipped under `--json`, whose machine readers get the full result shape.
  */
 export function runGrepCommand(pattern, dir, opts) {
     const root = resolve(dir);
     const contextDir = contextDirFor(root, opts.globalDir);
+    const scope = deadendScope(opts);
+    if (!opts.json) {
+        try {
+            const journal = loadDeadends(contextDir);
+            // The stamp costs a walk + one stat per source file — skipped when
+            // the journal is empty anyway.
+            const hit = journal.length === 0 ? null :
+                checkDeadend(journal, { query: pattern, scope }, statScope(root, deadendIgnore(opts.in), contextDir));
+            if (hit) {
+                // "No graph" still outranks a journal hit: a deleted index is a
+                // caller-facing error, not a verified miss.
+                if (!existsSync(wiringPath(contextDir))) {
+                    console.error("✗ no graph — run grafly build first");
+                    process.exit(1);
+                }
+                console.error(zeroHitNote({ pattern, filesSearched: hit.filesSearched ?? 0, truncated: { files: 0, hits: 0 } }));
+                console.error(`[grafly] dead-end hit — '${pattern}' verified absent (scope unchanged)`);
+                return;
+            }
+        }
+        catch { /* journal unavailable or scope unstattable — search normally */ }
+    }
     const graph = loadTraverseCached(contextDir);
     if (!graph) {
         console.error("✗ no graph — run grafly build first");
@@ -99,6 +151,15 @@ export function runGrepCommand(pattern, dir, opts) {
         return;
     }
     if (result.totalHits === 0) {
+        // Journal the miss so an identical repeat on an unchanged scope is
+        // free. `filesSearched` rides along so the dead-end answer can print
+        // this command's usual zero-hit note verbatim.
+        try {
+            const journal = loadDeadends(contextDir);
+            recordMiss(journal, { query: pattern, scope, filesSearched: result.filesSearched, scopeFingerprint: statScope(root, deadendIgnore(opts.in), contextDir) });
+            saveDeadends(contextDir, journal);
+        }
+        catch { /* a failed journal write must never fail the search */ }
         console.error(zeroHitNote(result));
         return;
     }
