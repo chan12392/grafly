@@ -318,6 +318,25 @@ export function mergedVocab(store, top = 20) {
     return card;
 }
 /**
+ * The files that exemplify the dialect most — ranked by summed counts of the
+ * values they exemplify across every category and source. These are the
+ * "conventions live here" pointers: an agent that opens the top file sees
+ * the style the card describes.
+ */
+export function topExemplarFiles(store, n = 3) {
+    const freq = new Map();
+    for (const prov of ["repo", "llm"])
+        for (const cat of VOCAB_CATEGORIES)
+            for (const e of store.sources?.[prov]?.categories?.[cat] ?? [])
+                for (const ex of e.exemplars ?? [])
+                    if (!ex.path.endsWith(".d.ts"))
+                        freq.set(ex.path, (freq.get(ex.path) ?? 0) + e.count);
+    return [...freq.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, n)
+        .map(([p]) => p);
+}
+/**
  * Compact dialect block for INDEX.md — one line per category, `value×count`
  * items joined by `·`. Deterministic: no timestamps (INDEX.md itself carries
  * none). `*` marks a value seen only in the `llm` source.
@@ -341,8 +360,13 @@ export function formatDialectLines(store, top = 8) {
         const items = rows.map((r) => `${r.value}×${r.count}${r.provenance === "llm" ? "*" : ""}`);
         lines.push(`${INDEX_LABELS[cat]}: ${items.join(" · ")}`);
     }
+    if (lines.length <= 5)
+        return [];
+    const exemplars = topExemplarFiles(store);
+    if (exemplars.length)
+        lines.push(`style exemplars: ${exemplars.join(" · ")}`);
     lines.push("");
-    return lines.length > 5 ? lines : [];
+    return lines;
 }
 /** The `grafly vocab` card: one header line of source stamps, then per-category
  * `value×count [provenance]` rows. */
@@ -362,5 +386,8 @@ export function formatVocabCard(store, top = 20) {
         for (const r of rows)
             lines.push(`  ${r.value}×${r.count} [${r.provenance}]`);
     }
+    const exemplars = topExemplarFiles(store);
+    if (exemplars.length)
+        lines.push(`style exemplars: ${exemplars.join(" · ")}`);
     return lines.join("\n") + "\n";
 }
