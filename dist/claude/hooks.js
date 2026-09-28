@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, statSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { execFileSync, spawn } from 'node:child_process';
 import { join, basename, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
@@ -188,74 +188,11 @@ export function editedFilePath(input, dir) {
     }
     return null;
 }
-/**
- * Dialect auto-ingest — feed session-touched source into the `llm` side of
- * `.grafly/vocab.json` so the dialect card reflects what the session is
- * actually writing, with no manual `vocab ingest`.
- *
- * Two trigger paths share this: `post-edit` (per-save, Claude-style hosts) and
- * `prompt` (a sweep of files modified since the last sweep — the only signal
- * hosts like Devin/Codex deliver). `onlyFile` selects between them.
- *
- * Dedup is per-file mtime, kept in `.grafly/.cache/vocab-seen.json`; a file is
- * re-ingested only after it actually changes. Counts weight session activity —
- * a file saved often counts more than a dormant one, which is the intent.
- * Whole-file extraction means an edit to an old file counts its whole
- * vocabulary, not just the diff. Everything is fail-open: dialect is a nicety.
- */
-async function autoIngestVocab(dir, onlyFile) {
-    try {
-        const outDir = resolveContextDir(dir);
-        const { readJson, writeJsonAtomic } = await import('../util/state.js');
-        const seenPath = join(outDir, '.cache', 'vocab-seen.json');
-        const prior = readJson(seenPath);
-        const seen = prior?.files ?? {};
-        const files = onlyFile ? [onlyFile] : (await import('../ingest/fs.js')).walkDir(dir);
-        const changed = [];
-        for (const f of files) {
-            if (underGraft(dir, f)) continue;
-            try {
-                const m = statSync(f).mtimeMs;
-                if (!onlyFile && (seen[f] ?? 0) >= m) continue;
-                changed.push([f, m]);
-            }
-            catch { /* vanished mid-sweep — skip */ }
-        }
-        if (!changed.length)
-            return;
-        const acc = {};
-        let ingested = 0;
-        const { extractVocab, mergeVocab, finalizeVocab, addLlmVocab } = await import('../vocab.js');
-        const { relPosix, toPosixPath } = await import('../util/paths.js');
-        for (const [f, m] of changed) {
-            try {
-                seen[f] = m;
-                // First-ever sweep marks a baseline only — ingesting it would
-                // dump the whole pre-existing repo into `llm` and erase the
-                // provenance signal. post-edit (onlyFile) always counts: a
-                // delivered edit IS agent-written code.
-                if (!onlyFile && prior === null) continue;
-                const source = readFileSync(f, 'utf8');
-                if (source.length > 1_000_000 || source.includes('\0')) continue;
-                const rel = relPosix(dir, f);
-                mergeVocab(acc, extractVocab(rel === '..' || rel.startsWith('../') ? toPosixPath(f) : rel, source, /\.py$/i.test(f) ? 'python' : 'other'));
-                ingested++;
-            }
-            catch { /* unreadable file — skip it, keep sweeping */ }
-        }
-        if (ingested)
-            addLlmVocab(outDir, finalizeVocab(acc));
-        mkdirSync(join(outDir, '.cache'), { recursive: true });
-        writeJsonAtomic(seenPath, { files: seen });
-    }
-    catch { /* dialect ingest is best-effort, never a blocker */ }
-}
 async function handlePostEdit(input, dir) {
     const file = editedFilePath(input, dir);
     if (!file || underGraft(dir, file))
         return;
     patchStats(dir, { dirty: true, staleCount: checkStaleCount(dir), lastFile: basename(file) });
-    await autoIngestVocab(dir, file);
     const w = readWiring(dir);
     if (w) {
         const br = formatBlastRadius(w, file);
@@ -502,10 +439,6 @@ export async function main(event) {
         return;
     }
     if (event === 'prompt') {
-        // Collection runs before the retrieval gate on purpose: it is local
-        // bookkeeping, not retrieval, and should also happen on prompts that
-        // the gate would skip.
-        await autoIngestVocab(dir);
         const prompt = String(input?.prompt ?? '').trim();
         if (!shouldRetrievePrompt(prompt))
             return;
