@@ -131,7 +131,7 @@ export async function runCommand(command, args = [], options = {}) {
     // `bash -c 'cat f'`) are unwrapped first so the inner read is what gets
     // classified and served.
     {
-        let eff = [command, ...args];
+        let eff = [command, ...args], unwrapped = false;
         const shellName = commandName(command);
         if (["powershell", "pwsh", "cmd", "bash", "sh", "zsh"].includes(shellName)) {
             const i = args.findIndex(a => /^-(?:c|command)$/i.test(a) || /^\/c$/i.test(a));
@@ -139,7 +139,7 @@ export async function runCommand(command, args = [], options = {}) {
                 try {
                     const { literalArgv } = await import("./route.js");
                     const inner = literalArgv(args[i + 1], shellName);
-                    if (inner) eff = inner;
+                    if (inner) { eff = inner; unwrapped = true; }
                 } catch { /* keep outer */ }
             }
         }
@@ -153,10 +153,12 @@ export async function runCommand(command, args = [], options = {}) {
                         return { exit_code: 0, archive: null, served: "read-path" };
                     }
                 }
-                else if (["type", "get-content", "gc", "more"].includes(commandName(eff[0]))) {
+                else if (!unwrapped && ["type", "get-content", "gc", "more"].includes(commandName(eff[0]))) {
                     // Shell builtins cannot be spawned — route only rewrites
                     // serveable forms, so a direct `grafly run -- type` reaching
                     // here gets an explicit answer instead of spawn ENOENT.
+                    // (A wrapped builtin still spawns the real shell, which can
+                    // run its own builtin in forms we cannot serve.)
                     (options.stderr ?? process.stderr).write(
                         `grafly run: ${commandName(eff[0])} is a shell builtin; use grafly read <path>\n`);
                     return { exit_code: 1, archive: null };

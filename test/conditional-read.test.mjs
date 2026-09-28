@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readPath } from "../dist/tool-output/output.js";
+import { readPath, serveReadCommand, canServeReadCommand } from "../dist/tool-output/output.js";
 
 const fixture = (content, { session = "s1" } = {}) => {
     const dir = mkdtempSync(join(tmpdir(), "cond-read-"));
@@ -79,5 +79,47 @@ test("ranged reads are never deduped or recorded", () => {
     readPath(file, { start: "1", count: "10" }); // partial — must not record
     const out = readPath(file);
     assert.ok(out.includes("const v0"), "full read after partial still full");
+    rmSync(dir, { recursive: true, force: true });
+});
+
+test("shell read flags consume their values — tail/head/gc forms are serveable", () => {
+    const { dir, file } = fixture(body());
+    // Flag values must not count as operands: `tail -n 3 f` has one operand.
+    for (const [cmd, a] of [["cat", [file]], ["type", [file]], ["tail", ["-n", "3", file]],
+        ["tail", ["-n3", file]], ["head", ["-n", "4", file]], ["Get-Content", ["-Tail", "2", file]],
+        ["gc", ["-TotalCount", "5", file]], ["more", [file]]])
+        assert.ok(canServeReadCommand(cmd, a), `${cmd} ${a}`);
+    // Unserveable: extra operand, unknown flag, flag on cat, missing value.
+    for (const a of [[file, file], ["-n", file], ["-n"], [file, "-n", "3", file]])
+        assert.equal(canServeReadCommand("cat", a) && a.length === 1, false);
+    assert.equal(canServeReadCommand("cat", ["-n", file]), false, "cat -n is a real flag — run it");
+    assert.equal(canServeReadCommand("tail", ["-n", file]), false, "-n without value");
+    const tail = serveReadCommand("tail", ["-n", "2", file], { cwd: dir });
+    assert.ok(tail.includes("const v99"), "tail -n 2 returns the last lines");
+    assert.ok(!tail.includes("const v0 = 0;"));
+    const head = serveReadCommand("head", ["-n", "2", file], { cwd: dir });
+    assert.ok(head.includes("const v0 = 0;") && !head.includes("const v99"));
+    const gcTail = serveReadCommand("Get-Content", ["-Tail", "1", file], { cwd: dir });
+    assert.ok(gcTail.includes("const v99 = 99;") && !gcTail.includes("const v0"));
+    rmSync(dir, { recursive: true, force: true });
+});
+
+test("served shell reads share the conditional cache", () => {
+    const { dir, file } = fixture(body());
+    const first = serveReadCommand("cat", [file], { cwd: dir });
+    assert.ok(first.includes("const v0"));
+    const second = serveReadCommand("type", [file], { cwd: dir });
+    assert.match(second, /unchanged since your previous read/);
+    rmSync(dir, { recursive: true, force: true });
+});
+
+test("a --fresh whole read re-records so repeats dedup against the fresh content", () => {
+    const { dir, file } = fixture(body());
+    readPath(file);
+    writeFileSync(file, body() + "\nconst added = 1;");
+    const fresh = readPath(file, { fresh: true });
+    assert.ok(fresh.includes("const added"));
+    const after = readPath(file);
+    assert.match(after, /unchanged since your previous read/, "fresh read updated the record");
     rmSync(dir, { recursive: true, force: true });
 });

@@ -21,7 +21,7 @@ import { join } from "node:path";
 
 const SNAP_MAX_FILE = 256 * 1024; // don't snapshot files bigger than this
 const SNAP_MAX_COUNT = 60;        // prune oldest snapshots beyond this
-const DIFF_MAX_LINES = 4000;      // LCS is O(n·m); above this just re-read
+const DIFF_MAX_LINES = 2000;      // LCS is O(n·m) memory too; above this just re-read
 const DIFF_CHANGE_RATIO = 0.4;    // hunks worth it only under this change share
 const HUNK_CONTEXT = 2;
 
@@ -112,7 +112,7 @@ function changedRanges(prev, cur) {
 }
 
 function hunkOutput(full, cur, ranges, oldHash, newHash) {
-    const out = [`[grafly read ${full}: changed since @${oldHash} → @${newHash}; ${ranges.length} hunk(s); unchanged lines elided; force full: grafly read <path> --fresh]\n`];
+    const out = [`[grafly read ${full}: changed since @${oldHash} → @${newHash}; ${ranges.length} hunk(s); unchanged lines elided; force full: grafly read "${full}" --fresh]\n`];
     for (const [s, e] of ranges) {
         const from = Math.max(0, s - HUNK_CONTEXT), to = Math.min(cur.length - 1, e + HUNK_CONTEXT);
         for (let i = from; i <= to; i++) out.push(`${i + 1}: ${cur[i]}\n`);
@@ -129,8 +129,9 @@ function hunkOutput(full, cur, ranges, oldHash, newHash) {
 export function conditionalRead(full, text, { fresh = false, whole = true } = {}) {
     try {
         // Dedup claims "you already have this content" — only true when the
-        // earlier read was a whole-file read and this request is too.
-        if (fresh || !whole) return { replay: null, record: null };
+        // earlier read was a whole-file read and this request is too. A --fresh
+        // read still re-records: the caller now holds this exact content.
+        if (!whole) return { replay: null, record: null };
         const ctxDir = contextDirFor(full);
         if (!ctxDir) return { replay: null, record: null };
         const session = sessionId(ctxDir);
@@ -140,8 +141,9 @@ export function conditionalRead(full, text, { fresh = false, whole = true } = {}
         const prior = state[session]?.[full];
         const snap = writeSnap(ctxDir, hash, text);
         const record = { path: full, hash, snap };
+        if (fresh) return { replay: null, record, ctxDir, session };
         if (prior?.hash === hash)
-            return { replay: `[grafly read ${full}: unchanged since your previous read @${hash} — ${split(text).length} lines, ${text.length} bytes already in context; force full: grafly read <path> --fresh]\n`, record, ctxDir, session };
+            return { replay: `[grafly read ${full}: unchanged since your previous read @${hash} — ${split(text).length} lines, ${text.length} bytes already in context; force full: grafly read "${full}" --fresh]\n`, record, ctxDir, session };
         if (prior?.snap && existsSync(prior.snap)) {
             const ranges = changedRanges(split(readFileSync(prior.snap, "utf8")), split(text));
             if (ranges) {

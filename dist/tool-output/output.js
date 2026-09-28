@@ -167,66 +167,66 @@ export function readPath(pathArg, options = {}) {
     return result;
 }
 
-/** Pure eligibility check mirroring {@link serveReadCommand}'s accepted forms
- *  — used by routing so unservable spellings of shell builtins (which cannot
- *  be spawned at all) are never rewritten into `grafly run`. */
-export function canServeReadCommand(command, args = []) {
+/** Parse a shell read invocation into {path, opts} for readPath, or null when
+ *  the form isn't a simple single-file read. Flag values are consumed with
+ *  their flag so `-n 5 f` has one operand, not two — canServe and serve share
+ *  this parser so eligibility and behavior can never diverge. */
+function readInvocation(command, args = []) {
     const name = command.replaceAll("\\", "/").split("/").at(-1).toLowerCase().replace(/\.(?:exe|cmd|bat|com)$/, "");
-    const nonFlag = args.filter(a => !a.startsWith("-"));
-    if (["cat", "type", "more"].includes(name))
-        return args.length === 1 && nonFlag.length === 1;
-    if (["get-content", "gc"].includes(name)) {
-        if (nonFlag.length !== 1) return false;
-        if (args.length === 1) return true;
-        return args.length === 3 && /^-(?:TotalCount|Tail)$/i.test(args.find(a => /^-(?:TotalCount|Tail)$/i.test(a)) ?? "")
-            && Number.isSafeInteger(Number(args[args.findIndex(a => /^-(?:TotalCount|Tail)$/i.test(a)) + 1]));
+    // Collect operands; each known flag consumes its numeric value. Unknown
+    // flags or extra operands make the form unservable — run it for real.
+    const operands = [];
+    let flagN;
+    const valueFlags = { "get-content": /^-(?:TotalCount|Tail)$/i, "gc": /^-(?:TotalCount|Tail)$/i, "head": /^-(?:n|lines)$/i, "tail": /^-(?:n|lines)$/i };
+    const flagName = a => a.split("=")[0];
+    for (let i = 0; i < args.length; i++) {
+        const a = args[i];
+        if (a.startsWith("-")) {
+            const inline = /^-(?:n|lines)(\d+)$/i.exec(a); // tail -n5 f
+            if (inline && valueFlags[name]?.test("-" + (a.match(/^-(n|lines)/i)?.[1] ?? a.slice(1))))
+                { flagN = flagN ?? { flag: flagName(a), n: Number(inline[1]) }; continue; }
+            if (!valueFlags[name]?.test(flagName(a))) return null;
+            if (flagN !== undefined) return null; // one range flag only
+            const n = Number(args[i + 1]);
+            if (!Number.isSafeInteger(n) || n < 1 || args[i + 1] === undefined) return null;
+            flagN = { flag: flagName(a), n }; i++;
+        }
+        else operands.push(a);
     }
-    if (["head", "tail"].includes(name)) {
-        if (nonFlag.length !== 1) return false;
-        const flag = args.find(a => /^-n$/i.test(a));
-        if (flag === undefined) return args.length === 1;
-        return args.length === 3 && Number.isSafeInteger(Number(args[args.indexOf(flag) + 1]));
+    if (!["cat", "type", "more", "get-content", "gc", "head", "tail"].includes(name)
+        || operands.length !== 1 || (["cat", "type", "more"].includes(name) && flagN !== undefined))
+        return null;
+    const opts = {};
+    if (flagN) {
+        if (/^-(?:Tail|n|lines)/i.test(flagN.flag) && name !== "head" && !/^-(?:TotalCount)/i.test(flagN.flag)) opts.tail = flagN.n;
+        else opts.count = flagN.n;
     }
-    return false;
+    else if (["head", "tail"].includes(name)) opts[name === "head" ? "count" : "tail"] = 10;
+    return { path: operands[0], opts };
+}
+
+/** Pure eligibility check for routing — unservable spellings of shell builtins
+ *  (which cannot be spawned at all) must never be rewritten into `grafly run`. */
+export function canServeReadCommand(command, args = []) {
+    return readInvocation(command, args) !== null;
 }
 
 /**
  * Serve a routed shell read command (`cat file`, `type file`, `Get-Content
- * file`, `head [-n N] file`, `tail [-n N] file`) through `readPath` instead of
+ * [-Tail N] file`, `head/tail [-n N] file`) through `readPath` instead of
  * spawning it — the conditional-read cache then dedups repeats the same way
  * `grafly read` does. Returns the output string, or null when the invocation
  * isn't a simple single-file read (let the real command run then).
  */
 export function serveReadCommand(command, args = [], { cwd = process.cwd() } = {}) {
-    const name = command.replaceAll("\\", "/").split("/").at(-1).toLowerCase().replace(/\.(?:exe|cmd|bat|com)$/, "");
-    const nonFlag = args.filter(a => !a.startsWith("-"));
-    const flag = args.find(a => /^-n$/i.test(a) || /^-(?:TotalCount|Tail)$/i.test(a));
-    const lastN = (full, n) => { // tail: read to locate the start line; output stays budgeted
+    const inv = readInvocation(command, args);
+    if (!inv) return null;
+    const full = resolve(cwd, inv.path);
+    if (inv.opts.tail !== undefined) { // tail: read to locate the start line; output stays budgeted
         const total = lines(new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(full))).length;
-        return readPath(full, { start: String(Math.max(1, total - n + 1)), count: String(n) });
-    };
-    if (["cat", "type", "more"].includes(name)) {
-        if (args.length !== 1 || nonFlag.length !== 1) return null;
-        return readPath(resolve(cwd, args[0]), {});
+        return readPath(full, { start: String(Math.max(1, total - inv.opts.tail + 1)), count: String(inv.opts.tail) });
     }
-    if (["get-content", "gc"].includes(name)) {
-        if (nonFlag.length !== 1) return null;
-        const full = resolve(cwd, nonFlag[0]);
-        if (flag === undefined && args.length === 1) return readPath(full, {});
-        const n = Number(args[args.indexOf(flag) + 1]);
-        if (!Number.isSafeInteger(n) || n < 1) return null;
-        if (/^-Tail$/i.test(flag)) return lastN(full, n);
-        if (/^-TotalCount$/i.test(flag)) return readPath(full, { count: String(n) });
-        return null;
-    }
-    if (["head", "tail"].includes(name)) {
-        if (nonFlag.length !== 1) return null;
-        const n = flag === undefined ? 10 : Number(args[args.indexOf(flag) + 1]);
-        if (!Number.isSafeInteger(n) || n < 1) return null;
-        const full = resolve(cwd, nonFlag[0]);
-        return name === "head" ? readPath(full, { count: String(n) }) : lastN(full, n);
-    }
-    return null;
+    return readPath(full, inv.opts.count !== undefined ? { count: String(inv.opts.count) } : {});
 }
 
 // Shared by the public CLI and the lightweight host entry point.
