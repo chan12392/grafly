@@ -28,6 +28,9 @@ export const VOCAB_FILE = "vocab.json";
 const EXEMPLAR_CAP = 3;
 /** Per-category row cap inside each stored source block. */
 const TOP_DEFAULT = 50;
+/** Wider cap for the `llm` source: brand-new identifiers an agent just wrote
+ * sit at count 1 — the dialect's whole point — and a 50-row cap drops them. */
+const LLM_TOP = 200;
 /** Trigrams need at least this many occurrences in one file to count as an idiom. */
 const IDIOM_MIN = 3;
 const LITERAL_MAX = 40;
@@ -279,7 +282,7 @@ export function addLlmVocab(outDir, categories) {
     const store = loadVocab(outDir);
     store.sources.llm = {
         updatedAt: new Date().toISOString(),
-        categories: mergeFinalizedCategories(store.sources.llm?.categories, categories),
+        categories: mergeFinalizedCategories(store.sources.llm?.categories, categories, LLM_TOP),
     };
     return saveStore(outDir, store);
 }
