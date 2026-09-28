@@ -1061,8 +1061,10 @@ function inlineSource(root, hits, graph, full) {
     }
 }
 /** Every repo-relative file path a set of hits points into (dedup). A symbol
- * pointer is `path:span`; a concept pointer is a comma-joined path list. */
-function hitFiles(hits) {
+ * pointer is `path:span`; a concept pointer is a comma-joined path list.
+ * Exported for the answer cache (cli.ts), which fingerprints exactly these
+ * files when it stores an answer for replay. */
+export function hitFiles(hits) {
     const files = new Set();
     for (const h of hits) {
         const span = parseSpan(h.pointer);
