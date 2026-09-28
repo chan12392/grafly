@@ -155,6 +155,7 @@ export function runGrepCommand(pattern, dir, opts) {
         // free. `filesSearched` rides along so the dead-end answer can print
         // this command's usual zero-hit note verbatim.
         try {
+            if (result.truncated.files > 0) throw new Error("incomplete search");
             const journal = loadDeadends(contextDir);
             recordMiss(journal, { query: pattern, scope, filesSearched: result.filesSearched, scopeFingerprint: statScope(root, deadendIgnore(opts.in), contextDir) });
             saveDeadends(contextDir, journal);

@@ -6,7 +6,7 @@ import shutil
 import subprocess
 
 
-def grafly_route(tool_name="", args=None, **_kwargs):
+def grafly_route(tool_name="", args=None, session_id="", **_kwargs):
     if tool_name != "terminal" or not isinstance(args, dict):
         return None
     from tools.terminal_tool import _get_env_config
@@ -29,7 +29,7 @@ def grafly_route(tool_name="", args=None, **_kwargs):
     try:
         result = subprocess.run(
             [node, str(hook), "hermes"],
-            input=json.dumps({"tool_name": tool_name, "args": args, "shell": "bash"}),
+            input=json.dumps({"tool_name": tool_name, "args": args, "shell": "bash", "session_id": session_id}),
             cwd=str(resolve_agent_cwd()), capture_output=True, text=True,
             encoding="utf-8", timeout=5,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,

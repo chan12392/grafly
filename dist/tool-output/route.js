@@ -41,10 +41,10 @@ export function literalArgv(command, shell = 'powershell') {
     return words.length ? words : null;
 }
 
-export function routeInput(host, tool, args, { shell = process.platform === 'win32' ? 'powershell' : 'bash', node = process.execPath } = {}) {
+export function routeInput(host, tool, args, { shell = process.platform === 'win32' ? 'powershell' : 'bash', node = process.execPath, sessionId } = {}) {
     if (!ROUTE_HOSTS.has(host) || !args || typeof args !== 'object'
         || args.tty || args.pty || args.background || args.interactive
-        || process.env.GRAFLY_NO_TOOL_ROUTE === '1') return null;
+        || process.env.GRAFLY_NO_TOOL_ROUTE === '1' || process.env.GRAFLY_TOOL_OUTPUT === '0') return null;
     const names = { codex: ['bash', 'exec_command', 'shell', 'shell_command'], devin: ['exec', 'shell'], hermes: ['terminal'] };
     if (!names[host].includes(String(tool).toLowerCase())) return null;
     const key = typeof args.command === 'string' ? 'command' : typeof args.cmd === 'string' ? 'cmd' : null;
@@ -67,7 +67,8 @@ export function routeInput(host, tool, args, { shell = process.platform === 'win
     const q = ps ? value => "'" + value.replaceAll("'", "''") + "'"
         : value => "'" + value.replaceAll("'", "'\\''") + "'";
     const paths = !ps && process.platform === 'win32' ? [node, entry].map(p => p.replaceAll('\\', '/')) : [node, entry];
-    const routed = (ps ? '& ' : '') + [...paths, 'run', '--', ...argv].map(q).join(' ')
+    const sessionArgs = sessionId === null ? ['--session-id='] : sessionId ? ['--session-id', sessionId] : [];
+    const routed = (ps ? '& ' : '') + [...paths, 'run', ...sessionArgs, '--', ...argv].map(q).join(' ')
         + (ps ? '; exit $LASTEXITCODE' : '');
     return { ...args, [key]: routed };
 }
@@ -83,7 +84,7 @@ const READ_PATH_KEYS = ['file_path', 'filePath', 'path', 'file', 'absolute_path'
 
 /** Deny a repeat native read when the session already holds the file — the
  *  reason carries the freshness answer and the `grafly read` escape hatch. */
-function routeReadGate(host, tool, args, cwd) {
+function routeReadGate(host, tool, args, cwd, sessionId) {
     if (!(host === 'devin' || host === 'codex') || !args) return null;
     if (!READ_TOOLS[host].includes(String(tool ?? '').toLowerCase())) return null;
     const raw = READ_PATH_KEYS.map(k => args[k]).find(v => typeof v === 'string' && v.length);
@@ -91,13 +92,16 @@ function routeReadGate(host, tool, args, cwd) {
     const full = isAbsolute(raw) ? raw : resolve(cwd ?? process.cwd(), raw);
     const whole = !['offset', 'limit', 'start', 'count', 'start_line', 'end_line', 'lines']
         .some(k => args[k] !== undefined);
-    const verdict = gateNativeRead(full, { whole });
+    const verdict = gateNativeRead(full, { whole, sessionId });
     if (!verdict.deny) return null;
     return { hookSpecificOutput: { hookEventName: 'PreToolUse',
         permissionDecision: 'deny', permissionDecisionReason: verdict.reason } };
 }
 
 export function routeHook(host, input) {
+    if (process.env.GRAFLY_NO_TOOL_ROUTE === '1' || process.env.GRAFLY_TOOL_OUTPUT === '0') return {};
+    const rawSession = input.session_id ?? input.sessionId ?? input.thread_id;
+    const sessionId = typeof rawSession === 'string' && rawSession.trim() ? `${host}:${rawSession.trim()}` : null;
     const args = input.tool_input ?? input.toolInput ?? input.args;
     const tool = input.tool_name ?? input.toolName;
     // Codex requires an allow decision to rewrite. Only do that in an already
@@ -105,13 +109,13 @@ export function routeHook(host, input) {
     // (The read gate below is a deny — it restricts, so no mode gate applies.)
     if (!(host === 'codex' && !['dontAsk', 'bypassPermissions'].includes(input.permission_mode))) {
         const updated = routeInput(host, tool, args,
-            { shell: input.shell || (host === 'codex' && process.platform === 'win32' ? 'powershell' : 'bash') });
+            { shell: input.shell || (host === 'codex' && process.platform === 'win32' ? 'powershell' : 'bash'), sessionId });
         if (updated) {
             if (host === 'hermes') return { action: 'modify', args: updated };
             return { hookSpecificOutput: { hookEventName: 'PreToolUse',
                 ...(host === 'codex' ? { permissionDecision: 'allow' } : {}), updatedInput: updated } };
         }
     }
-    const gated = routeReadGate(host, tool, args, input.cwd ?? input.workdir);
+    const gated = routeReadGate(host, tool, args, input.cwd ?? input.workdir, sessionId);
     return gated ?? {};
 }

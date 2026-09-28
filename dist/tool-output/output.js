@@ -159,7 +159,7 @@ export function readPath(pathArg, options = {}) {
     // when the response covered every line (range/budget-truncated reads don't
     // qualify for either replay or recording).
     const whole = start === 1 && shown.length === source.length;
-    const cond = conditionalRead(full, text, { fresh: options.fresh === true, whole });
+    const cond = conditionalRead(full, text, { fresh: options.fresh === true, whole, sessionId: options.sessionId });
     if (cond.replay !== null) { commitRead(cond); return cond.replay; }
     const result = header(shown.length, bytes) + shown.join("");
     if (Buffer.byteLength(result) > maxBytes) throw new Error("file metadata exceeds the byte budget; raise --max-bytes");
@@ -218,15 +218,15 @@ export function canServeReadCommand(command, args = []) {
  * `grafly read` does. Returns the output string, or null when the invocation
  * isn't a simple single-file read (let the real command run then).
  */
-export function serveReadCommand(command, args = [], { cwd = process.cwd() } = {}) {
+export function serveReadCommand(command, args = [], { cwd = process.cwd(), sessionId } = {}) {
     const inv = readInvocation(command, args);
     if (!inv) return null;
     const full = resolve(cwd, inv.path);
     if (inv.opts.tail !== undefined) { // tail: read to locate the start line; output stays budgeted
         const total = lines(new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(full))).length;
-        return readPath(full, { start: String(Math.max(1, total - inv.opts.tail + 1)), count: String(inv.opts.tail) });
+        return readPath(full, { start: String(Math.max(1, total - inv.opts.tail + 1)), count: String(inv.opts.tail), sessionId });
     }
-    return readPath(full, inv.opts.count !== undefined ? { count: String(inv.opts.count) } : {});
+    return readPath(full, { ...(inv.opts.count !== undefined ? { count: String(inv.opts.count) } : {}), sessionId });
 }
 
 // Shared by the public CLI and the lightweight host entry point.

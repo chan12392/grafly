@@ -69,13 +69,13 @@ class AdapterTests(unittest.TestCase):
             self.assertEqual(command[-1], "hermes")
             self.assertEqual(kwargs["cwd"], self.cwd)
             self.assertEqual(json.loads(kwargs["input"]),
-                             {"tool_name": "terminal", "args": args, "shell": "bash"})
+                             {"tool_name": "terminal", "args": args, "shell": "bash", "session_id": "host-session"})
             return subprocess.CompletedProcess(command, 0, json.dumps({"action": "modify", "args": modified}), "")
         with patch.dict(sys.modules, {"tools.terminal_tool": terminal}), \
              patch.object(adapter.shutil, "which", return_value=sys.executable), \
              patch.object(Path, "is_file", return_value=True), \
              patch.object(adapter.subprocess, "run", side_effect=response):
-            self.assertEqual(adapter.grafly_route("terminal", args), {"action": "modify", "args": modified})
+            self.assertEqual(adapter.grafly_route("terminal", args, session_id="host-session"), {"action": "modify", "args": modified})
         self.assertEqual(args["command"], "rg needle .")
 
     def test_remote_and_native_tools_do_not_spawn_local_wrapper(self):

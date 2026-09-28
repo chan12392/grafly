@@ -6,12 +6,11 @@
  * Agents re-run the same failed lookups across sessions ("does applyPatch
  * exist?" → grep → no hits → same grep tomorrow). The repeat cannot differ
  * unless the searched files did, so a miss is journaled together with a cheap
- * stamp of the scope — `{files, maxMtimeMs}` over exactly the source-file set
+ * stamp of the scope — a digest of each path, size, mtime and ctime in the source-file set
  * the build enumerates (`graph/source-files.js`), which is the set `grepGraph`
- * can ever read. An identical stamp on re-check means same files, same
- * contents-by-mtime: the recorded "zero hits" still holds and the search is
- * skipped. Any new, edited, or deleted source file changes the stamp and the
- * real search runs again.
+ * can ever read. Index artifact stats also enter the digest so a rebuild
+ * invalidates previous misses. Changed source metadata reruns the search;
+ * an unchanged stamp reuses the recorded miss.
  *
  * Fail-open everywhere: a missing or corrupt journal, a walk error, or a
  * failed write all degrade to the normal search. The journal is a cache, not
@@ -19,6 +18,9 @@
  * a redundant grep.
  */
 import { join, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { statSync } from "node:fs";
+import { wiringPath, traversePath } from "../graph/write.js";
 import { CACHE_DIR, contextDirFor } from "../context/node-file.js";
 import { readFingerprint } from "../graph/fingerprint.js";
 import { listSourceStats } from "../graph/source-files.js";
@@ -55,26 +57,21 @@ export function saveDeadends(ctxDir, journal) {
     }
 }
 /**
- * Canonical form of a search pattern for journal identity: lowercased,
- * trimmed, runs of whitespace collapsed, and paired surrounding
- * quotes/backticks stripped — `" applyPatch "` and `applypatch` are the same
- * question asked twice. Match flags are NOT folded in here: a case-sensitive
+ * Exact search pattern for journal identity. Case, whitespace and surrounding
+ * quotes can all change what matches. Match flags are NOT folded in here: a case-sensitive
  * miss proves nothing about a case-insensitive repeat (the wider search can
  * find what the narrower one missed), so callers encode the match mode into
  * `scope` instead.
  */
 export function normalizeQuery(q) {
-    let s = String(q ?? "").toLowerCase().trim().replace(/\s+/g, " ");
-    while (s.length > 1 && s[0] === s[s.length - 1] &&
-        (s[0] === '"' || s[0] === "'" || s[0] === "`"))
-        s = s.slice(1, -1).trim();
-    return s;
+    // Regex case, whitespace and quotes are significant, even with -i.
+    return String(q ?? "");
 }
 /**
  * Append (or refresh) a miss entry `{q, scope, scopeFingerprint,
  * filesSearched, ts}` — `filesSearched` rides along so a dead-end answer can
  * print the same "in N indexed files" note a real empty result produces. An
- * existing entry with the same normalized query + scope is replaced, not
+ * existing entry with the same exact query + scope is replaced, not
  * duplicated, and the journal is capped at {@link JOURNAL_CAP} entries with
  * the oldest evicted first.
  */
@@ -90,8 +87,7 @@ export function recordMiss(journal, { query, scope = "", scopeFingerprint = null
 }
 /**
  * The journaled miss for this query + scope when — and only when — the scope
- * fingerprint is unchanged since it was recorded: identical `{files,
- * maxMtimeMs}` means nothing the search could read has moved. Returns the
+ * versioned fingerprint digest is unchanged since it was recorded. Returns the
  * entry (so the caller can reuse its `filesSearched` in the report) or null.
  */
 export function checkDeadend(journal, { query, scope = "" }, scopeFingerprint) {
@@ -102,17 +98,17 @@ export function checkDeadend(journal, { query, scope = "" }, scopeFingerprint) {
     const recorded = hit?.scopeFingerprint;
     if (!recorded)
         return null;
-    return recorded.files === scopeFingerprint.files &&
-        recorded.maxMtimeMs === scopeFingerprint.maxMtimeMs ? hit : null;
+    // Legacy aggregate stamps cannot prove exact-query or index freshness.
+    return recorded.version === 2 && scopeFingerprint.version === 2 &&
+        typeof recorded.digest === "string" && recorded.digest === scopeFingerprint.digest ? hit : null;
 }
 /**
- * Stamp the searched scope: `{files, maxMtimeMs}` over the same enumeration a
+ * Stamp the searched scope using file metadata over the same enumeration a
  * build uses — `listSourceStats` walks with the repo's persisted include-dir
  * and submodule choices, keeps only supported-language sources, and excludes
  * the index dir; the fingerprint's recorded `--only-dir` whitelist (when one
- * exists) narrows it to what was actually indexed. A new source file grows
- * `files`, an edit moves `maxMtimeMs`, a delete does both — any of them
- * forces the real search to run again.
+ * exists) narrows it to what was actually indexed. Hash every file's metadata
+ * independently so an edit to an older file also invalidates the stamp.
  *
  * `ignorePredicate(rel)` narrows the stamp to a sub-scope (`--in`): it is
  * called with each repo-relative posix path, and files it rejects are not
@@ -127,13 +123,25 @@ export function statScope(dir, ignorePredicate, outDir) {
     const onlyDirs = recorded && recorded.length > 0 ? new Set(recorded) : undefined;
     let files = 0;
     let maxMtimeMs = 0;
-    for (const f of listSourceStats(root, ctx, undefined, onlyDirs)) {
+    const hash = createHash("sha256");
+    for (const f of listSourceStats(root, ctx, undefined, onlyDirs).sort((a, b) => a.rel.localeCompare(b.rel))) {
         if (ignorePredicate && ignorePredicate(f.rel))
             continue;
         files++;
+        const stat = statSync(f.abs); // failures must invalidate, not certify absence
+        hash.update(JSON.stringify([f.rel, stat.size, stat.mtimeMs, stat.ctimeMs]));
         if (f.mtimeMs > maxMtimeMs)
             maxMtimeMs = f.mtimeMs;
     }
-    return { files, maxMtimeMs };
+    for (const p of [wiringPath(ctx), traversePath(ctx)]) {
+        try {
+            const stat = statSync(p);
+            hash.update(JSON.stringify([p, stat.size, stat.mtimeMs, stat.ctimeMs]));
+        } catch (error) {
+            if (error.code !== "ENOENT") throw error;
+            hash.update(JSON.stringify([p, null]));
+        }
+    }
+    return { version: 2, files, maxMtimeMs, digest: hash.digest("hex") };
 }
 //# sourceMappingURL=deadends.js.map

@@ -44,7 +44,7 @@ def grafly_context(session_id="", user_message="", is_first_turn=False, **_kwarg
     return {"context": "\n\n".join(contexts)} if contexts else None
 
 
-def grafly_route(tool_name="", args=None, **_kwargs):
+def grafly_route(tool_name="", args=None, session_id="", **_kwargs):
     """Preserve host guards and only modify local terminal arguments."""
     if tool_name != "terminal" or not isinstance(args, dict):
         return None
@@ -68,7 +68,7 @@ def grafly_route(tool_name="", args=None, **_kwargs):
     try:
         result = subprocess.run(
             [node, str(hook), "hermes"],
-            input=json.dumps({"tool_name": tool_name, "args": args, "shell": "bash"}),
+            input=json.dumps({"tool_name": tool_name, "args": args, "shell": "bash", "session_id": session_id}),
             cwd=str(resolve_agent_cwd()), capture_output=True, text=True,
             encoding="utf-8", timeout=5,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,

@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { readPath, serveReadCommand, canServeReadCommand } from "../dist/tool-output/output.js";
 
 const fixture = (content, { session = "s1" } = {}) => {
+    if (session === null) delete process.env.GRAFLY_SESSION_ID;
+    else process.env.GRAFLY_SESSION_ID = session;
     const dir = mkdtempSync(join(tmpdir(), "cond-read-"));
     mkdirSync(join(dir, ".grafly", ".cache"), { recursive: true });
     if (session !== null) writeFileSync(join(dir, ".grafly", ".cache", "active-session"), session);
@@ -69,6 +71,7 @@ test("different sessions do not share dedup", () => {
     const { dir, file } = fixture(body());
     readPath(file);
     writeFileSync(join(dir, ".grafly", ".cache", "active-session"), "s2");
+    process.env.GRAFLY_SESSION_ID = "s2";
     const out = readPath(file);
     assert.ok(out.includes("const v0"), "new session gets the full file");
     rmSync(dir, { recursive: true, force: true });

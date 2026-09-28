@@ -8,8 +8,8 @@
  * State lives in `.grafly/.cache/session-reads.json` keyed by session id:
  * `{session: {path: {hash, snap}}}`. `snap` points at a content snapshot in
  * `.grafly/.cache/snaps/<hash>` kept so changed-line ranges can be located
- * after the working file moved on. Session id comes from
- * `.grafly/.cache/active-session`, written by the hooks on every prompt;
+ * after the working file moved on. Session id comes from the host request
+ * (namespaced by host), or an explicitly supplied GRAFLY_SESSION_ID;
  * no session → no dedup (a "unchanged" answer would lie to a reader who
  * never saw the content).
  *
@@ -56,16 +56,10 @@ function saveState(ctxDir, state) {
     catch { /* fail-open */ }
 }
 
-function sessionId(ctxDir) {
-    // Env override first — hosts that know their session id can export it, and
-    // tests isolate from whatever active-session a real session last wrote.
-    const env = process.env.GRAFLY_SESSION_ID;
-    if (env) return env.trim() || null;
-    try {
-        const id = readFileSync(join(ctxDir, ".cache", "active-session"), "utf8").trim();
-        return id || null;
-    }
-    catch { return null; }
+function sessionId(explicit = process.env.GRAFLY_SESSION_ID) {
+    // A shared repository marker belongs to the last prompt, not this reader.
+    // Without a request-bound identity, never suppress file contents.
+    return typeof explicit === "string" ? explicit.trim() || null : null;
 }
 
 function snapPath(ctxDir, hash) { return join(ctxDir, ".cache", "snaps", hash); }
@@ -96,16 +90,22 @@ function changedRanges(prev, cur) {
         for (let j = b.length - 1; j >= 0; j--)
             dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
     const ranges = [];
-    let i = 0, j = 0, start = -1;
+    let i = 0, j = 0, start = -1, removed = 0, added = 0;
     while (i < a.length && j < b.length) {
         if (a[i] === b[j]) {
+            if (removed && removed !== added) return null;
             if (start >= 0) { ranges.push([start, lo + j - 1]); start = -1; }
+            removed = 0; added = 0;
             i++; j++;
         }
-        else if (dp[i + 1][j] >= dp[i][j + 1]) { if (start < 0) start = lo + j; i++; }
-        else { if (start < 0) start = lo + j; j++; }
+        else if (dp[i + 1][j] >= dp[i][j + 1]) { if (start < 0) start = lo + j; removed++; i++; }
+        else { if (start < 0) start = lo + j; added++; j++; }
     }
-    // Any unmatched tail (inserted in cur, deleted from prev) is one last hunk.
+    // Current-line-only hunks cannot describe removed lines. Equal-size
+    // replacements are safe; a deletion requires the complete current file.
+    removed += a.length - i; added += b.length - j;
+    if (removed && removed !== added) return null;
+    // Any unmatched inserted tail is one last hunk.
     if (start >= 0 || j < b.length || i < a.length)
         ranges.push([start >= 0 ? start : Math.max(0, lo + j - 1), m - hi - 1]);
     return ranges.filter(([s, e]) => e >= s);
@@ -126,7 +126,7 @@ function hunkOutput(full, cur, ranges, oldHash, newHash) {
  * of the normal read when a hit applies, or null for "do a normal read".
  * Records the read + snapshot on the miss path the caller returns.
  */
-export function conditionalRead(full, text, { fresh = false, whole = true } = {}) {
+export function conditionalRead(full, text, { fresh = false, whole = true, sessionId: identity } = {}) {
     try {
         // Dedup claims "you already have this content" — only true when the
         // earlier read was a whole-file read and this request is too. A --fresh
@@ -134,7 +134,7 @@ export function conditionalRead(full, text, { fresh = false, whole = true } = {}
         if (!whole) return { replay: null, record: null };
         const ctxDir = contextDirFor(full);
         if (!ctxDir) return { replay: null, record: null };
-        const session = sessionId(ctxDir);
+        const session = sessionId(identity);
         if (!session) return { replay: null, record: null };
         const hash = sha1(text);
         const state = loadState(ctxDir);
@@ -176,11 +176,12 @@ export function conditionalRead(full, text, { fresh = false, whole = true } = {}
  *
  * Returns { deny: true, reason } | { deny: false }. Fail-open throughout.
  */
-export function gateNativeRead(full, { whole = true } = {}) {
+export function gateNativeRead(full, { whole = true, sessionId: identity } = {}) {
     try {
         const ctxDir = contextDirFor(full);
         if (!ctxDir) return { deny: false };
-        const session = sessionId(ctxDir);
+        if (!whole) return { deny: false };
+        const session = sessionId(identity);
         if (!session) return { deny: false };
         const stat = statSync(full);
         if (!stat.isFile() || stat.size > SNAP_MAX_FILE) return { deny: false };

@@ -12,13 +12,13 @@ import { checkDeadend, loadDeadends, normalizeQuery, recordMiss, saveDeadends, s
 
 const CLI = join(process.cwd(), "dist", "cli.js");
 const run = (d, args) => spawnSync(process.execPath, [CLI, ...args], { cwd: d, encoding: "utf8" });
-const fp = (files, maxMtimeMs = 1000) => ({ files, maxMtimeMs });
+const fp = (files, maxMtimeMs = 1000) => ({ version: 2, files, maxMtimeMs, digest: `${files}:${maxMtimeMs}` });
 
-test("normalizeQuery canonicalizes case, whitespace, and quoting", () => {
-    assert.equal(normalizeQuery("  ApplyPatch  "), "applypatch");
-    assert.equal(normalizeQuery('"Foo   Bar"'), "foo bar");
-    assert.equal(normalizeQuery("`Baz`"), "baz");
-    assert.equal(normalizeQuery("'\"nested\"'"), "nested");
+test("normalizeQuery preserves significant case, whitespace, and quoting", () => {
+    assert.equal(normalizeQuery("  ApplyPatch  "), "  ApplyPatch  ");
+    assert.equal(normalizeQuery('"Foo   Bar"'), '"Foo   Bar"');
+    assert.equal(normalizeQuery("`Baz`"), "`Baz`");
+    assert.equal(normalizeQuery("'\"nested\"'"), "'\"nested\"'");
     // Unmatched or inner quotes stay — only paired surrounding ones strip.
     assert.equal(normalizeQuery('"lead only'), '"lead only');
     assert.equal(normalizeQuery('has "inner" quotes'), 'has "inner" quotes');
@@ -28,9 +28,10 @@ test("normalizeQuery canonicalizes case, whitespace, and quoting", () => {
 test("recordMiss + checkDeadend roundtrip, keyed by normalized q + scope", () => {
     const j = [];
     recordMiss(j, { query: "applyPatch", scope: "", scopeFingerprint: fp(3, 100), filesSearched: 3 });
-    const hit = checkDeadend(j, { query: '  "APPLYPATCH" ', scope: "" }, fp(3, 100));
-    assert.ok(hit, "same normalized query + same stamp must hit");
-    assert.equal(hit.q, "applypatch");
+    assert.equal(checkDeadend(j, { query: '  "APPLYPATCH" ', scope: "" }, fp(3, 100)), null);
+    const hit = checkDeadend(j, { query: 'applyPatch', scope: "" }, fp(3, 100));
+    assert.ok(hit, "same exact query + same stamp must hit");
+    assert.equal(hit.q, "applyPatch");
     assert.equal(hit.filesSearched, 3);
     // Same query, different scope: different question, no hit.
     assert.equal(checkDeadend(j, { query: "applypatch", scope: "src" }, fp(3, 100)), null);
@@ -38,7 +39,7 @@ test("recordMiss + checkDeadend roundtrip, keyed by normalized q + scope", () =>
     assert.equal(checkDeadend(j, { query: "applypatch", scope: "" }, fp(4, 100)), null);
     assert.equal(checkDeadend(j, { query: "applypatch", scope: "" }, fp(3, 200)), null);
     // Re-recording the same q+scope replaces the entry rather than duplicating.
-    recordMiss(j, { query: "applypatch", scope: "", scopeFingerprint: fp(3, 200) });
+    recordMiss(j, { query: "applyPatch", scope: "", scopeFingerprint: fp(3, 200) });
     assert.equal(j.length, 1);
     assert.equal(j[0].scopeFingerprint.maxMtimeMs, 200);
 });
@@ -74,7 +75,7 @@ test("statScope stamps the real source set; changes invalidate the miss", () => 
 
     // The ignorePredicate narrows the stamp to a sub-scope (--in): a scope
     // that rejects every file is the empty stamp.
-    assert.deepEqual(statScope(d, () => true, ctx), { files: 0, maxMtimeMs: 0 });
+    assert.equal(statScope(d, () => true, ctx).files, 0);
     const onlySrc = statScope(d, (rel) => !rel.startsWith("src/"), ctx);
     assert.equal(onlySrc.files, 2);
 });
@@ -97,8 +98,8 @@ test("saveDeadends/loadDeadends roundtrip; load is fail-open", () => {
     assert.equal(saveDeadends(d, j), true);
     const back = loadDeadends(d);
     assert.equal(back.length, 1);
-    assert.equal(back[0].q, "x");
-    assert.ok(checkDeadend(back, { query: "x", scope: "s" }, fp(2, 5)));
+    assert.equal(back[0].q, "X");
+    assert.ok(checkDeadend(back, { query: "X", scope: "s" }, fp(2, 5)));
 });
 
 test("grep journals a miss and answers the repeat from the journal", () => {

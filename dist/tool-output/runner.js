@@ -130,7 +130,7 @@ export async function runCommand(command, args = [], options = {}) {
     // Hosts that wrap commands (`powershell -NoProfile -Command 'cat f'`,
     // `bash -c 'cat f'`) are unwrapped first so the inner read is what gets
     // classified and served.
-    {
+    if (env.GRAFLY_TOOL_OUTPUT !== "0") {
         let eff = [command, ...args], unwrapped = false;
         const shellName = commandName(command);
         if (["powershell", "pwsh", "cmd", "bash", "sh", "zsh"].includes(shellName)) {
@@ -147,7 +147,9 @@ export async function runCommand(command, args = [], options = {}) {
             const { serveReadCommand, canServeReadCommand } = await import("./output.js");
             if (classifyCommand(eff[0], eff.slice(1)) === "read") {
                 if (canServeReadCommand(eff[0], eff.slice(1))) {
-                    const out = serveReadCommand(eff[0], eff.slice(1), { cwd: options.cwd });
+                    const out = serveReadCommand(eff[0], eff.slice(1), {
+                        cwd: options.cwd, sessionId: options.sessionId ?? env.GRAFLY_SESSION_ID ?? null,
+                    });
                     if (out !== null) {
                         (options.stdout ?? process.stdout).write(out);
                         return { exit_code: 0, archive: null, served: "read-path" };
