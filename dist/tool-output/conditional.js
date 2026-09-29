@@ -6,7 +6,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { hasGraflyIndex } from "../graph/root.js";
-import { contextDirFor as indexDir } from "../context/node-file.js";
+import location from "../context/location.cjs";
 import { acquireLockIn, releaseLockIn, readJson, writeJsonAtomic } from "../util/state.js";
 
 const MAX_SESSIONS = 32, MAX_FILES = 60, MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -19,7 +19,7 @@ function contextDirFor(full) {
     for (;;) {
         // Global state must never become a repository cache.
         if (dir === home) return null;
-        if (hasGraflyIndex(dir)) return indexDir(dir);
+        if (hasGraflyIndex(dir)) return location.indexDir(dir);
         const up = dirname(dir);
         if (up === dir || existsSync(join(dir, ".git"))) return null;
         dir = up;

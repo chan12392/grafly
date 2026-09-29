@@ -13,14 +13,12 @@
  * would report the same context dir and the walk would answer "level 0" for a
  * dir that isn't the repo.
  */
-import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { contextDirFor } from "../context/node-file.js";
-import { wiringPath } from "./write.js";
-import { workspacePath } from "./workspace.js";
+import location from "../context/location.cjs";
 /** True when `dir` is a graft root of either shape — a built repo or a workspace parent. */
 export function hasGraflyIndex(dir) {
-    return existsSync(wiringPath(contextDirFor(dir))) || existsSync(workspacePath(dir));
+    // Root detection also runs in read hooks; keep query engines out of startup.
+    return location.hasIndexAt(location.indexDir(dir));
 }
 /** The nearest ancestor of `start` (inclusive) that holds a Grafly index, else `start`. */
 export function nearestGraflyRoot(start, override) {

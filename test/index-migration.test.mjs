@@ -7,6 +7,7 @@ import { contextDirFor } from '../dist/context/node-file.js';
 import { migrateIndex } from '../dist/context/migrate-index.js';
 import { archiveIndex } from '../dist/context/archive-index.js';
 import { acquireLockIn, releaseLockIn } from '../dist/util/state.js';
+import { hasGraflyIndex, hasGraftIndex, nearestGraflyRoot, nearestGraftRoot } from '../dist/graph/root.js';
 function fixture(t) {
     const root = mkdtempSync(join(tmpdir(), 'grafly-migrate-'));
     t.after(() => { assert.ok(resolve(root).startsWith(resolve(tmpdir()) + sep)); rmSync(root, { recursive: true, force: true }); });
@@ -15,9 +16,29 @@ function fixture(t) {
 }
 test('ordinary grafly project directory is not an index', t => {
     const { root, put } = fixture(t); put('grafly/package.json', '{}');
+    put('.grafly/config.json', '{}');
     assert.equal(contextDirFor(root), join(root, '.grafly'));
+    assert.equal(hasGraflyIndex(root), false);
     assert.equal(migrateIndex(root).status, 'unchanged');
     assert.ok(existsSync(join(root, 'grafly/package.json')));
+});
+test('root discovery preserves graph, workspace and legacy index locations', t => {
+    const { root, put } = fixture(t);
+    for (const name of ['.grafly', 'grafly', 'graft']) {
+        for (const marker of ['.graph/wiring.json', 'workspace.json']) {
+            const group = `${name}-${marker === 'workspace.json' ? 'workspace' : 'graph'}`;
+            const project = join(root, group), nested = join(project, 'code', 'nested');
+            put(`${group}/${name}/${marker}`, '{}');
+            mkdirSync(nested, { recursive: true });
+            assert.equal(contextDirFor(project), join(project, name));
+            assert.equal(hasGraflyIndex(project), true);
+            assert.equal(hasGraflyIndex(nested), false);
+            assert.deepEqual(nearestGraflyRoot(nested), { root: project, levels: 2 });
+            assert.deepEqual(nearestGraflyRoot(nested, 'custom-index'), { root: nested, levels: 0 });
+        }
+    }
+    assert.equal(hasGraftIndex, hasGraflyIndex);
+    assert.equal(nearestGraftRoot, nearestGraflyRoot);
 });
 test('migration preserves settings, every original byte, and supports repeated invocation', t => {
     const { root, put } = fixture(t);
