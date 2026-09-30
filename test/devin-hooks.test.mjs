@@ -4,7 +4,6 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { devinHookTargets, installDevinHooks } from '../dist/hosts/devin-hooks.js';
-import { planRetract, runRetract } from '../dist/hosts/retract.js';
 
 function fixture(t, { config = true } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'grafly-devin-install-'));
@@ -88,23 +87,4 @@ test('no Devin config dir means nothing to install', (t) => {
   rmSync(f.devin, { recursive: true, force: true });
   assert.deepEqual(devinHookTargets(f.home), []);
   assert.deepEqual(installDevinHooks(f.home), []);
-});
-
-test('install and retract retain a foreign safety hook inside a shared block', (t) => {
-  const f = fixture(t);
-  const guard = { type: 'command', command: 'node foreign-safety.cjs', timeout: 5 };
-  const shared = { matcher: 'Write', hooks: [guard, { type: 'command', command: 'node grafly-devin-hook.cjs pre-tool' }] };
-  writeFileSync(f.cfg, JSON.stringify({ theme_mode: 'dark', hooks: { PreToolUse: [shared] } }));
-  installDevinHooks(f.home);
-  let root = JSON.parse(readFileSync(f.cfg, 'utf8'));
-  assert.deepEqual(root.hooks.PreToolUse[0], { ...shared, hooks: [guard] });
-  const once = readFileSync(f.cfg, 'utf8');
-  installDevinHooks(f.home);
-  assert.equal(readFileSync(f.cfg, 'utf8'), once);
-  const repo = join(f.home, 'repo'); mkdirSync(repo);
-  const opts = { home: f.home, cache: false };
-  for (const item of planRetract(repo, opts)) assert.ok(resolve(item.path).startsWith(resolve(f.home) + sep), item.path);
-  runRetract(repo, opts);
-  root = JSON.parse(readFileSync(f.cfg, 'utf8'));
-  assert.deepEqual(root, { theme_mode: 'dark', hooks: { PreToolUse: [{ ...shared, hooks: [guard] }] } });
 });

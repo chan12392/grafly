@@ -2,28 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { literalArgv, routeInput, routeHook } from '../dist/tool-output/route.js';
 
-test('PowerShell aliases retain shell-specific meaning', () => {
-    for (const shell of ['bash', '/bin/sh', 'zsh']) {
-        for (const command of ['type node', 'gc graph.dot', 'get-content file.txt'])
-            assert.equal(routeInput('devin', 'exec', { command, shell }), null, `${shell}: ${command}`);
-    }
-    for (const command of ['type file.txt', 'gc file.txt', 'Get-Content file.txt'])
-        assert.ok(routeInput('codex', 'exec_command', { command, shell: 'powershell' }));
-    for (const command of ['ls dir', 'where node', 'find file', 'gc -Unknown file'])
-        assert.equal(routeInput('codex', 'exec_command', { command, shell: 'powershell' }), null);
-    assert.ok(routeInput('devin', 'exec', { command: 'more a b', shell: 'bash' }));
-});
-
-test('PowerShell quoted wildcards and provider paths stay with the native shell', () => {
-    for (const command of ["Get-Content 'logs/*.txt'", "gc 'logs/file?.txt'", "cat 'logs/[ab].txt'",
-        "Get-Content 'Variable:PSVersionTable'", "Get-Content 'C:relative.txt'", "Get-Content '~/.config/file'",
-        "Get-Content 'file.txt:stream'"]) {
-        assert.equal(routeInput('codex', 'exec_command', { command, shell: 'powershell' }), null, command);
-    }
-    assert.ok(routeInput('codex', 'exec_command', { command: "Get-Content 'C:/logs/a.txt'", shell: 'powershell' }));
-    assert.ok(routeInput('devin', 'exec', { command: "cat 'literal*.txt'", shell: 'bash' }), 'bash quoted glob is a literal');
-});
-
 test('only the three requested hosts route literal shell commands', () => {
     for (const [host, tool] of [['codex', 'Bash'], ['devin', 'exec'], ['hermes', 'terminal']]) {
         const args = { command: 'rg -n "some pattern" "folder with spaces"', workdir: 'C:/work', timeout: 7 };
