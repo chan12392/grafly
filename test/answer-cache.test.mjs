@@ -9,11 +9,12 @@ import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { loadAnswers, saveAnswers, cacheKey, stampFiles, indexDeps, lookup, verify, store } from "../dist/ask/answer-cache.js";
+import { writeLink, clearLink, writeRulesCache } from '../dist/brain/link.js';
 
 const CLI = join(process.cwd(), "dist", "cli.js");
-const run = (d, args) => spawnSync(process.execPath, [CLI, ...args], { windowsHide: true, cwd: d, encoding: "utf8" });
+const run = (d, args, env = {}) => spawnSync(process.execPath, [CLI, ...args], { windowsHide: true, cwd: d, encoding: "utf8", env: { ...process.env, ...env } });
 const tmp = () => mkdtempSync(join(tmpdir(), "grafly-anscache-"));
-const fresh = () => ({ version: 3, entries: {} });
+const fresh = () => ({ version: 4, entries: {} });
 
 test("cache keys preserve exact case, whitespace and surrounding quotes", () => {
     const queries = ['getUserName', 'getusername', '"getUserName"', "'getUserName'", 'a b', 'a  b'];
@@ -200,7 +201,53 @@ test('CLI answer cache follows first Brain note, rule replacement and disconnect
     assert.ok(ask().stdout.includes(firstRule), 'legacy config still supplies the Brain link');
     writeFileSync(legacyPath, JSON.stringify(config));
     assert.ok(!ask().stdout.includes(firstRule), 'legacy disconnect invalidates cached rules');
-    // Version 2 lacks missing-file and Brain dependencies; never reuse it.
-    writeFileSync(join(d, '.grafly', '.cache', 'answers.json'), JSON.stringify({ version: 2, entries: { stale: {} } }));
-    assert.deepEqual(loadAnswers(join(d, '.grafly')).entries, {});
+    // Earlier caches lack Brain identity or source-boundary validation.
+    for (const version of [2, 3]) {
+        writeFileSync(join(d, '.grafly', '.cache', 'answers.json'), JSON.stringify({ version, entries: { stale: {} } }));
+        assert.deepEqual(loadAnswers(join(d, '.grafly')).entries, {});
+    }
+});
+
+test('CLI cached answers follow Brain environment overrides without storing tokens', () => {
+    const d = tmp();
+    writeFileSync(join(d, 'user.js'), 'export function getUserName(user) { return user.name; }\n');
+    const built = run(d, ['build']); assert.equal(built.status, 0, built.stderr);
+    const graph = JSON.parse(readFileSync(join(d, '.grafly', '.graph', 'wiring.json'), 'utf8'));
+    const node = graph.nodes.find(n => n.name === 'getUserName' && n.kind !== 'file');
+    const link = { brainId: 'env-team', token: 'synthetic-env-token', baseUrl: 'https://brain.example.test' };
+    const rule = 'Keep the team-specific rule in this answer.';
+    writeLink(d, link);
+    writeRulesCache(d, { brainId: link.brainId, fetchedAt: Date.now(), rules: [
+        { symbol: node.id, fingerprint: node.body_hash, rule },
+    ] });
+    clearLink(d);
+    const opts = ['ask', 'getUserName', '--source', '--json', '--no-refresh'];
+    const ask = env => {
+        const result = run(d, opts, env);
+        assert.equal(result.status, 0, result.stderr);
+        return result;
+    };
+    assert.ok(!ask().stdout.includes(rule));
+    assert.match(ask().stderr, /answer cache hit/);
+    const env = { GRAFLY_BRAIN_ID: link.brainId, GRAFLY_BRAIN_TOKEN: link.token, GRAFLY_BRAIN_URL: link.baseUrl };
+    const linked = ask(env);
+    assert.doesNotMatch(linked.stderr, /answer cache hit/);
+    assert.ok(linked.stdout.includes(rule));
+    assert.match(ask(env).stderr, /answer cache hit/);
+    for (const variant of [
+        { GRAFLY_BRAIN_ID: 'other-team' },
+        { GRAFLY_BRAIN_TOKEN: 'changed-token' },
+        { GRAFLY_BRAIN_URL: 'https://other-brain.example.test' },
+    ]) {
+        const result = ask({ ...env, ...variant });
+        assert.doesNotMatch(result.stderr, /answer cache hit/);
+        assert.ok(!result.stdout.includes(rule));
+    }
+    assert.ok(!ask().stdout.includes(rule), 'removing the environment link restores code-only answers');
+    rmSync(join(d, '.grafly', '.cache', 'answers.json'));
+    assert.equal(ask(env).stdout, linked.stdout, 'warm environment transition matches a cold answer');
+    for (const filename of ['answers.json', 'brain-rules.json']) {
+        const cached = readFileSync(join(d, '.grafly', '.cache', filename), 'utf8');
+        assert.ok(!cached.includes(link.token), 'cache identity does not expose credentials');
+    }
 });

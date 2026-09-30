@@ -31,6 +31,7 @@ import { ALL_MARKERS } from './sections.js';
 import { hookTargets, codexHomeDir } from './codex-hooks.js';
 import { mergeGraftHookEntries } from './config-write.js';
 import { devinHookTargets } from './devin-hooks.js';
+import { cursorHookTargets } from './cursor-hooks.js';
 import { archiveIndex } from '../context/archive-index.js';
 import location from '../context/location.cjs';
 import { antigravitySkillTargets } from './antigravity.js';
@@ -308,8 +309,8 @@ function stripClaudeSettings(path, apply) {
     writeFileSync(path, `${JSON.stringify(root, null, 2)}\n`);
     return 'removed';
 }
-/** Remove graft's PostToolUse/SessionStart/etc. entries from Codex's hooks.json. */
-function stripCodexHooks(path, apply) {
+/** Remove Grafly entries from Codex/Cursor hooks.json, preserving foreign hooks. */
+function stripHookConfig(path, apply, schemaVersion) {
     if (!existsSync(path))
         return 'absent';
     let root;
@@ -338,6 +339,9 @@ function stripCodexHooks(path, apply) {
         delete root.hooks;
     if (JSON.stringify(root) === before)
         return 'absent';
+    // Cursor's schema marker alone is residue of our otherwise empty install.
+    if (schemaVersion !== undefined && root.version === schemaVersion && Object.keys(root).length === 1)
+        delete root.version;
     if (!apply)
         return Object.keys(root).length === 0 ? 'deleted' : 'removed';
     if (Object.keys(root).length === 0)
@@ -468,6 +472,9 @@ function targets(repo, opts) {
     if (exclude.has('agents'))
         for (const t of [...hookTargets(home), ...devinHookTargets(home)])
             keptPaths.add(t.path);
+    if (exclude.has('cursor'))
+        for (const t of cursorHookTargets(repo))
+            keptPaths.add(t.path);
     if (exclude.has('antigravity'))
         for (const t of antigravitySkillTargets(home))
             keptPaths.add(t.path);
@@ -522,6 +529,15 @@ function targets(repo, opts) {
         ])
             add(t);
     }
+    // Cursor hooks are repo-local, so --no-global must still retract them.
+    if (!exclude.has('cursor')) {
+        for (const t of cursorHookTargets(repo)) {
+            add({
+                hostId: t.hostId, path: t.path, what: t.what, scope: t.scope,
+                run: (a) => t.path.endsWith('.json') ? stripHookConfig(t.path, a, 1) : removeFile(t.path, a),
+            });
+        }
+    }
     // 4. Global: Claude Code's user-level copy, Codex's hook shim + entries, and
     //    Antigravity's shared skill.
     if (opts.global !== false) {
@@ -538,7 +554,7 @@ function targets(repo, opts) {
             for (const t of hookTargets(home)) {
                 add({
                     hostId: t.hostId, path: t.path, what: t.what, scope: 'global',
-                    run: (a) => (t.path.endsWith('.json') ? stripCodexHooks(t.path, a) : removeFile(t.path, a)),
+                    run: (a) => (t.path.endsWith('.json') ? stripHookConfig(t.path, a) : removeFile(t.path, a)),
                 });
             }
             for (const t of devinHookTargets(home)) {

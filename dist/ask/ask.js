@@ -13,8 +13,8 @@
  * v1 is deterministic and $0 (term-overlap scoring, no LLM, no embeddings). The
  * output is markdown so it drops straight into an agent's context.
  */
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import matter from "gray-matter";
 import { contextDirFor } from "../context/node-file.js";
 import { withSavings, savingsFor, savingsTurnNudge } from "../context/savings.js";
@@ -1016,7 +1016,16 @@ function parseSpan(pointer) {
  * capped at {@link MAX_SPAN_LINES}. Returns null if the file can't be read. */
 function sliceSpan(root, path, from, to) {
     try {
-        const source = readSourceFile(join(root, path));
+        // Graph pointers are data, not permission to read outside the checkout.
+        // Resolve links too: a repo-relative symlink can point outside the repo.
+        if (isAbsolute(path))
+            return null;
+        const base = realpathSync(root);
+        const file = realpathSync(resolve(base, path));
+        const rel = relative(base, file);
+        if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel))
+            return null;
+        const source = readSourceFile(file);
         if (source === null)
             return null; // unsupported encoding (e.g. UTF-16BE)
         const lines = source.split("\n");

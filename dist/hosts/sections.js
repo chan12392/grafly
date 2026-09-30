@@ -49,6 +49,31 @@ function markerLineIndex(lines, marker, from = 0) {
     }
     return -1;
 }
+/** Remove only complete owned sections, leaving other instructions intact. */
+export function removeSection(filePath, markers = GRAFT_MARKERS) {
+    if (!existsSync(filePath))
+        return { action: 'unchanged' };
+    const text = readFileSync(filePath, 'utf8');
+    const eol = detectEol(text);
+    const lines = text.split(/\r\n|\n/);
+    const candidates = [markers, markers === BRAIN_MARKERS ? LEGACY_BRAIN_MARKERS : LEGACY_GRAFT_MARKERS];
+    let removed = false;
+    for (const m of candidates) {
+        for (;;) {
+            const start = markerLineIndex(lines, m.start);
+            const end = start < 0 ? -1 : markerLineIndex(lines, m.end, start + 1);
+            if (end < 0)
+                break;
+            lines.splice(start, end - start + 1);
+            removed = true;
+        }
+    }
+    const next = lines.join(eol);
+    if (!removed)
+        return { action: 'unchanged' };
+    writeFileSync(filePath, next);
+    return { action: 'removed' };
+}
 export function upsertSection(filePath, body, markers = GRAFT_MARKERS) {
     if (!existsSync(filePath)) {
         const block = fencedBlock(body, '\n', markers);

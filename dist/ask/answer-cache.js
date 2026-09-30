@@ -7,7 +7,8 @@
  * on is unchanged.
  *
  * Key = original query + the option bits that shape the answer (limit,
- * --source/--full, --in, graph-rank, --json), so differently-shaped asks of
+ * --source/--full, --in, graph-rank, --json) plus the effective Brain connection,
+ * so differently-shaped asks of
  * the same words can never replay each other's output. Freshness = an
  * (mtimeMs, size) fingerprint over every file the answer covered — the source
  * files its hits point into plus the index files it was ranked from
@@ -23,12 +24,12 @@ import { CACHE_DIR } from "../context/node-file.js";
 import { wiringPath } from "../graph/write.js";
 import { normalizePathPrefix } from "../util/paths.js";
 import { readJson, writeJsonAtomic, buildConfigPath, LEGACY_BUILD_CONFIG_DIR } from "../util/state.js";
-import { rulesCachePath } from "../brain/link.js";
+import { rulesCachePath, readLink, brainIdentity } from "../brain/link.js";
 import { askIndexPath } from "./index-file.js";
 /** Cap on stored answers per context dir — a session re-asks a handful of
  * questions; beyond this the oldest (`ts`) is evicted first. */
 const MAX_ANSWERS = 30;
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 4;
 /** Cache file for a context dir: `<dir>/.cache/answers.json` — the same
  * uncommitted local-cache location the ask sidecar already uses. */
 function answersPath(ctxDir) {
@@ -61,8 +62,8 @@ export function saveAnswers(ctxDir, cache) {
 }
 /** The full cache key: the original query plus every option bit that
  * changes the rendered answer, so a `--source`/`--full`/`--limit`/`--in`/
- * `--no-graph-rank`/`--json` variant of the same words gets its own entry. */
-export function cacheKey(query, opts) {
+ * `--no-graph-rank`/`--json` variant or Brain override gets its own entry. */
+export function cacheKey(query, opts, repoDir) {
     return JSON.stringify([
         String(query ?? ""),
         Number(opts.limit),
@@ -71,6 +72,7 @@ export function cacheKey(query, opts) {
         opts.in ? normalizePathPrefix(opts.in) : "",
         opts.graphRank !== false,
         !!opts.json,
+        repoDir ? brainIdentity(readLink(repoDir)) : null,
     ]);
 }
 /** Freshness fingerprint: `{path: {m: mtimeMs, s: size}}` for each path that
