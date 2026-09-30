@@ -13,7 +13,7 @@ function realBuild(dir) {
     // unconfigured repo's rebuild sees byte-identical argv to before this existed.
     if (process.env.GRAFLY_DIR ?? process.env.GRAFT_DIR)
         args.push('--dir', resolveContextDir(dir));
-    execFileSync(process.execPath, args, { cwd: dir, stdio: 'ignore', timeout: 120000 });
+    execFileSync(process.execPath, args, { cwd: dir, stdio: 'ignore', timeout: 120000, windowsHide: true });
 }
 export function runSync(dir, build = realBuild) {
     try {

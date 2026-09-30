@@ -141,7 +141,7 @@ function graftJson(dir, args, timeout = CHILD_TIMEOUT_MS) {
         // script and observe the exact args it was invoked with, instead of shelling
         // out to the real CLI (which isn't built relative to the TS source under test).
         const cliPath = process.env.GRAFLY_TEST_CLI ?? process.env.GRAFT_TEST_CLI ?? graftCliPath();
-        const out = execFileSync(process.execPath, [cliPath, ...args], { cwd: dir, encoding: 'utf8', timeout, stdio: ['ignore', 'pipe', 'ignore'] });
+        const out = execFileSync(process.execPath, [cliPath, ...args], { cwd: dir, encoding: 'utf8', timeout, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
         return JSON.parse(out);
     }
     catch (e) {
