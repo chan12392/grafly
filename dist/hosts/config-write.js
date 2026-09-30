@@ -1,11 +1,11 @@
 /**
  * Shared helpers for the host config writers. The hook installers (Codex,
- * user-level under `~/.codex`; Cursor, repo-local under `.cursor`; Devin,
+ * user-level under `CODEX_HOME` or `~/.codex`; Cursor, repo-local under `.cursor`; Devin,
  * user-level under its config dir) merge graft entries into a JSON config, own
  * a generated shim, and
  * describe the outcome with the same little result record. The file-owning write,
  * the graft-entry test, and the load-or-skip JSON open are identical across them;
- * the merge itself differs per host, so only the genuinely-shared pieces live here.
+ * event shapes differ per host, while owned-handler replacement is shared.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -37,15 +37,39 @@ export function planOwned(id, path, content, mode) {
         return { id, path, action: 'created' };
     return { id, path, action: readFileSync(path, 'utf8') === content ? 'unchanged' : 'updated' };
 }
-/** Whether a hooks-config entry is one graft installed (so an upgrade replaces
- *  it in place instead of stacking a second copy next to the stale one). The
- *  `?? ''` guards a stray `undefined` entry: `JSON.stringify(undefined)` is
- *  `undefined`, whose `.includes` would throw. The devin-hook shim serves both
- *  Devin and Codex session/prompt events, so both names count as ours. */
+/** Whether an entry contains a Grafly shim command. Descriptions and other
+ *  metadata do not establish ownership; mixed groups are handled below.
+ *  The devin-hook shim serves both Devin and Codex session/prompt events. */
 export function isGraftEntry(entry) {
-    const raw = JSON.stringify(entry ?? '');
-    return raw.includes('grafly-hooks.cjs') || raw.includes('graft-hooks.cjs')
-        || raw.includes('grafly-devin-hook.cjs') || raw.includes('graft-devin-hook.cjs');
+    if (Array.isArray(entry?.hooks)) return entry.hooks.some(isGraftEntry);
+    return typeof entry?.command === 'string'
+        && /(?:^|[\\/\s"'])(?:grafly|graft)-(?:devin-hook|hooks)\.cjs(?=$|[\s"'])/.test(entry.command);
+}
+/** Replace only Grafly handlers, preserving foreign handlers, their metadata
+ *  and execution order. An empty replacement retracts the same owned commands. */
+export function mergeGraftHookEntries(prior, replacement = []) {
+    const out = [];
+    let inserted = false;
+    const insert = () => {
+        if (!inserted) out.push(...replacement);
+        inserted = true;
+    };
+    for (const entry of prior) {
+        if (!isGraftEntry(entry)) { out.push(entry); continue; }
+        if (!Array.isArray(entry.hooks)) { insert(); continue; }
+        let kept = [];
+        for (const hook of entry.hooks) {
+            if (!isGraftEntry(hook)) { kept.push(hook); continue; }
+            if (!inserted) {
+                if (kept.length) out.push({ ...entry, hooks: kept });
+                kept = [];
+                insert();
+            }
+        }
+        if (kept.length) out.push({ ...entry, hooks: kept });
+    }
+    if (!inserted) out.push(...replacement);
+    return out;
 }
 /**
  * Load a JSON config that graft is about to merge into, distinguishing the three

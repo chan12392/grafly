@@ -14,6 +14,16 @@ test('PowerShell aliases retain shell-specific meaning', () => {
     assert.ok(routeInput('devin', 'exec', { command: 'more a b', shell: 'bash' }));
 });
 
+test('PowerShell quoted wildcards and provider paths stay with the native shell', () => {
+    for (const command of ["Get-Content 'logs/*.txt'", "gc 'logs/file?.txt'", "cat 'logs/[ab].txt'",
+        "Get-Content 'Variable:PSVersionTable'", "Get-Content 'C:relative.txt'", "Get-Content '~/.config/file'",
+        "Get-Content 'file.txt:stream'"]) {
+        assert.equal(routeInput('codex', 'exec_command', { command, shell: 'powershell' }), null, command);
+    }
+    assert.ok(routeInput('codex', 'exec_command', { command: "Get-Content 'C:/logs/a.txt'", shell: 'powershell' }));
+    assert.ok(routeInput('devin', 'exec', { command: "cat 'literal*.txt'", shell: 'bash' }), 'bash quoted glob is a literal');
+});
+
 test('only the three requested hosts route literal shell commands', () => {
     for (const [host, tool] of [['codex', 'Bash'], ['devin', 'exec'], ['hermes', 'terminal']]) {
         const args = { command: 'rg -n "some pattern" "folder with spaces"', workdir: 'C:/work', timeout: 7 };

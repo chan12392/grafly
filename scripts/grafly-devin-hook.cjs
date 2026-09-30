@@ -16,18 +16,22 @@ const { execSync } = require('child_process');
 const { createHash } = require('crypto');
 
 const EVENT = process.argv[2] || 'prompt';
-// In a checkout/package, use the adjacent source so branch tests exercise it.
+// Filled by the installer: a copied hook must work with local/npx installations.
+const INSTALLED_DIST = null;
+// Prefer the installing package, then the adjacent source for checkout use.
 // Otherwise find the global npm install: the prefix is %APPDATA%\npm for the
 // per-user layout but equals the node install dir for a single-dir layout
 // (e.g. node in %LOCALAPPDATA%\Programs\nodejs), so probe both then npm itself.
 function pkgDist() {
   const candidates = [
+    INSTALLED_DIST,
     path.resolve(__dirname, '..', 'dist'),
     path.join(path.dirname(process.execPath), 'node_modules', 'grafly', 'dist'),
     path.join(process.env.APPDATA || '', 'npm', 'node_modules', 'grafly', 'dist'),
   ];
   for (const dir of candidates) {
-    if (fs.existsSync(path.join(dir, 'claude', 'hooks.js'))) return dir;
+    if (dir && fs.existsSync(path.join(dir, 'claude', 'hooks.js'))
+        && fs.existsSync(path.join(dir, 'util', 'background.cjs'))) return dir;
   }
   try {
     const root = execSync('npm root -g', {
@@ -35,14 +39,18 @@ function pkgDist() {
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
     const dir = path.join(root, 'grafly', 'dist');
-    if (fs.existsSync(path.join(dir, 'claude', 'hooks.js'))) return dir;
-  } catch { /* npm unavailable — fall through to the default */ }
-  return candidates[2];
+    if (fs.existsSync(path.join(dir, 'claude', 'hooks.js'))
+        && fs.existsSync(path.join(dir, 'util', 'background.cjs'))) return dir;
+  } catch { /* npm unavailable — the optional hook stays silent */ }
+  return null;
 }
 const PKG = pkgDist();
+if (!PKG) { process.stdout.write('{}\n'); process.exit(0); }
 const ENTRY = path.join(PKG, 'claude', 'hooks.js');
 const CLI = path.join(PKG, 'cli.js');
-const { spawnBackground } = require(path.join(PKG, 'util', 'background.cjs'));
+let spawnBackground;
+try { ({ spawnBackground } = require(path.join(PKG, 'util', 'background.cjs'))); }
+catch { process.stdout.write('{}\n'); process.exit(0); }
 let indexDir;
 try {
   ({ indexDir } = require(path.join(PKG, 'context', 'location.cjs')));

@@ -18,16 +18,17 @@
  * behaves exactly like a cold one — the real ask runs and nothing breaks.
  */
 import { readdirSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { CACHE_DIR } from "../context/node-file.js";
 import { wiringPath } from "../graph/write.js";
 import { normalizePathPrefix } from "../util/paths.js";
-import { readJson, writeJsonAtomic } from "../util/state.js";
+import { readJson, writeJsonAtomic, buildConfigPath, LEGACY_BUILD_CONFIG_DIR } from "../util/state.js";
+import { rulesCachePath } from "../brain/link.js";
 import { askIndexPath } from "./index-file.js";
 /** Cap on stored answers per context dir — a session re-asks a handful of
  * questions; beyond this the oldest (`ts`) is evicted first. */
 const MAX_ANSWERS = 30;
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 /** Cache file for a context dir: `<dir>/.cache/answers.json` — the same
  * uncommitted local-cache location the ask sidecar already uses. */
 function answersPath(ctxDir) {
@@ -74,29 +75,31 @@ export function cacheKey(query, opts) {
 }
 /** Freshness fingerprint: `{path: {m: mtimeMs, s: size}}` for each path that
  * stats cleanly. `p` may be repo-relative (resolved against `dir`) or
- * absolute (an index file under the context dir). A path that doesn't exist
- * at stamp time is skipped — an unresolved import target or a pointer naming
- * no real file can never change, so there is nothing to verify on it. */
+ * absolute (an index file under the context dir). Missing paths are stamped
+ * too: creating the first Brain config/rules must invalidate an earlier answer. */
 export function stampFiles(dir, relPaths) {
     const stamp = {};
     for (const p of relPaths) {
         try {
             const s = statSync(resolve(dir, p));
-            if (s.isFile())
-                stamp[p] = { m: s.mtimeMs, s: s.size };
+            stamp[p] = s.isFile() ? { m: s.mtimeMs, s: s.size } : null;
         }
-        catch { /* nothing to fingerprint — see header */ }
+        catch (error) {
+            if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
+            stamp[p] = null;
+        }
     }
     return stamp;
 }
-/** The index-side files an answer was ranked from: the wiring graph, the ask
- * sidecar, and the concept cards `loadCorpus` reads. Stamped alongside the
- * covered source files so a rebuild — which rewrites wiring/ask-index — or a
+/** The answer's graph, ask sidecar, concept cards, and Brain config/rules.
+ * Both current and legacy config locations can supply the Brain link. Stamped
+ * with covered source files so a rebuild — which rewrites wiring/ask-index — or a
  * card edit invalidates the replay even when every covered source file is
  * untouched (e.g. a "callers of X" answer after a NEW caller appeared in a
  * file the old answer never covered). */
-export function indexDeps(ctxDir) {
-    const deps = [wiringPath(ctxDir), askIndexPath(ctxDir)];
+export function indexDeps(ctxDir, repoDir = dirname(ctxDir)) {
+    const deps = [wiringPath(ctxDir), askIndexPath(ctxDir), buildConfigPath(repoDir),
+        join(repoDir, LEGACY_BUILD_CONFIG_DIR, 'config.json'), rulesCachePath(repoDir)];
     try {
         for (const entry of readdirSync(ctxDir))
             if (entry.endsWith(".md"))
@@ -116,14 +119,19 @@ export function verify(dir, entry) {
     if (!entry || typeof entry.text !== "string" || !entry.stamp || typeof entry.stamp !== "object")
         return false;
     for (const [p, want] of Object.entries(entry.stamp)) {
-        if (!want)
+        if (want !== null && !want)
             return false;
         let s;
         try {
             s = statSync(resolve(dir, p));
         }
-        catch {
+        catch (error) {
+            if (want === null && ['ENOENT', 'ENOTDIR'].includes(error.code)) continue;
             return false; // a covered file was deleted — the answer is stale
+        }
+        if (want === null) {
+            if (!s.isFile()) continue;
+            return false;
         }
         if (s.mtimeMs !== want.m || s.size !== want.s)
             return false;

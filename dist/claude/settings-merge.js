@@ -1,4 +1,4 @@
-import { isGraftEntry } from '../hosts/config-write.js';
+import { mergeGraftHookEntries } from '../hosts/config-write.js';
 const SL_CMD = 'node "${CLAUDE_PROJECT_DIR:-.}/.claude/helpers/grafly-statusline.cjs"';
 /** Stable marker for "this statusLine is Graft's", not the full command string —
  * an older shim path or a GRAFT_DIR wrapper still names this file. */
@@ -107,8 +107,7 @@ export function mergeGraftSettings(existing, opts = {}) {
     merged.hooks = { ...(merged.hooks ?? {}) };
     for (const [event, blocks] of Object.entries(graftBlocks())) {
         const prior = Array.isArray(merged.hooks[event]) ? merged.hooks[event] : [];
-        const foreign = prior.filter((e) => !isGraftEntry(e)); // drop old Graft entries → idempotent
-        merged.hooks[event] = [...foreign, ...blocks];
+        merged.hooks[event] = mergeGraftHookEntries(prior, blocks);
     }
     // Drop graft's own prior regex before re-adding, so a change to FOOTER replaces
     // the old pattern instead of stacking beside it. The user's regexes are kept.
@@ -144,8 +143,7 @@ export function mergeGraftHooks(existing, helpers) {
     merged.hooks = { ...(merged.hooks ?? {}) };
     for (const [event, blocks] of Object.entries(graftBlocks(helpers))) {
         const prior = Array.isArray(merged.hooks[event]) ? merged.hooks[event] : [];
-        const foreign = prior.filter((e) => !isGraftEntry(e));
-        merged.hooks[event] = [...foreign, ...blocks];
+        merged.hooks[event] = mergeGraftHookEntries(prior, blocks);
     }
     return { merged };
 }

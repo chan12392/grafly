@@ -26,7 +26,7 @@ test('PowerShell gets cached context while the hidden background worker continue
     const elapsed = Date.now() - started;
     assert.equal(exit, 0, err);
     assert.match(out, /cached index context/);
-    assert.ok(elapsed < 4000, `hook waited ${elapsed}ms for a 5s worker`);
+    // Check completion order; a fixed startup budget measures parallel CI load.
     assert.equal(existsSync(done), false, 'worker must outlive the hook');
     const deadline = Date.now() + 10000;
     while (!existsSync(done) && Date.now() < deadline) await new Promise(r => setTimeout(r, 50));

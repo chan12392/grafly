@@ -28,7 +28,8 @@ import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { HOSTS } from './registry.js';
 import { ALL_MARKERS } from './sections.js';
-import { hookTargets } from './codex-hooks.js';
+import { hookTargets, codexHomeDir } from './codex-hooks.js';
+import { mergeGraftHookEntries } from './config-write.js';
 import { devinHookTargets } from './devin-hooks.js';
 import { archiveIndex } from '../context/archive-index.js';
 import location from '../context/location.cjs';
@@ -272,7 +273,7 @@ function stripClaudeSettings(path, apply) {
             const prior = root.hooks[event];
             if (!Array.isArray(prior))
                 continue;
-            const kept = prior.filter((e) => !/(?:grafly|graft)-(?:devin-hook|hooks)\.cjs/.test(JSON.stringify(e ?? '')));
+            const kept = mergeGraftHookEntries(prior);
             if (kept.length === 0)
                 delete root.hooks[event];
             else
@@ -327,7 +328,7 @@ function stripCodexHooks(path, apply) {
         const prior = root.hooks[event];
         if (!Array.isArray(prior))
             continue;
-        const kept = prior.filter((e) => !/(?:grafly|graft)-hooks\.cjs/.test(JSON.stringify(e ?? '')));
+        const kept = mergeGraftHookEntries(prior);
         if (kept.length === 0)
             delete root.hooks[event];
         else
@@ -367,7 +368,7 @@ function stripDevinHooks(path, apply) {
         const prior = root.hooks[event];
         if (!Array.isArray(prior))
             continue;
-        const kept = prior.filter((e) => !/(?:grafly|graft)-devin-hook\.cjs/.test(JSON.stringify(e ?? '')));
+        const kept = mergeGraftHookEntries(prior);
         if (kept.length === 0)
             delete root.hooks[event];
         else
@@ -546,7 +547,7 @@ function targets(repo, opts) {
                     run: (a) => (t.path.endsWith('.json') ? stripDevinHooks(t.path, a) : removeFile(t.path, a)),
                 });
             }
-            const legacyCodexShim = join(home, '.codex', 'hooks', 'graft', 'graft-hooks.cjs');
+            const legacyCodexShim = join(codexHomeDir(home), 'hooks', 'graft', 'graft-hooks.cjs');
             add({ hostId: 'legacy', path: legacyCodexShim, what: 'legacy Graft Codex hook shim', scope: 'global', run: (a) => removeFile(legacyCodexShim, a) });
         }
         if (!exclude.has('antigravity')) {

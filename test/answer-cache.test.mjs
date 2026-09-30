@@ -4,7 +4,7 @@
 // check: second identical ask answers from cache, an edit invalidates.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync, utimesSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, utimesSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -13,7 +13,7 @@ import { loadAnswers, saveAnswers, cacheKey, stampFiles, indexDeps, lookup, veri
 const CLI = join(process.cwd(), "dist", "cli.js");
 const run = (d, args) => spawnSync(process.execPath, [CLI, ...args], { windowsHide: true, cwd: d, encoding: "utf8" });
 const tmp = () => mkdtempSync(join(tmpdir(), "grafly-anscache-"));
-const fresh = () => ({ version: 2, entries: {} });
+const fresh = () => ({ version: 3, entries: {} });
 
 test("cache keys preserve exact case, whitespace and surrounding quotes", () => {
     const queries = ['getUserName', 'getusername', '"getUserName"', "'getUserName'", 'a b', 'a  b'];
@@ -156,4 +156,51 @@ test("cli cache preserves identifier case and literal quotes and rejects legacy 
     const fresh = run(d, ['ask', 'getusername', '--no-refresh']);
     assert.equal(fresh.status, 0, fresh.stderr);
     assert.doesNotMatch(fresh.stdout, /wrong legacy answer|answer cache hit/);
+});
+
+test('CLI answer cache follows first Brain note, rule replacement and disconnect', () => {
+    const d = tmp();
+    writeFileSync(join(d, 'user.js'), 'export function greet(name) { return name; }\n');
+    const built = run(d, ['build']); assert.equal(built.status, 0, built.stderr);
+    const ask = () => {
+        const r = run(d, ['ask', 'greet', '--source', '--json', '--no-refresh']);
+        assert.equal(r.status, 0, r.stderr); return r;
+    };
+    ask();
+    assert.match(ask().stderr, /answer cache hit/);
+    const graph = JSON.parse(readFileSync(join(d, '.grafly', '.graph', 'wiring.json'), 'utf8'));
+    const symbol = graph.nodes.find(n => n.name === 'greet' && n.kind !== 'file');
+    const firstRule = 'Always hide personal names.';
+    const noted = run(d, ['brain', 'note', '--symbol', symbol.id, '--rule', firstRule]);
+    assert.equal(noted.status, 0, noted.stderr);
+    const afterNote = ask();
+    assert.doesNotMatch(afterNote.stderr, /answer cache hit/);
+    assert.ok(afterNote.stdout.includes(firstRule));
+    assert.match(ask().stderr, /answer cache hit/);
+    const rulesPath = join(d, '.grafly', '.cache', 'brain-rules.json');
+    const rules = JSON.parse(readFileSync(rulesPath, 'utf8'));
+    rules.rules[0].rule = 'Replacement team rule with different text.';
+    writeFileSync(rulesPath, JSON.stringify(rules));
+    assert.ok(ask().stdout.includes(rules.rules[0].rule));
+    rmSync(rulesPath);
+    assert.doesNotMatch(ask().stdout, /Replacement team rule/);
+    const newNote = run(d, ['brain', 'note', '--symbol', symbol.id, '--rule', firstRule]);
+    assert.equal(newNote.status, 0, newNote.stderr);
+    assert.ok(ask().stdout.includes(firstRule));
+    const configPath = join(d, '.grafly', 'config.json');
+    const config = JSON.parse(readFileSync(configPath, 'utf8'));
+    const brain = config.brain;
+    delete config.brain;
+    writeFileSync(configPath, JSON.stringify(config));
+    assert.ok(!ask().stdout.includes(firstRule), 'disconnect invalidates rule-bearing answers');
+    const legacyPath = join(d, '.graft', 'config.json');
+    mkdirSync(join(d, '.graft'), { recursive: true });
+    writeFileSync(legacyPath, JSON.stringify({ ...config, brain }));
+    rmSync(configPath);
+    assert.ok(ask().stdout.includes(firstRule), 'legacy config still supplies the Brain link');
+    writeFileSync(legacyPath, JSON.stringify(config));
+    assert.ok(!ask().stdout.includes(firstRule), 'legacy disconnect invalidates cached rules');
+    // Version 2 lacks missing-file and Brain dependencies; never reuse it.
+    writeFileSync(join(d, '.grafly', '.cache', 'answers.json'), JSON.stringify({ version: 2, entries: { stale: {} } }));
+    assert.deepEqual(loadAnswers(join(d, '.grafly')).entries, {});
 });

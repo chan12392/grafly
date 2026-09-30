@@ -62,6 +62,10 @@ export function routeInput(host, tool, args, { shell = process.platform === 'win
     if (ps && ['ls', 'where', 'find'].includes(name)) return null;
     if (ps && ['cat', 'type', 'get-content', 'gc', 'more'].includes(name)) {
         if (!canServeReadCommand(argv[0], argv.slice(1))) return null;
+        // PowerShell expands -Path wildcards even inside quotes, and resolves
+        // provider/drive-relative paths itself. readPath only serves literal files.
+        if (argv.slice(1).some(a => /[*?\[\]`]/.test(a) || a.startsWith('~')
+            || (a.includes(':') && !/^[a-z]:[\\/][^:]*$/i.test(a)))) return null;
     }
     // .cmd/.bat require another shell on Windows; do not change their quoting.
     if (process.platform === 'win32' && /^(npm|pnpm|yarn)(\.(cmd|bat))?$/.test(name)) return null;

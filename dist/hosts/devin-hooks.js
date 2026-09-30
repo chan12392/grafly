@@ -18,7 +18,7 @@ import { copyFileSync, existsSync, readFileSync, statSync, writeFileSync } from 
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
-import { writeOwned, planOwned, readJsonObject } from './config-write.js';
+import { writeOwned, planOwned, mergeGraftHookEntries, readJsonObject } from './config-write.js';
 function dirExists(p) {
     try {
         return statSync(p).isDirectory();
@@ -57,10 +57,8 @@ const PKG_SCRIPTS = fileURLToPath(new URL('../../scripts', import.meta.url));
 /** The packaged self-contained shim — Codex's session/prompt wiring installs
  *  the same file, so both hosts read one source of truth. */
 export function devinShimSource() {
-    return readFileSync(join(PKG_SCRIPTS, 'grafly-devin-hook.cjs'), 'utf8');
-}
-function isDevinEntry(entry) {
-    return JSON.stringify(entry ?? '').includes('grafly-devin-hook.cjs');
+    return readFileSync(join(PKG_SCRIPTS, 'grafly-devin-hook.cjs'), 'utf8')
+        .replace('const INSTALLED_DIST = null;', `const INSTALLED_DIST = ${JSON.stringify(join(PKG_SCRIPTS, '..', 'dist'))};`);
 }
 /** The files installing the Devin hook would touch — pure, no writes. Empty
  * when no Devin config dir exists, mirroring `installDevinHooks`. */
@@ -113,9 +111,7 @@ export function installDevinHooks(home = homedir(), { apply = true } = {}) {
         const entry = { hooks: [{ type: 'command', command, timeout: d.timeout }] };
         // Replace a prior grafly entry at its own slot — hook order is injection
         // order, so filter+append would silently move it behind newer hooks.
-        const at = prior.findIndex(isDevinEntry);
-        const kept = prior.filter((e) => !isDevinEntry(e));
-        hooks[d.event] = at === -1 ? [...kept, entry] : [...kept.slice(0, at), entry, ...kept.slice(at)];
+        hooks[d.event] = mergeGraftHookEntries(prior, [entry]);
     }
     if (JSON.stringify(root) === before)
         return [...fileWrites, { id: 'devin-hooks', path: cfgT.path, action: 'unchanged' }];

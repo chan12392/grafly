@@ -6,10 +6,11 @@
  * devin shim's injected-context envelope only exists for those two events.
  */
 import { writeFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { hooksShim } from '../claude/shim-template.js';
 import { claudeDistDir } from '../claude/paths.js';
-import { writeOwned, planOwned, isGraftEntry, readJsonObject } from './config-write.js';
+import { writeOwned, planOwned, mergeGraftHookEntries, readJsonObject } from './config-write.js';
 import { devinShimSource } from './devin-hooks.js';
 function dirExists(p) {
     try {
@@ -19,14 +20,15 @@ function dirExists(p) {
         return false;
     }
 }
-/**
- * The files installing the Codex hook would touch — pure, no writes. Both live
- * under `~/.codex`, so both are scoped 'global': the hook entries fire in every
- * repo opened with Codex, not just this one. Empty when the CLI isn't installed,
- * mirroring `installCodexHooks`' early return.
- */
-export function hookTargets(home) {
-    const base = join(home, '.codex');
+/** Use the active Codex account, or the conventional home when unset. */
+export function codexHomeDir(home = homedir()) {
+    // An explicit alternate home keeps planning/tests isolated from this account.
+    return resolve((home === homedir() && process.env.CODEX_HOME) || join(home, '.codex'));
+}
+/** Files the installer would touch, without writing. Hooks apply to every repo
+ *  opened in this Codex account. Empty when its config directory is absent. */
+export function hookTargets(home = homedir()) {
+    const base = codexHomeDir(home);
     if (!dirExists(base))
         return [];
     return [
@@ -82,7 +84,7 @@ export function installCodexHooks(home, { apply = true } = {}) {
         const entry = d.matcher ? { matcher: d.matcher, hooks: [handler] } : { hooks: [handler] };
         // Preserve foreign entries in this event; replace any prior graft entry so an
         // upgrade re-points to the current shim/sub-command instead of stacking.
-        hooks[d.event] = [...prior.filter((e) => !isGraftEntry(e)), entry];
+        hooks[d.event] = mergeGraftHookEntries(prior, [entry]);
     }
     if (JSON.stringify(root) === before)
         return [...fileWrites, { id: 'codex-hooks', path: cfgPath, action: 'unchanged' }];

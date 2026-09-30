@@ -43,7 +43,7 @@ test("retract strips MCP registrations the removed server left behind", () => {
 
 test("CLI exposes one-command migration", () => {
   const cli = join(process.cwd(), "dist", "cli.js");
-  const r = spawnSync(process.execPath, [cli, "migrate", "--help"], { encoding: "utf8" });
+  const r = spawnSync(process.execPath, [cli, "migrate", "--help"], { windowsHide: true, encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /Replace legacy Graft wiring\/cache with Grafly/);
 });
@@ -126,16 +126,20 @@ test("connectBrain persists GRAFLY_BRAIN_URL into the stored link", async () => 
 });
 
 import { spawn } from "node:child_process";
+import { connect as connectSocket } from "node:net";
 
 test("brain server serves the public brain API", async () => {
   const server = join(process.cwd(), "service", "brain-server.mjs");
   const data = mkdtempSync(join(tmpdir(), "grafly-brain-"));
   const port = 24000 + Math.floor(Math.random() * 20000);
-  const env = { ...process.env, DATA_DIR: data, PORT: String(port) };
-  const mint = spawnSync(process.execPath, [server, "create-brain", "--name", "t"], { env, encoding: "utf8" });
+  const env = { ...process.env, DATA_DIR: data, PORT: String(port), BRAIN_LLM_URL: '', BRAIN_LLM_KEY: '', ROOT_PATH: '' };
+  const mint = spawnSync(process.execPath, [server, "create-brain", "--name", "t"], { env, windowsHide: true, encoding: "utf8" });
   const [brainId, token] = mint.stdout.trim().split(":");
   assert.ok(brainId && token, mint.stderr);
-  const child = spawn(process.execPath, [server], { env, stdio: "ignore" });
+  const child = spawn(process.execPath, [server], { env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  let diagnostics = '';
+  child.stdout.on('data', b => diagnostics += b);
+  child.stderr.on('data', b => diagnostics += b);
   try {
     const base = `http://127.0.0.1:${port}`;
     const auth = { authorization: `Bearer ${token}`, "content-type": "application/json" };
@@ -161,7 +165,11 @@ test("brain server serves the public brain API", async () => {
     ] }));
     let anchors = (await (await fetch(`${base}/api/public/brains/${brainId}/rules/anchors`, { headers: auth })).json()).anchors;
     assert.deepEqual(anchors.map((a) => a.rule_id), ["r2"]);
-    await (await fetch(`${base}/api/public/brains/${brainId}/rules/approve/r1`, { method: "POST", headers: auth })).json();
+    assert.equal((await fetch(`${base}/api/public/brains/${brainId}/rules/approve/r1`, { method: "POST", headers: auth })).status, 404);
+    anchors = (await (await fetch(`${base}/api/public/brains/${brainId}/rules/anchors`, { headers: auth })).json()).anchors;
+    assert.deepEqual(anchors.map(a => a.rule_id), ['r2'], 'HTTP cannot approve a draft');
+    const approved = spawnSync(process.execPath, [server, 'approve', brainId, 'r1'], { env, windowsHide: true, encoding: 'utf8' });
+    assert.equal(approved.status, 0, approved.stderr);
     anchors = (await (await fetch(`${base}/api/public/brains/${brainId}/rules/anchors`, { headers: auth })).json()).anchors;
     assert.equal(anchors.length, 2);
     // Bad token is rejected.
@@ -175,6 +183,17 @@ test("brain server serves the public brain API", async () => {
     const after = (await (await fetch(`${base}/api/public/brains/${brainId}/rules/anchors`, { headers: auth })).json()).anchors;
     assert.equal(after.length, 3);
     assert.equal(after.find((a) => a.rule === "agent-written note").fingerprint, "h1");
+    const malformed = await new Promise((resolve, reject) => {
+      let response = '';
+      const socket = connectSocket(port, '127.0.0.1', () => socket.write('GET http://[ HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n'));
+      socket.setTimeout(3000, () => socket.destroy(new Error('malformed URL request timed out')));
+      socket.on('data', b => response += b);
+      socket.on('error', reject);
+      socket.on('end', () => resolve(response));
+    });
+    assert.match(malformed, /^HTTP\/1\.1 400 /, diagnostics);
+    assert.equal((await fetch(`${base}/health`)).status, 200, diagnostics);
+    assert.equal(child.exitCode, null, 'bad URLs do not kill the shared server');
   } finally {
     child.kill();
   }
@@ -205,10 +224,11 @@ test("brain mining preserves pushed rules and approvals, stale jobs cannot overw
     const port = 24000 + Math.floor(Math.random() * 20000);
     const env = { ...process.env, DATA_DIR: data, PORT: String(port),
         BRAIN_LLM_URL: `http://127.0.0.1:${llm.address().port}/v1`, BRAIN_LLM_KEY: "k", BRAIN_LLM_MODEL: "m" };
-    const mint = spawnSync(process.execPath, [server, "create-brain", "--name", "t"], { env, encoding: "utf8" });
+    const mint = spawnSync(process.execPath, [server, "create-brain", "--name", "t"], { env, windowsHide: true, encoding: "utf8" });
     const [brainId, token] = mint.stdout.trim().split(":");
     assert.ok(brainId && token, mint.stderr);
-    const child = spawn(process.execPath, [server], { env, stdio: "ignore" });
+    const child = spawn(process.execPath, [server], { env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.resume(); child.stderr.resume();
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const rulesFile = () => JSON.parse(readFileSync(join(data, "rules", `${brainId}.json`), "utf8")).rules;
     const jobFile = (id) => JSON.parse(readFileSync(join(data, "jobs", `${id}.json`), "utf8"));
@@ -245,7 +265,8 @@ test("brain mining preserves pushed rules and approvals, stale jobs cannot overw
         // Approve the mined draft, re-mine the same rule: approval survives.
         const mined = rules.find((r) => r.rule === "second mine rule");
         assert.equal(mined.status, "draft");
-        await (await fetch(`${base}/api/public/brains/${brainId}/rules/approve/${mined.rule_id}`, { method: "POST", headers: auth })).json();
+        const approved = spawnSync(process.execPath, [server, 'approve', brainId, mined.rule_id], { env, windowsHide: true, encoding: 'utf8' });
+        assert.equal(approved.status, 0, approved.stderr);
         const j3 = (await (await fetch(`${base}/api/public/brains/${brainId}/repo`, { method: "POST", headers: auth,
             body: JSON.stringify(digest([{ id: "f.js#fn2", path: "f.js", name: "fn2", kind: "function", signature: "", fingerprint: "h2" }])) })).json()).job_id;
         for (let i = 0; i < 100 && !jobDone(j3); i++) await sleep(100);
@@ -333,15 +354,15 @@ test("ambiguous call sites surface instead of a silent undercount; abstain suppr
   writeFileSync(join(d, "b2.js"), "export class Base {}\n");
   writeFileSync(join(d, "c.js"), "export class C extends Base {}\n");
   const cli = join(process.cwd(), "dist", "cli.js");
-  const b = spawnSync(process.execPath, [cli, "build"], { cwd: d, encoding: "utf8" });
+  const b = spawnSync(process.execPath, [cli, "build"], { cwd: d, windowsHide: true, encoding: "utf8" });
   assert.equal(b.status, 0, b.stderr);
-  const r = JSON.parse(spawnSync(process.execPath, [cli, "callers", "helper", "--json"], { cwd: d, encoding: "utf8" }).stdout);
+  const r = JSON.parse(spawnSync(process.execPath, [cli, "callers", "helper", "--json"], { cwd: d, windowsHide: true, encoding: "utf8" }).stdout);
   assert.deepEqual(r.ambiguousCalls, [{ source: "caller.js#caller", name: "helper" }]);
   // The aliased import call resolves through the specifier: h1() → a.js#helper.
   const aHelper = r.matches.find((m) => m.symbol.id === "a.js#helper");
   assert.deepEqual(aHelper.hits.map((h) => h.id), ["caller.js#caller"]);
   // Two identical definitions ⇒ abstain ⇒ --top must not hide a match.
-  const top = JSON.parse(spawnSync(process.execPath, [cli, "callers", "helper", "--json", "--top", "1"], { cwd: d, encoding: "utf8" }).stdout);
+  const top = JSON.parse(spawnSync(process.execPath, [cli, "callers", "helper", "--json", "--top", "1"], { cwd: d, windowsHide: true, encoding: "utf8" }).stdout);
   assert.equal(top.circuit.verdict, "abstain");
   assert.equal(top.matches.length, 2);
   assert.equal(top.truncated, undefined);
@@ -354,12 +375,12 @@ test("ambiguous call sites surface instead of a silent undercount; abstain suppr
   assert.equal(top.circuit.confidence, null);
   // `class C extends Base` with an ambiguous Base keeps a name-literal edge —
   // callers on the real nodes must surface it as unattributed, not drop it.
-  const r2 = JSON.parse(spawnSync(process.execPath, [cli, "callers", "Base", "--json"], { cwd: d, encoding: "utf8" }).stdout);
+  const r2 = JSON.parse(spawnSync(process.execPath, [cli, "callers", "Base", "--json"], { cwd: d, windowsHide: true, encoding: "utf8" }).stdout);
   assert.deepEqual(r2.unresolvedNameRefs, [{ source: "c.js#C", relation: "extends", name: "Base" }]);
   assert.match(r2.limitations.join(" "), /target the bare name/);
   // A miss offers near-miss suggestions and the grep escape hatch instead
   // of dead-ending into a full-tree grep.
-  const miss = spawnSync(process.execPath, [cli, "callers", "heler"], { cwd: d, encoding: "utf8" });
+  const miss = spawnSync(process.execPath, [cli, "callers", "heler"], { cwd: d, windowsHide: true, encoding: "utf8" });
   assert.equal(miss.status, 1);
   assert.match(miss.stderr, /near matches: helper/);
   assert.match(miss.stderr, /grafly grep/);

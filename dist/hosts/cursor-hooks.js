@@ -24,7 +24,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { hooksShim } from '../claude/shim-template.js';
 import { claudeDistDir } from '../claude/paths.js';
-import { writeOwned, isGraftEntry, readJsonObject } from './config-write.js';
+import { writeOwned, mergeGraftHookEntries, readJsonObject } from './config-write.js';
 /** The Cursor hooks.json schema version graft writes. */
 const CURSOR_HOOKS_VERSION = 1;
 function shimPathFor(repo) {
@@ -87,7 +87,7 @@ export function installCursorHooks(repo) {
         const prior = Array.isArray(hooks[d.event]) ? hooks[d.event] : [];
         const command = `node "${shimPath}" ${d.sub}`;
         const entry = d.matcher ? { matcher: d.matcher, command } : { command };
-        hooks[d.event] = [...prior.filter((e) => !isGraftEntry(e)), entry];
+        hooks[d.event] = mergeGraftHookEntries(prior, [entry]);
     }
     if (JSON.stringify(root) === before)
         return [shimWrite, { id: 'cursor-hooks', path: cfgPath, action: 'unchanged' }];
