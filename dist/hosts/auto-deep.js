@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, readdir
 import { join, resolve, relative, isAbsolute, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
-import { spawn } from 'node:child_process';
+import background from '../util/background.cjs';
 import { fileURLToPath } from 'node:url';
 import { acquireLockIn, releaseLockIn } from '../util/state.js';
 import { contextDirFor } from '../context/node-file.js';
@@ -53,12 +53,9 @@ function wake(home) {
     if (lock?.pid) {
         try { process.kill(lock.pid, 0); return; } catch {}
     }
-    const child = spawn(process.execPath, [SELF, 'work'], {
-        detached: true, stdio: 'ignore', windowsHide: true,
+    background.spawnBackground(process.execPath, [SELF, 'work'], {
         env: { ...process.env, GRAFLY_AUTO_DEEP_HOME: home },
     });
-    child.on('error', () => {});
-    child.unref();
 }
 /** True means this project is managed, including an already queued/cached job. */
 export function scheduleAutoDeep(root, { home = autoDeepHome(), launch = true, now = Date.now(), sessionId, force = false } = {}) {

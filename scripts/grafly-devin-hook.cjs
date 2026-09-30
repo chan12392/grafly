@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { homedir } = require('os');
-const { spawn, execSync } = require('child_process');
+const { execSync } = require('child_process');
 const { createHash } = require('crypto');
 
 const EVENT = process.argv[2] || 'prompt';
@@ -42,6 +42,7 @@ function pkgDist() {
 const PKG = pkgDist();
 const ENTRY = path.join(PKG, 'claude', 'hooks.js');
 const CLI = path.join(PKG, 'cli.js');
+const { spawnBackground } = require(path.join(PKG, 'util', 'background.cjs'));
 let indexDir;
 try {
   ({ indexDir } = require(path.join(PKG, 'context', 'location.cjs')));
@@ -172,7 +173,7 @@ function tryAutoBuild(start) {
     if (fs.existsSync(stamp) && Date.now() - fs.statSync(stamp).mtimeMs < BUILD_STALE_MS) return false;
     fs.mkdirSync(path.dirname(stamp), { recursive: true });
     fs.writeFileSync(stamp, new Date().toISOString());
-    spawn(process.execPath, [CLI, 'build', root], { cwd: root, detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    spawnBackground(process.execPath, [CLI, 'build', root], { cwd: root });
     return true;
   } catch { return false; }
 }
@@ -201,7 +202,7 @@ function maybeSelfUpgrade() {
     fs.writeFileSync(stamp, new Date().toISOString());
     // cwd is pinned to the home dir — a detached process must not hold the
     // session's cwd (which can be a temp dir a caller later deletes).
-    spawn(process.execPath, [CLI, '_self-upgrade'], { cwd: homedir(), detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    spawnBackground(process.execPath, [CLI, '_self-upgrade'], { cwd: homedir() });
     return true;
   } catch { return false; }
 }
