@@ -57,7 +57,7 @@ export function runWorkspaceAsk(root, override, query, opts) {
         process.stdout.write(formatAsk(r));
 }
 export function runWorkspaceGrep(root, override, pattern, opts) {
-    const { result, coverage } = federateGrep(root, override, pattern, { ignoreCase: opts.ignoreCase, fixed: opts.fixed });
+    const { result, coverage } = federateGrep(root, override, pattern, { ignoreCase: opts.ignoreCase, fixed: opts.fixed, in: opts.in });
     if (opts.json) {
         console.log(JSON.stringify(result, null, 2));
         return;

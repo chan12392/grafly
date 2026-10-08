@@ -26,6 +26,8 @@ export interface RawEdge {
     /** calls with viaMember: the receiver's resolved type name (from bindings /
      * self / this / Go receiver), when a confident local clue exists. */
     recvType?: string;
+    /** Python member call on a direct import's module binding. */
+    recvModule?: string;
     /** calls without viaMember: which kinds the bare-name match may resolve to.
      * Every other language's bare-name call is always a free function, so this
      * is absent for them (resolve.ts defaults to `["function"]`). R (Phase 4) is
@@ -68,6 +70,10 @@ export interface WalkCtx {
         name: string;
         specifier: string;
     }>;
+    pyModules: ReadonlyMap<number, ReadonlyMap<string, {
+        specifier: string;
+        start: number;
+    } | null>> | null;
     rR6Access: "public" | "private" | "active" | null;
     rGenerics: ReadonlySet<string>;
     rSuperClass: string | null;

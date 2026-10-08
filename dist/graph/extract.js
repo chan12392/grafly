@@ -300,6 +300,7 @@ export function extractFile(rel, source, lang) {
         enclosingClass: null,
         goReceiverVar: null,
         importedSymbols,
+        pyModules: lang === "python" ? collectPyModuleScopes(root) : null,
         rR6Access: null,
         rGenerics,
         rSuperClass: null,
@@ -630,7 +631,12 @@ function walk(node, ctx, out, edges, minted) {
             }
             else {
                 const recvType = resolveRecvType(callee.receiver, ctx);
-                edges.push(recvType ? { ...callEdge, recvType } : callEdge);
+                const pyModule = !recvType && ctx.pyModules && callee.receiver
+                    ? pyModuleForCall(node, callee.receiver, ctx.pyModules)
+                    : null;
+                edges.push(recvType ? { ...callEdge, recvType }
+                    : pyModule ? { ...callEdge, recvModule: pyModule.specifier }
+                        : callEdge);
             }
         }
     }
@@ -890,6 +896,105 @@ function collectTsImportBindings(node, specifier, out) {
  */
 function sameSyntaxNode(a, b) {
     return !!a && !!b && a.tree === b.tree && a.id === b.id;
+}
+/** Python module imports are lexical bindings, not a file-wide alias table.
+ * Keep blocked names as null so parameters/reassignments also mask outer imports.
+ * Only direct `import module [as alias]` proves a module binding: `from p import x`
+ * may select a package attribute or re-export, so it masks rather than guesses. */
+function collectPyModuleScopes(root) {
+    const scopes = new Map();
+    const scopeTypes = new Set(["module", "function_definition", "class_definition", "lambda",
+        "list_comprehension", "set_comprehension", "dictionary_comprehension", "generator_expression"]);
+    const bindTargets = (node, bindings) => {
+        if (!node)
+            return;
+        if (node.type === "identifier")
+            bindings.set(node.text, null);
+        else if (["parameters", "lambda_parameters", "pattern_list", "tuple_pattern", "list_pattern",
+            "tuple", "list", "list_splat_pattern", "dictionary_splat_pattern", "as_pattern_target"].includes(node.type)) {
+            for (const child of node.namedChildren)
+                bindTargets(child, bindings);
+        }
+        else if (["default_parameter", "typed_parameter", "typed_default_parameter"].includes(node.type))
+            bindTargets(node.childForFieldName("name") ?? node.namedChildren[0], bindings);
+    };
+    const visit = (node, bindings) => {
+        if (scopeTypes.has(node.type)) {
+            if (bindings && (node.type === "function_definition" || node.type === "class_definition"))
+                bindTargets(node.childForFieldName("name"), bindings);
+            bindings = new Map();
+            scopes.set(node.id, bindings);
+            bindTargets(node.childForFieldName("parameters"), bindings);
+        }
+        if (node.type === "import_statement") {
+            for (const name of node.childrenForFieldName("name")) {
+                const aliased = name.type === "aliased_import";
+                const specifier = aliased ? name.childForFieldName("name")?.text : name.text.split(".")[0];
+                const local = aliased ? name.childForFieldName("alias")?.text : specifier;
+                if (!local || !specifier)
+                    continue;
+                const previous = bindings.get(local);
+                if (!bindings.has(local))
+                    bindings.set(local, { specifier, start: node.endIndex });
+                else if (!previous || previous.specifier !== specifier)
+                    bindings.set(local, null);
+            }
+            return;
+        }
+        if (node.type === "import_from_statement") {
+            for (const name of node.childrenForFieldName("name")) {
+                const local = name.type === "aliased_import" ? name.childForFieldName("alias")?.text : name.text;
+                if (local)
+                    bindings.set(local, null);
+            }
+            if (node.namedChildren.some((child) => child.type === "wildcard_import"))
+                bindings.set("*", null);
+            return;
+        }
+        if (["assignment", "augmented_assignment", "for_statement", "for_in_clause"].includes(node.type))
+            bindTargets(node.childForFieldName("left"), bindings);
+        else if (node.type === "named_expression") {
+            // A comprehension's walrus target belongs to its enclosing lexical scope.
+            let owner = node.parent;
+            while (owner && !["module", "function_definition", "class_definition", "lambda"].includes(owner.type))
+                owner = owner.parent;
+            bindTargets(node.childForFieldName("name"), scopes.get(owner?.id) ?? bindings);
+        }
+        else if (node.type === "as_pattern")
+            bindTargets(node.childForFieldName("alias"), bindings);
+        else if (["delete_statement", "global_statement", "nonlocal_statement"].includes(node.type)) {
+            for (const child of node.namedChildren)
+                bindTargets(child, bindings);
+        }
+        else if (node.type === "case_pattern") {
+            // Captures in structural matching may rebind an imported name.
+            for (const name of node.descendantsOfType("identifier"))
+                bindings.set(name.text, null);
+        }
+        for (const child of node.namedChildren)
+            visit(child, bindings);
+    };
+    visit(root, null);
+    return scopes;
+}
+function pyModuleForCall(node, receiver, scopes) {
+    let innerScope = false;
+    for (let current = node; current; current = current.parent) {
+        const bindings = scopes.get(current.id);
+        if (!bindings)
+            continue;
+        // Class attributes are not lexical bindings inside a method or nested class.
+        if (innerScope && current.type === "class_definition")
+            continue;
+        innerScope = true;
+        if (bindings.has("*"))
+            return null;
+        if (bindings.has(receiver)) {
+            const binding = bindings.get(receiver);
+            return binding && binding.start <= node.startIndex ? binding : null;
+        }
+    }
+    return null;
 }
 /**
  * A parameter or local declaration wins over an import inside that function.

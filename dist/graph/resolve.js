@@ -118,11 +118,19 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
     const cljFilesBySuffix = new Map();
     const exFilesBySuffix = new Map();
     const luaFilesBySuffix = new Map();
+    const pyFilesByModule = new Map();
     const SUFFIX_INDEX = [[SCALA_EXT, scalaFilesBySuffix], [CLJ_EXT, cljFilesBySuffix],
         [ELIXIR_EXT, exFilesBySuffix], [LUA_EXT, luaFilesBySuffix]];
     const hasGoModules = !!opts.goModules?.length;
     for (const n of nodes) {
         if (n.kind === "file") {
+            if (PY_EXT.test(n.path)) {
+                const parts = toPosixPath(n.path).replace(PY_EXT, "").split("/");
+                if (parts.at(-1) === "__init__")
+                    parts.pop();
+                for (let i = 0; i < parts.length; i++)
+                    push(pyFilesByModule, parts.slice(i).join("."), n.id);
+            }
             if (hasGoModules && n.path.endsWith(".go")) {
                 const dir = posix.dirname(toPosixPath(n.path));
                 push(goFilesByDir, dir, n.id);
@@ -201,6 +209,9 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
     }
     const out = [];
     const seen = new Set();
+    // Module members must be defined at file scope, never a nested function or method.
+    const pyModuleMembers = new Set(rawEdges.filter((e) => e.relation === "contains" &&
+        e.source === e.file && PY_EXT.test(e.file)).map((e) => e.targetId));
     // One specifier→file dispatch for every relation that carries a specifier —
     // an edge that names its module resolves inside that module, whether it is
     // an `imports`, a `references` or a `calls` edge.
@@ -300,6 +311,27 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
         }
         else if (e.relation === "calls") {
             if (e.viaMember) {
+                if (e.recvModule && !e.recvType && PY_EXT.test(e.file)) {
+                    const files = pyFilesByModule.get(e.recvModule) ?? [];
+                    if (files.length !== 1) {
+                        if (files.length > 1 && opts.dropped)
+                            opts.dropped.push({ source: e.source, name: e.name });
+                        continue;
+                    }
+                    const members = (perFileName.get(files[0])?.get(e.name) ?? [])
+                        .filter((n) => pyModuleMembers.has(n.id));
+                    for (const kinds of [["function"], PY_CTOR_KINDS]) {
+                        const hits = members.filter((n) => kinds.includes(n.kind));
+                        if (hits.length === 1)
+                            add(e.source, hits[0].id, "calls", "extracted");
+                        else if (hits.length > 1 && opts.dropped)
+                            opts.dropped.push({ source: e.source, name: e.name });
+                        if (hits.length)
+                            break;
+                    }
+                    // External, missing or ambiguous module members never fall back to a global name.
+                    continue;
+                }
                 if (!e.recvType)
                     continue;
                 const hit = resolveTypedMember(e.recvType, e.name, e.file, ownerMethod, classParents, classTraits, e.argCount);
