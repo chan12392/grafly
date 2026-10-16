@@ -11,6 +11,7 @@
  * old `grafly impact`. Exported formatters are reused by the workspace
  * federation path (`workspace.js`), so both surfaces render identical reports.
  */
+import { exitCommand } from "../util/cli-exit.js";
 import { resolve, join } from "node:path";
 import { fileReader, referenceLine, wordRe } from "../blast/evidence.js";
 import { contextDirFor } from "../context/node-file.js";
@@ -196,20 +197,20 @@ function hitJson(hit) {
     }
     return out;
 }
-/** Parse and validate the raw `--direction` string; exits (code 1) on garbage. */
+/** Parse and validate the raw `--direction` string; fails the command on garbage. */
 function resolveDirection(raw) {
     if (raw === undefined)
         return "in";
     if (raw === "in" || raw === "out")
         return raw;
     console.error(`✗ --direction must be "in" or "out", got "${raw}"`);
-    process.exit(1);
+    exitCommand(1);
 }
 /**
  * Resolve `query` in the graph at `dir` (respecting `--dir`/`--in`), walk edges
  * per `--direction`/`--depth`, and print either the human report or `--json`.
- * Exits the process (code 1) when there's no graph at all or the symbol is
- * unknown — both are caller-facing mistakes, not recoverable states.
+ * Fails the command (code 1) when there's no graph or the symbol is unknown,
+ * while leaving a resident CLI available for the next request.
  */
 export function runCallersCommand(query, dir, opts) {
     const root = resolve(dir);
@@ -217,7 +218,7 @@ export function runCallersCommand(query, dir, opts) {
     const graph = loadTraverseCached(contextDir);
     if (!graph) {
         console.error(`✗ no graph found at ${contextDir} — run \`grafly build\` first`);
-        process.exit(1);
+        exitCommand(1);
     }
     // `resolveSymbol` throws on an `--in` prefix that matches nothing indexed —
     // a caller mistake, reported in the same shape as the ones around it rather
@@ -228,7 +229,7 @@ export function runCallersCommand(query, dir, opts) {
     }
     catch (err) {
         console.error(`✗ ${err instanceof Error ? err.message : String(err)}`);
-        process.exit(1);
+        exitCommand(1);
         return;
     }
     if (matches.length === 0) {
@@ -238,7 +239,7 @@ export function runCallersCommand(query, dir, opts) {
             : "";
         console.error(`✗ no symbol "${query}" in the graph — check spelling or run grafly build.${hint}\n` +
             `  for unindexed text (scripts, docs, generated code): grafly grep "${query}" or raw grep -rn`);
-        process.exit(1);
+        exitCommand(1);
     }
     const direction = resolveDirection(opts.direction);
     let depth = DEFAULT_DEPTH;
@@ -255,7 +256,7 @@ export function runCallersCommand(query, dir, opts) {
             const d = Number(opts.depth);
             if (!Number.isFinite(d) || d < 1) {
                 console.error(`✗ --depth must be a positive number or "all", got "${opts.depth}"`);
-                process.exit(1);
+                exitCommand(1);
             }
             depth = Math.floor(d);
         }

@@ -4,6 +4,9 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { residentCommands, cliOptions, searchCommands, buildCommand, callersCommand } from "./commands.js";
+
+export const requestEnv = /^(GRAFLY_|GRAFT_|OPENROUTER_|ORCAROUTER_|DO_NOT_TRACK$|PATH$|PATHEXT$)/i;
 
 export const searchHome = () => resolve(process.env.GRAFLY_SEARCH_HOME || join(homedir(), ".grafly", "search-service"));
 export const searchEndpoint = () => process.platform === "win32"
@@ -18,18 +21,29 @@ function state() {
     try { return JSON.parse(readFileSync(join(searchHome(), "state.json"), "utf8")); }
     catch { return null; }
 }
-export function serviceRequest(request, timeout = 30000) {
+export function serviceRequest(request, timeout = request.action === "search" ? 0 : 30000) {
     const saved = state();
     if (!saved || (request.action === "search" && saved.packageRoot !== packageRoot)) return Promise.resolve(null);
     return new Promise((done) => {
         const socket = connect(searchEndpoint());
-        let data = "", settled = false;
-        const finish = (value) => { if (!settled) { settled = true; socket.destroy(); done(value); } };
+        let data = "", settled = false, dispatched = false;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true; socket.destroy();
+            // A build may have committed files even when its reply was lost.
+            // Never launch a second build as an automatic fallback after send.
+            done(value ?? (dispatched && request.command === "build" ? { stdout: "", exitCode: 1,
+                stderr: "Grafly build response interrupted; the build may still be running. Check daemon status before retrying.\n" } : null));
+        };
         socket.setEncoding("utf8");
-        socket.setTimeout(timeout, () => finish(null));
+        socket.setTimeout(1000, () => finish(null));
         socket.on("error", () => finish(null));
         socket.on("end", () => finish(null));
-        socket.on("connect", () => socket.write(JSON.stringify({ ...request, token: saved.token, protocol: 1 }) + "\n"));
+        socket.on("connect", () => {
+            socket.setTimeout(timeout);
+            dispatched = true;
+            socket.write(JSON.stringify({ ...request, token: saved.token, protocol: 1 }) + "\n");
+        });
         socket.on("data", (chunk) => {
             data += chunk;
             if (data.length > 64 * 1024 * 1024) return finish(null);
@@ -40,19 +54,29 @@ export function serviceRequest(request, timeout = 30000) {
         });
     });
 }
-export async function tryResidentSearch(argv) {
-    if (process.env.GRAFLY_NO_DAEMON === "1" || !state() || !argv.some((a) => a === "ask" || a === "grep")) return false;
-    const [{ Command }, { searchCommands }] = await Promise.all([import("commander"), import("./commands.js")]);
+export async function parseResidentRequest(argv, cwd = process.cwd()) {
+    const { Command } = await import("commander");
     const program = new Command().exitOverride().configureOutput({ writeOut() {}, writeErr() {} });
-    program.option("--dir <path>");
+    cliOptions(program);
     let request;
     searchCommands(program, (command, query, dir, opts) => {
-        request = { command, query, dir, opts: { ...opts, contextDir: program.opts().dir }, cwd: process.cwd(),
-            env: Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(GRAFLY_|GRAFT_)/.test(key))) };
+        request = { command, query, dir, opts: { ...opts, contextDir: program.opts().dir }, cwd };
     });
+    buildCommand(program).action(() => { request = { command: "build", argv, cwd }; });
+    callersCommand(program).action(() => { request = { command: "callers", argv, cwd }; });
     try { await program.parseAsync(argv, { from: "user" }); }
-    catch { return false; }
+    catch { return null; }
+    return request;
+}
+export async function tryResidentSearch(argv) {
+    const saved = state();
+    if (process.env.GRAFLY_NO_DAEMON === "1" || !saved || !argv.some((a) => residentCommands.includes(a))) return false;
+    const request = await parseResidentRequest(argv);
     if (!request) return false;
+    // Old services cannot accept a newly routed mutating command. Fall back
+    // before delivery, rather than guessing after an interrupted build.
+    if (["build", "callers"].includes(request.command) && !saved.commands?.includes(request.command)) return false;
+    request.env = Object.fromEntries(Object.entries(process.env).filter(([key]) => requestEnv.test(key)));
     const response = await serviceRequest({ action: "search", ...request });
     if (!response || !Number.isInteger(response.exitCode) || typeof response.stdout !== "string" || typeof response.stderr !== "string") return false;
     process.stdout.write(response.stdout);

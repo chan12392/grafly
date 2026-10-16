@@ -7,7 +7,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { createInterface } from "node:readline";
 import { embeddedBinding } from "./embedded.js";
-import { packageRoot, searchHome, searchEndpoint, searchConfig, serviceRequest } from "./client.js";
+import { packageRoot, searchHome, searchEndpoint, searchConfig, serviceRequest, parseResidentRequest, requestEnv } from "./client.js";
+import { residentCommands } from "./commands.js";
 
 export async function serveSearch({ stdio = false } = {}) {
     const home = searchHome(), endpoint = searchEndpoint();
@@ -29,7 +30,7 @@ export async function serveSearch({ stdio = false } = {}) {
         } catch (error) { if (error.code !== "ENOENT") throw error; }
     }
     const token = randomBytes(32).toString("hex");
-    let queue = Promise.resolve(), queries = 0, stopping = false, tunnel, retry;
+    let queue = Promise.resolve(), queries = 0, stopping = false, tunnel, retry, activeCommand = null;
     const started = Date.now();
     const { executeSearch } = await import("./request.js");
     const { __parseCount } = await import("../graph/load.js");
@@ -39,24 +40,33 @@ export async function serveSearch({ stdio = false } = {}) {
     if (config.xerjUrl === "embedded") embeddedBinding();
     const status = () => ({ status: "running", role: "resident-cli", pid: process.pid, queries,
         uptimeSeconds: Math.floor((Date.now() - started) / 1000), rssMiB: Math.round(process.memoryUsage().rss / 1048576),
-        parses: { ...__parseCount }, packageRoot, xerjUrl: config.xerjUrl || null });
+        parses: { ...__parseCount }, packageRoot, commands: residentCommands, activeCommand, xerjUrl: config.xerjUrl || null });
     async function execute(request) {
         if (request.action === "status") return status();
         if (request.action === "stop") { stopping = true; return { status: "stopped", pid: process.pid }; }
-        if (request.action !== "search" || !["ask", "grep"].includes(request.command) || typeof request.query !== "string" || typeof request.cwd !== "string")
-            throw new Error("Use status, stop, or search with command ask|grep, query and cwd");
-        const prior = Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(GRAFLY_|GRAFT_)/.test(key)));
+        if (request.action !== "search" || !residentCommands.includes(request.command) || typeof request.cwd !== "string")
+            throw new Error("Use status, stop, or search with command ask|grep|build|callers and cwd");
+        if (["build", "callers"].includes(request.command)) {
+            const parsed = Array.isArray(request.argv) && request.argv.every((arg) => typeof arg === "string")
+                ? await parseResidentRequest(request.argv, request.cwd) : null;
+            if (parsed?.command !== request.command) throw new Error("Provide matching build/callers argv");
+        } else if (typeof request.query !== "string") throw new Error("Search requires a query");
+        const prior = Object.fromEntries(Object.entries(process.env).filter(([key]) => requestEnv.test(key)));
         try {
+            activeCommand = request.command;
             for (const key of Object.keys(prior)) delete process.env[key];
             for (const [key, value] of Object.entries(request.env || {}))
-                if (/^(GRAFLY_|GRAFT_)/.test(key) && key !== "GRAFLY_SEARCH_HOME" && typeof value === "string") process.env[key] = value;
+                if (requestEnv.test(key) && key.toUpperCase() !== "GRAFLY_SEARCH_HOME" && typeof value === "string") process.env[key] = value;
             // The service owns its endpoint/config independently of client env.
             if (prior.GRAFLY_SEARCH_HOME) process.env.GRAFLY_SEARCH_HOME = prior.GRAFLY_SEARCH_HOME;
-            const result = await executeSearch(request);
+            const result = ["build", "callers"].includes(request.command)
+                ? await (await import("./cli-request.js")).executeCliRequest(request)
+                : await executeSearch(request);
             queries++;
             return result;
         } finally {
-            for (const key of Object.keys(process.env)) if (/^(GRAFLY_|GRAFT_)/.test(key)) delete process.env[key];
+            activeCommand = null;
+            for (const key of Object.keys(process.env)) if (requestEnv.test(key)) delete process.env[key];
             Object.assign(process.env, prior);
         }
     }
@@ -75,6 +85,12 @@ export async function serveSearch({ stdio = false } = {}) {
             let request;
             try { request = JSON.parse(data.slice(0, end)); } catch { return socket.destroy(); }
             if (!request || request.token !== token || request.protocol !== 1 || stopping) return socket.destroy();
+            // The request is complete. Builds and requests queued behind them
+            // may legitimately run longer than the input-idle deadline.
+            socket.setTimeout(0);
+            // Read-only status must remain available while a build awaits I/O;
+            // otherwise clients would mistake a busy service for a stopped one.
+            if (request.action === "status") return socket.end(JSON.stringify(status()) + "\n");
             queue = queue.then(async () => {
                 if (socket.destroyed) return;
                 const result = await execute(request);
@@ -95,7 +111,7 @@ export async function serveSearch({ stdio = false } = {}) {
     try { await new Promise((done, fail) => { server.once("error", fail); server.listen(endpoint, done); }); }
     catch (error) { if (error.code === "EADDRINUSE" && !stdio) return; throw error; }
     if (process.platform !== "win32") chmodSync(endpoint, 0o600);
-    writeFileSync(join(home, "state.json"), JSON.stringify({ protocol: 1, token, pid: process.pid, packageRoot }), { mode: 0o600 });
+    writeFileSync(join(home, "state.json"), JSON.stringify({ protocol: 1, token, pid: process.pid, packageRoot, commands: residentCommands }), { mode: 0o600 });
     server.on("error", (error) => { console.error(error.message); shutdown(); process.exitCode = 1; });
     process.once("SIGINT", shutdown); process.once("SIGTERM", shutdown);
     if (config.xerjUrl !== "embedded" && config.oracleHost && config.xerjPort) {
