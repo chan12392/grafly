@@ -32,8 +32,14 @@ test("cacheKey: normalized query plus every shaping option bit", () => {
         { limit: "8", json: true },
     ])
         assert.notEqual(cacheKey("how does x work?", variant), cacheKey("how does x work?", base));
-    // --in spellings reduce to the same normalized prefix.
-    assert.equal(cacheKey("q", { in: "dist/" }), cacheKey("q", { in: "dist\\" }));
+    // --in spellings follow the platform's path separator rules.
+    assert.equal(cacheKey("q", { in: "dist" }), cacheKey("q", { in: "dist/" }));
+    if (process.platform === "win32") {
+        assert.equal(cacheKey("q", { in: "dist/" }), cacheKey("q", { in: "dist\\" }));
+    } else {
+        // Backslashes are literal filename characters on POSIX.
+        assert.notEqual(cacheKey("q", { in: "dist/" }), cacheKey("q", { in: "dist\\" }));
+    }
 });
 
 test("store + verify: clean stamp replays; touched or deleted file is stale", () => {
