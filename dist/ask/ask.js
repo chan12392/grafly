@@ -1007,7 +1007,7 @@ function inlineSource(root, hits, graph, full) {
     const cruxByPointer = new Map();
     if (!full && graph) {
         for (const n of graph.nodes)
-            if (n.crux?.code)
+            if (n.crux?.code && n.summary_state !== "stale")
                 cruxByPointer.set(`${n.path}:${n.span}`, n.crux.code);
     }
     for (const h of hits) {
