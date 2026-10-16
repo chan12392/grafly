@@ -37,4 +37,3 @@ export interface SourceStat {
  * the walk and the stat are dropped (same fail-soft posture as `walkDir`).
  */
 export declare function listSourceStats(root: string, outDir: string, repoFiles?: string[], onlyDirs?: ReadonlySet<string>): SourceStat[];
-//# sourceMappingURL=source-files.d.ts.map

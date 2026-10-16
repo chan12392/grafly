@@ -151,4 +151,3 @@ export async function enrichWithLsp(graph, root, opts = {}) {
     await client.dispose();
     return { added, queried, server: server.command };
 }
-//# sourceMappingURL=enrich.js.map

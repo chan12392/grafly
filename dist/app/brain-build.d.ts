@@ -63,4 +63,3 @@ export declare class RepoNotAccessibleError extends Error {
  * not installed on is exactly the case the UI has to distinguish.
  */
 export declare function buildRepoIntoBrain(job: BrainBuildJob, deps: BrainBuildDeps): Promise<BrainBuildResult>;
-//# sourceMappingURL=brain-build.d.ts.map

@@ -268,4 +268,3 @@ export function writeCovers(graph, outDir) {
     }
     return enriched;
 }
-//# sourceMappingURL=cards.js.map

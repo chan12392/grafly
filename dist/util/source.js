@@ -9,4 +9,3 @@ export function readSourceFile(path) {
         return bytes.subarray(2).toString("utf16le");
     return bytes.toString("utf8");
 }
-//# sourceMappingURL=source.js.map

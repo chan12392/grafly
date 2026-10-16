@@ -166,4 +166,3 @@ async function repoMeta(owner, repo, token, fetchImpl, api) {
         return { isPrivate: true, defaultBranch: "" };
     }
 }
-//# sourceMappingURL=brain-build.js.map

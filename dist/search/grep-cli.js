@@ -98,4 +98,3 @@ export function runGrepCommand(pattern, dir, opts) {
     }
     process.stdout.write(formatGrepResult(result));
 }
-//# sourceMappingURL=grep-cli.js.map

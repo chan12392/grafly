@@ -266,4 +266,3 @@ export async function nameReport(graph, report, contextDir) {
     }
     return { stats, note: null };
 }
-//# sourceMappingURL=name.js.map

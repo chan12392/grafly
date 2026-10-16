@@ -12,4 +12,3 @@ export declare function runUpkeep(repo: string, current: string, opts?: {
     background?: boolean;
     home?: string;
 }): UpkeepResult;
-//# sourceMappingURL=upkeep-run.d.ts.map

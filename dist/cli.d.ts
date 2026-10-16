@@ -5,4 +5,6 @@
  * workspace parent (≥2 git children) federates query commands across children.
  */
 import "dotenv/config";
-//# sourceMappingURL=cli.d.ts.map
+import type { Command } from "commander";
+export declare function createCli(): Command;
+export declare function runCli(argv?: string[]): Promise<number | string>;

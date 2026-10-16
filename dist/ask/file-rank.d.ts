@@ -69,4 +69,3 @@ export interface RankedFile {
  * and all other lexical symbols remain exact baseline competitors.
  */
 export declare function rankFilesBounded(candidates: readonly FileRankCandidate[], queryWeights: ReadonlyMap<string, number>): RankedFile[];
-//# sourceMappingURL=file-rank.d.ts.map

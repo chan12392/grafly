@@ -528,4 +528,3 @@ export function logCircuit(logPath, record) {
     record.jid = jidFor(record);
     appendCircuitRecord(logPath, record);
 }
-//# sourceMappingURL=traverse-cli.js.map

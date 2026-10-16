@@ -39,4 +39,3 @@ export declare function discoverWorkspaceChildren(root: string): string[];
  * graphs, or graphs where discovery found nothing but the root) defaults to the
  * canonical single-scope form. Never read `graph.meta.scopes` directly. */
 export declare function scopesOfGraph(graph: GraphV1): ScopeV1[];
-//# sourceMappingURL=scopes.d.ts.map

@@ -39,4 +39,3 @@ export declare function indexFreshness(dir: string, opts?: CheckOptions): Freshn
 export declare function staleBanner(f: FreshnessResult | null): string | null;
 /** Render a check result as a human-readable report. */
 export declare function formatCheckReport(r: CheckResult): string;
-//# sourceMappingURL=check.d.ts.map

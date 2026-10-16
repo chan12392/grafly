@@ -46,4 +46,3 @@ export declare function ensureFreshChildren(root: string, children: string[], op
 /** The one-line note a CLI/MCP surface prints when a refresh actually happened.
  * Null when there's nothing to say (the overwhelmingly common case). */
 export declare function refreshNote(r: RefreshResult): string | null;
-//# sourceMappingURL=refresh.d.ts.map

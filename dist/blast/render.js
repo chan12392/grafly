@@ -418,4 +418,3 @@ export function textReport(r) {
         lines.push(line.replace(/⚠️ /, "⚠ "), "");
     return lines.join("\n").replace(/\n+$/, "\n");
 }
-//# sourceMappingURL=render.js.map

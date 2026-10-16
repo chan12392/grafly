@@ -312,4 +312,3 @@ export function formatPlan(plan, ids, repo, home, tty = Boolean(process.stderr.i
     lines.push('', dim('nothing was written (--dry-run)'));
     return lines.join('\n');
 }
-//# sourceMappingURL=cli-picker.js.map

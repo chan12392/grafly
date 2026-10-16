@@ -34,4 +34,3 @@ import type { BlastReport } from "./blast.js";
 export declare function blastVizGraph(r: BlastReport, opts?: {
     root?: string;
 }): VizGraph;
-//# sourceMappingURL=viz.d.ts.map

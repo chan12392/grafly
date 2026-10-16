@@ -190,4 +190,3 @@ function stripPrefix(raw) {
     const untabbed = raw.split("\t")[0];
     return untabbed.startsWith("b/") ? untabbed.slice(2) : untabbed;
 }
-//# sourceMappingURL=diff.js.map

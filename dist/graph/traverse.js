@@ -190,4 +190,3 @@ export function edgeWalk(graph, node, direction, depth) {
         return impactOfFile(graph, node, depth, direction);
     return impactOfMany(graph, [node], depth, direction);
 }
-//# sourceMappingURL=traverse.js.map

@@ -80,4 +80,3 @@ export function formatDollars(usd) {
         return '<$0.01';
     return `$${usd.toFixed(2)}`;
 }
-//# sourceMappingURL=price.js.map

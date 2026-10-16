@@ -72,4 +72,3 @@ export function runHostsInit(repo, opts = {}) {
         : installAntigravitySkill(home);
     return { written, skipped, unknown, hooks: [...hooks, ...cursorHooks, ...antigravitySkill] };
 }
-//# sourceMappingURL=init.js.map

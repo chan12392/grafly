@@ -114,4 +114,3 @@ export function invalidateGraphCaches(outDir) {
     askIndexCache.delete(askIndexPath(outDir));
     traverseCache.delete(traversePath(outDir));
 }
-//# sourceMappingURL=load.js.map

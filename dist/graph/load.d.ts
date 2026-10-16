@@ -36,4 +36,3 @@ export declare function loadTraverseCached(outDir: string): GraphV1 | null;
  * therefore invalidate explicitly rather than trust the clock.
  */
 export declare function invalidateGraphCaches(outDir: string): void;
-//# sourceMappingURL=load.d.ts.map

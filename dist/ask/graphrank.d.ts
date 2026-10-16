@@ -58,4 +58,3 @@ export declare function personalizedPageRank(graph: GraphV1, seeds: Map<string, 
 /** Run PageRank on an already prepared topology. This is numerically identical
  * to {@link personalizedPageRank}; it only removes repeated topology scans. */
 export declare function personalizedPageRankPrepared(topology: PageRankTopology, seeds: Map<string, number>, opts?: PageRankRunOptions): Map<string, number>;
-//# sourceMappingURL=graphrank.d.ts.map

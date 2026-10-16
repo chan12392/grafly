@@ -1,19 +1,6 @@
 import { type SessionState } from './state.js';
 import type { AgentHost } from '../telemetry/contract.js';
 export type ToolKind = 'graft' | 'source';
-/** An MCP-style tool name (server-prefixed), as opposed to a native Read/Shell.
- *  Used to hand graft MCP calls to the dedicated MCP hook so a host that fires
- *  BOTH a generic post-tool hook and an MCP hook can't double-count them. */
-export declare function isMcpToolName(toolName: string): boolean;
-/**
- * Whether a tool name is one of graft's MCP tools, across every host prefix.
- * Anchored on the real name list (`graft_find_code`, its legacy aliases, …), not
- * a loose `includes('graft')`: a third-party MCP tool whose name merely contains
- * "graft" (or a repo working on graft itself) must not count as a graft read —
- * the same care `commandInvokesGraft` takes for the CLI side. Strips the host
- * prefix first (`mcp__graft__graft_find_code`, `MCP:graft_find_code`) by taking
- * the last delimited segment. */
-export declare function isGraftMcpTool(toolName: string): boolean;
 /** Whether a shell command line invokes the graft CLI (any of its install shapes). */
 export declare function commandInvokesGraft(command: string): boolean;
 /**
@@ -70,4 +57,3 @@ export declare function latestSession(dir: string): SessionSummary | null;
  */
 export declare function sessionInputRate(dir: string): number | null;
 export declare function formatSessionStats(s: SessionSummary | null): string;
-//# sourceMappingURL=session-metrics.d.ts.map

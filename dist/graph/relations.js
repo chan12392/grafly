@@ -5,4 +5,3 @@ export const WALK_RELATIONS = new Set([
     "implements",
     "extends",
 ]);
-//# sourceMappingURL=relations.js.map

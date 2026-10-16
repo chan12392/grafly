@@ -61,4 +61,3 @@ export declare function sessionDir(d: string): string;
 export declare function listSessionIds(d: string): string[];
 export declare function readSession(d: string, id: string): SessionState;
 export declare function writeSession(d: string, id: string, s: SessionState): void;
-//# sourceMappingURL=state.d.ts.map

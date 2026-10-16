@@ -94,4 +94,3 @@ export declare function readExtractCache(outDir: string): ExtractCache;
  * reuse). Returns false when nothing was written, including the deliberate case of
  * having no extractor identity: a parse we can't attribute must never be replayed. */
 export declare function writeExtractCache(outDir: string, cache: ExtractCache): boolean;
-//# sourceMappingURL=extract-cache.d.ts.map

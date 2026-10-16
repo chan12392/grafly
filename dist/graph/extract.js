@@ -2499,4 +2499,3 @@ function tsExported(node) {
     }
     return false;
 }
-//# sourceMappingURL=extract.js.map

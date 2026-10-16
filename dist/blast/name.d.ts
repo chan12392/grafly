@@ -71,4 +71,3 @@ export declare function nameReport(graph: GraphV1, report: BlastReport, contextD
     stats: NameStats;
     note: string | null;
 }>;
-//# sourceMappingURL=name.d.ts.map

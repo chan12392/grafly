@@ -43,4 +43,3 @@ export declare function markdownReport(r: BlastReport, opts?: {
 }): string;
 /** Terminal report: same content, no markdown scaffolding. */
 export declare function textReport(r: BlastReport): string;
-//# sourceMappingURL=render.d.ts.map

@@ -268,4 +268,3 @@ export function mention(o) {
 export function isoDay(ms) {
     return new Date(ms).toISOString().slice(0, 10);
 }
-//# sourceMappingURL=owners.js.map

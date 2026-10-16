@@ -104,4 +104,3 @@ export declare function buildRepoMap(graph: GraphV1, opts?: BuildRepoMapOptions)
  * very large graphs).
  */
 export declare function formatRepoMap(map: RepoMap): string;
-//# sourceMappingURL=map.d.ts.map

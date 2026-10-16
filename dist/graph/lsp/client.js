@@ -176,4 +176,3 @@ export class LspClient {
         catch { /* ignore */ }
     }
 }
-//# sourceMappingURL=client.js.map

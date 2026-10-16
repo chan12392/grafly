@@ -60,4 +60,3 @@ export declare function isContainerWarm(langName: string): boolean;
  * not fail over one component.
  */
 export declare function extractContainer(rel: string, source: string, lang: ContainerLang): ExtractResult;
-//# sourceMappingURL=container.d.ts.map

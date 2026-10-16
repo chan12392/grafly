@@ -12,6 +12,8 @@ export declare function readCurrentVersion(moduleUrl: string): string;
  * false — `graft upgrade` would then run `npm install -g` on top of an npx run.
  * Same hardcoded-`/` mistake as #33; `src/util/paths.ts` exists for exactly this. */
 export declare function isRunningViaNpx(moduleUrl: string): boolean;
+export declare function packageRoot(moduleUrl: string): string;
+export declare function isGitCheckout(dir: string): boolean;
 export interface NpmViewResult {
     ok: boolean;
     version?: string;
@@ -39,5 +41,6 @@ export declare function formatUpgradeReport(result: UpgradeResult): string;
 /** Runs `npm install -g <GRAFLY_NPM_PACKAGE>@latest` (inheriting stdio so the
  * user sees npm's own progress/errors), then re-reads the freshly installed
  * version. Disabled unless GRAFLY_NPM_PACKAGE is set; no-ops via npx. */
-export declare function runUpgrade(moduleUrl: string): UpgradeResult;
-//# sourceMappingURL=cli-meta.d.ts.map
+export declare function runUpgrade(moduleUrl: string, options?: {
+    spawn?: typeof import("node:child_process").spawnSync;
+}): UpgradeResult;

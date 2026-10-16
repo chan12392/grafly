@@ -710,4 +710,3 @@ function handleGo(node, scope, bindings) {
             bindings.set(scopePath, nameNode.text, typeName);
     }
 }
-//# sourceMappingURL=bindings.js.map

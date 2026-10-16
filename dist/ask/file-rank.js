@@ -157,4 +157,3 @@ export function rankFilesBounded(candidates, queryWeights) {
         a.file.localeCompare(b.file));
     return ranked;
 }
-//# sourceMappingURL=file-rank.js.map

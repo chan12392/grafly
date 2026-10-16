@@ -32,4 +32,3 @@ export declare function runBlastCommand(dir: string, opts: BlastCliOptions): Pro
  * so it wins when there is one; a detached tarball checkout still falls back.
  */
 export declare function repoLabel(root: string): string;
-//# sourceMappingURL=blast-cli.d.ts.map

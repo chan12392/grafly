@@ -172,6 +172,8 @@ export interface AskOptions {
 /** Answer a query from the graft/ graph at `dir`. Deterministic, $0. */
 export declare function ask(dir: string, query: string, opts?: AskOptions): AskResult;
 export declare function askAsync(dir: string, query: string, opts?: AskOptions): Promise<AskResult>;
+/** Unique source paths represented by hit pointers. */
+export declare function hitFiles(hits: AskHit[]): Set<string>;
 export interface SkeletonEntry {
     name: string;
     kind: string;
@@ -197,4 +199,3 @@ export declare function skeleton(dir: string, file: string, opts?: {
 export declare function formatSkeleton(r: SkeletonResult): string;
 /** Render an {@link AskResult} as a compact markdown context pack. */
 export declare function formatAsk(r: AskResult): string;
-//# sourceMappingURL=ask.d.ts.map

@@ -265,4 +265,3 @@ export function redact(text, token) {
     const encoded = Buffer.from(`x-access-token:${token}`).toString("base64");
     return text.split(token).join("[token]").split(encoded).join("[token]");
 }
-//# sourceMappingURL=checkout.js.map

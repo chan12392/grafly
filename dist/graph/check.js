@@ -190,4 +190,3 @@ function formatPendingNote(r, pct) {
         `Run \`grafly build --deep\` to summarize them; if a deep build already left these pending, ` +
         `that meaning pass failed — see that build's errors (re-running alone will not clear them)`);
 }
-//# sourceMappingURL=check.js.map

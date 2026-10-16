@@ -47,4 +47,3 @@ export declare function lastAssistantTurn(transcriptPath: unknown): AssistantTur
  * file, null means "not observed", never "zero".
  */
 export declare function lastTurnBilling(transcriptPath: unknown): TurnBilling | null;
-//# sourceMappingURL=tally.d.ts.map

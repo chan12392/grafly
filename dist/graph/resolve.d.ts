@@ -14,4 +14,3 @@ export interface ResolveOptions {
     goModules?: GoModule[];
 }
 export declare function resolveEdges(nodes: NodeV1[], rawEdges: RawEdge[], opts?: ResolveOptions): EdgeV1[];
-//# sourceMappingURL=resolve.d.ts.map

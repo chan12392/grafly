@@ -11,4 +11,3 @@ import { type Stats } from './state.js';
  */
 export declare function resolveStats(dir: string): Stats | null;
 export declare function main(): void;
-//# sourceMappingURL=statusline.d.ts.map

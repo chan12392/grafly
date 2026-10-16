@@ -61,4 +61,3 @@ export declare function goReceiverVarOf(node: Parser.SyntaxNode): string | null;
 export declare function resolveRecvType(receiver: string | undefined, ctx: Pick<WalkCtx, "scope" | "enclosingClass" | "goReceiverVar" | "lang" | "bindings" | "rSuperClass">): string | undefined;
 /** Pass 1 over a parsed file: collect variable->type bindings. Pure. */
 export declare function collectBindings(root: Parser.SyntaxNode, lang: Language): FileBindings;
-//# sourceMappingURL=bindings.d.ts.map

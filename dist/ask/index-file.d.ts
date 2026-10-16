@@ -41,4 +41,3 @@ export declare function writeAskIndex(outDir: string, graph: GraphV1): string;
  * otherwise silently skew IDF) — any of which means the caller should fall
  * back to live tokenization, never crash or trust bad data. */
 export declare function readAskIndex(outDir: string): AskIndex | null;
-//# sourceMappingURL=index-file.d.ts.map

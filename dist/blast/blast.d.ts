@@ -125,4 +125,3 @@ export declare function blastRadiusIn(graph: GraphV1, contextDir: string, change
  * "Graph Extraction and Loading", which misleads worse than any path.
  */
 export declare function hubLabel(names: string[], fallback: string): string;
-//# sourceMappingURL=blast.d.ts.map

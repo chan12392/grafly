@@ -19,4 +19,3 @@ export declare function fileFirstRoundRobin<T>(ranked: readonly FileFirstCandida
  * this does not flatten and rebuild a grouping map, so a file-aware ranker can
  * stop as soon as `limit` hits without materializing every tail span twice. */
 export declare function roundRobinQueues<T>(queues: readonly (readonly T[])[], limit?: number): T[];
-//# sourceMappingURL=file-selection.d.ts.map

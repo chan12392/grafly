@@ -92,4 +92,3 @@ export function installCodexHooks(home, { apply = true } = {}) {
         writeFileSync(cfgPath, `${JSON.stringify(root, null, 2)}\n`);
     return [...fileWrites, { id: 'codex-hooks', path: cfgPath, action: existed ? 'updated' : 'created' }];
 }
-//# sourceMappingURL=codex-hooks.js.map

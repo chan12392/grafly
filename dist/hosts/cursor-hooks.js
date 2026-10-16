@@ -94,4 +94,3 @@ export function installCursorHooks(repo) {
     writeFileSync(cfgPath, `${JSON.stringify(root, null, 2)}\n`);
     return [shimWrite, { id: 'cursor-hooks', path: cfgPath, action: existed ? 'updated' : 'created' }];
 }
-//# sourceMappingURL=cursor-hooks.js.map

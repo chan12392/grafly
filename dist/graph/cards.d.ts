@@ -43,4 +43,3 @@ export interface CoverRef {
  * Returns the number of nodes enriched.
  */
 export declare function writeCovers(graph: GraphV1, outDir: string): number;
-//# sourceMappingURL=cards.d.ts.map

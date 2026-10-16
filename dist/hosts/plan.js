@@ -71,4 +71,3 @@ export function planInit(repo, opts = {}) {
 export function selectedWrites(plan, ids) {
     return plan.filter((p) => ids.includes(p.id)).flatMap((p) => p.writes);
 }
-//# sourceMappingURL=plan.js.map

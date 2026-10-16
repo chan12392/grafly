@@ -111,4 +111,3 @@ export declare function existingNodeSlugs(dir: string): Set<string>;
 export declare function deleteNode(dir: string, slug: string): void;
 export declare function writeManifest(dir: string, manifest: Manifest): void;
 export declare function readManifest(dir: string): Manifest | undefined;
-//# sourceMappingURL=node-file.d.ts.map

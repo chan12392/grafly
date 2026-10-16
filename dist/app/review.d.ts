@@ -1,7 +1,7 @@
 import type { ReviewJob } from "./events.js";
 import type { Fetch } from "./identity.js";
 /** Hidden marker: how the App finds the comment it owns, on every later push. */
-export declare const MARKER = "<!-- graft-blast-radius -->";
+export declare const MARKER = "<!-- grafly-blast-radius -->";
 export interface ReviewDeps {
     token: (installationId: number) => Promise<string>;
     fetch: Fetch;
@@ -20,4 +20,3 @@ export interface ReviewResult {
     viewerUrl: string | null;
 }
 export declare function reviewPullRequest(job: ReviewJob, deps: ReviewDeps): Promise<ReviewResult>;
-//# sourceMappingURL=review.d.ts.map

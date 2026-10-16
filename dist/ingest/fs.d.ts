@@ -76,4 +76,3 @@ export declare function canonicalWalkRoot(dir: string): string;
  * path, and the filesystem walk still requires `Dirent.isFile` / `isDirectory`.
  */
 export declare function walkDir(dir: string, includes?: ReadonlySet<string>, opts?: WalkOptions): string[];
-//# sourceMappingURL=fs.d.ts.map

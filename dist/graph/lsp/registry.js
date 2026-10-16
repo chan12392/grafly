@@ -43,4 +43,3 @@ export function pickServer(languagesPresent) {
     }
     return null;
 }
-//# sourceMappingURL=registry.js.map

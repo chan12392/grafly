@@ -4,4 +4,3 @@ import type { ConfigWrite } from './config-write.js';
 export declare function antigravitySkillTargets(home: string): PlannedWrite[];
 /** Write graft's skill into `~/.gemini/skills/graft/SKILL.md`, idempotently. */
 export declare function installAntigravitySkill(home: string): ConfigWrite[];
-//# sourceMappingURL=antigravity.d.ts.map

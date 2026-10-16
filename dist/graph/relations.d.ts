@@ -11,4 +11,3 @@
  */
 import type { Relation } from "./types.js";
 export declare const WALK_RELATIONS: ReadonlySet<Relation>;
-//# sourceMappingURL=relations.d.ts.map

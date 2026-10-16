@@ -41,4 +41,3 @@ export declare function reviewJobFor(event: string, payload: unknown): {
 };
 /** Collapse queued work per pull request: only the newest push is worth reviewing. */
 export declare const jobKey: (j: ReviewJob) => string;
-//# sourceMappingURL=events.d.ts.map

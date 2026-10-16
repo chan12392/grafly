@@ -157,4 +157,3 @@ export function probeDrift(root, outDir) {
     drift.removed.sort();
     return drift;
 }
-//# sourceMappingURL=fingerprint.js.map

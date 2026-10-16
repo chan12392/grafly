@@ -82,4 +82,3 @@ export declare function sinceLabel(last: number, now?: number): string;
 export declare function mention(o: Owner): string;
 /** ISO day, for an exported page that has to stay truthful when opened later. */
 export declare function isoDay(ms: number): string;
-//# sourceMappingURL=owners.d.ts.map

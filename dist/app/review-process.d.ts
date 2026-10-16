@@ -63,4 +63,3 @@ export declare function reviewWorkerEntry(): string;
 export declare function childReviewer(opts?: ChildReviewerOptions): typeof reviewPullRequest;
 /** The App's default reviewer. */
 export declare const reviewInChildProcess: typeof reviewPullRequest;
-//# sourceMappingURL=review-process.d.ts.map

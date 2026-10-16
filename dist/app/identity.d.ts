@@ -84,4 +84,3 @@ export declare class InstallationTokens {
  * measure, and forging a signature is a total compromise of the endpoint.
  */
 export declare function verifySignature(secret: string, body: string, header: string | undefined): boolean;
-//# sourceMappingURL=identity.d.ts.map

@@ -122,4 +122,3 @@ function edgeOrder(a, b) {
         a.relation.localeCompare(b.relation) ||
         a.target.localeCompare(b.target));
 }
-//# sourceMappingURL=write.js.map

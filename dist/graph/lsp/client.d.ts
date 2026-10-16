@@ -40,4 +40,3 @@ export declare class LspClient {
     outgoingCalls(item: CallHierarchyItem): Promise<CallHierarchyItem[]>;
     dispose(): Promise<void>;
 }
-//# sourceMappingURL=client.d.ts.map

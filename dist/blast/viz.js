@@ -177,4 +177,3 @@ export function blastVizGraph(r, opts = {}) {
         edges,
     };
 }
-//# sourceMappingURL=viz.js.map

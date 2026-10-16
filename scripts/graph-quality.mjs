@@ -1,4 +1,5 @@
 import { contextDirFor } from '../dist/context/node-file.js';
+import { checkGraphInvariants } from '../dist/graph/invariants.js';
 /**
  * Graph-quality report + invariant check for a built graph (` .grafly/.graph/wiring.json`).
  *
@@ -17,10 +18,6 @@ import { contextDirFor } from '../dist/context/node-file.js';
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
-const KINDS = new Set(["file","class","function","method","interface","type","enum","struct","module","constant","variable"]);
-const RELATIONS = new Set(["contains","calls","imports","references","implements","extends"]);
-const CONFIDENCE = new Set(["lsp_resolved","lsp_dispatch","extracted","inferred"]);
-
 const arg = process.argv[2] ?? ".";
 const json = process.argv.includes("--json");
 const strict = process.argv.includes("--strict");
@@ -38,30 +35,18 @@ for (const n of nodes) { bump(byKind, n.kind); bump(byOrigin, n.origin ?? "?"); 
 for (const e of edges) { bump(byRel, e.relation); bump(byConf, e.confidence); }
 
 // ── invariants ──
-const problems = [];
-const seen = new Set();
-for (const n of nodes) {
-  if (seen.has(n.id)) problems.push(`dup id: ${n.id}`); seen.add(n.id);
-  if (!n.name || !String(n.name).trim()) problems.push(`empty name: ${n.id}`);
-  if (!KINDS.has(n.kind)) problems.push(`bad kind '${n.kind}': ${n.id}`);
-  const m = /^L(\d+)-L(\d+)$/.exec(n.span ?? "");
-  if (!m) problems.push(`bad span '${n.span}': ${n.id}`);
-  else if (Number(m[1]) > Number(m[2])) problems.push(`inverted span ${n.span}: ${n.id}`);
-}
+const { problems, selfLoopCalls: selfLoops } = checkGraphInvariants({ nodes, edges });
 // an edge target may be a node id OR a deliberately-unresolved external string
 // (import specifier / bare heritage name / unresolved Java annotation type);
 // only calls/contains must point at real nodes.
-let dangling = 0, selfLoops = 0, unresolvedExternal = 0;
+let dangling = 0, unresolvedExternal = 0;
 for (const e of edges) {
-  if (!RELATIONS.has(e.relation)) problems.push(`bad relation '${e.relation}'`);
-  if (!CONFIDENCE.has(e.confidence)) problems.push(`bad confidence '${e.confidence}'`);
-  if (!ids.has(e.source)) { problems.push(`dangling source: ${e.source}`); dangling++; }
+  if (!ids.has(e.source)) dangling++;
   const targetIsNode = ids.has(e.target);
   if (!targetIsNode) {
     if (e.relation === "imports" || e.relation === "extends" || e.relation === "implements" || e.relation === "references") unresolvedExternal++;
-    else { problems.push(`dangling ${e.relation} target: ${e.source} → ${e.target}`); dangling++; }
+    else dangling++;
   }
-  if (e.relation === "calls" && e.source === e.target) selfLoops++;
 }
 
 // ── resolution / connectivity metrics ──

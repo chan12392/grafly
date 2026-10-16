@@ -86,4 +86,3 @@ export declare function extractFile(rel: string, source: string, lang: Language)
  * with a single-guess suffix, so this keeps incrementing until it finds a
  * truly free id rather than trusting one candidate suffix is unused. */
 export declare function mintId(base: string, minted: Set<string>): string;
-//# sourceMappingURL=extract.d.ts.map

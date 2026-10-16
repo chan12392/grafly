@@ -105,4 +105,3 @@ process.on("message", (raw) => {
     awaiting.get(msg.seq)?.(msg.url);
     awaiting.delete(msg.seq);
 });
-//# sourceMappingURL=review-worker.js.map

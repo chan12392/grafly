@@ -1,6 +1,6 @@
 import { type Savings } from "../context/savings.js";
 import { type Direction, type EdgeHit } from "./traverse.js";
-import type { GraphV1, NodeV1 } from "./types.js";
+import type { GraphV1, NodeV1, Relation } from "./types.js";
 export interface CallersCliOptions {
     in?: string;
     json?: boolean;
@@ -10,7 +10,31 @@ export interface CallersCliOptions {
     depth?: string;
     /** the top-level `--dir` override, so this command respects it like every other. */
     globalDir?: string;
+    top?: string | number;
+    limit?: string | number;
 }
+export type WalkAdjacency = Map<string, Array<{ other: string; relation: Relation }>>;
+export declare function walkAdjacency(graph: GraphV1, direction: Direction): WalkAdjacency;
+export declare function sharedEdgeWalk(graph: GraphV1, adj: WalkAdjacency, byId: Map<string, NodeV1>, node: NodeV1, direction: Direction, depth: number): EdgeHit[];
+export interface CircuitReport {
+    verdict: "confident" | "abstain";
+    status: "ok" | "abstained";
+    gap: number;
+    reason: string;
+    reasonCodes: string[];
+    scoreType: "learned_ranking_weight";
+    scoreUnit: "rank_score";
+    confidence: null;
+    top: string;
+    scores: Array<{ id: string; score: number }>;
+}
+export declare function judgeAndRank(graph: GraphV1, query: string, matches: NodeV1[], ctx?: { cwdTokens?: Set<string> }): {
+    circuit: CircuitReport;
+    features: Array<{ id: string; [key: string]: string | number }>;
+} | null;
+export declare function circuitVerdictLine(circuit: Pick<CircuitReport, "verdict" | "gap" | "reason" | "top">, matchCount: number): string;
+export declare function circuitLogPath(contextDir: string): string | null;
+export declare function logCircuit(logPath: string | null, record: Record<string, unknown>): void;
 /** Exported so the MCP `graft_trace_calls` tool (`src/mcp/tools.ts`) can render the
  * same human report format as the CLI, rather than re-implementing it — both
  * surfaces walk the same edges via the same `resolveSymbol` / `edgeWalk` core. */
@@ -52,4 +76,3 @@ export declare function looseNoteFor(direction: Direction, name: string, candida
  */
 export declare function runCallersCommand(query: string, dir: string, opts: CallersCliOptions): void;
 export {};
-//# sourceMappingURL=traverse-cli.d.ts.map

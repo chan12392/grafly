@@ -132,4 +132,3 @@ export declare function reconcileWiring(repo: string, current: string, deps: {
     rewrite: (repo: string, hosts: string[], opts: WiringOpts) => void;
 }): WiringRefresh | null;
 export declare function formatWiringRefresh(r: WiringRefresh | null): string | null;
-//# sourceMappingURL=upkeep.d.ts.map

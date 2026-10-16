@@ -30,4 +30,3 @@ export declare function shortLabel(label: string): string;
 export declare function parentDir(dir: string): string;
 /** Fallback label: the file's directory, or `(root)` for a top-level file. */
 export declare function dirLabel(path: string): string;
-//# sourceMappingURL=modules.d.ts.map

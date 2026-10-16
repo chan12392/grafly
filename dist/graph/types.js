@@ -11,4 +11,3 @@
  * M1 populates Tier-1 only; Tier-2 fields ship as `pending`/null.
  */
 export {};
-//# sourceMappingURL=types.js.map

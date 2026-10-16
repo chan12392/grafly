@@ -39,4 +39,3 @@ export function main() {
     const ctxPct = typeof raw === 'number' ? Math.round(raw) : null;
     process.stdout.write(renderStatusline(stats, session, { ctxPct }).join('\n'));
 }
-//# sourceMappingURL=statusline.js.map

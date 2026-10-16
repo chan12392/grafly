@@ -12,6 +12,8 @@ export interface ConfigWrite {
  * the caller's expectations.
  */
 export declare function writeOwned(id: string, path: string, content: string, mode?: number): ConfigWrite;
+export declare function planOwned(id: string, path: string, content: string, mode?: number): ConfigWrite;
+export declare function mergeGraftHookEntries<T>(prior: T[], replacement?: T[]): T[];
 /** Whether a hooks-config entry is one graft installed (so an upgrade replaces
  *  it in place instead of stacking a second copy next to the stale one). The
  *  `?? ''` guards a stray `undefined` entry: `JSON.stringify(undefined)` is
@@ -33,4 +35,3 @@ export declare function readJsonObject(path: string): {
     root: Record<string, any>;
     existed: boolean;
 } | 'unparseable';
-//# sourceMappingURL=config-write.d.ts.map

@@ -1313,4 +1313,3 @@ function scopeFooterLines(r) {
         out.push(`also matched: ${scopeLabel(m.scope)} — narrow with --in ${scopeLabel(m.scope)}`);
     return out;
 }
-//# sourceMappingURL=ask.js.map

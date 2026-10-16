@@ -108,4 +108,3 @@ export function hostIds() {
 export function detectHosts(probe) {
     return HOSTS.filter((h) => h.detect(probe));
 }
-//# sourceMappingURL=registry.js.map

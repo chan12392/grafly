@@ -1,0 +1,60 @@
+# Documentation
+
+## Usage and integration
+
+- [Command output, archives and bounded reads](TOOL_OUTPUT.md)
+- [MC runtime](MC_RUNTIME.md)
+- [Installed host routing and acceptance evidence](MC_HOST_ROUTING.md)
+- [Hermes hook setup](HERMES_HOOK.md)
+- [Automatic deep indexing](AUTO_DEEP.md)
+- [Exact-symbol retrieval](EXACT_SYMBOL_RETRIEVAL.md)
+
+## Historical evaluations
+
+These documents record results at their stated revisions and dates.
+
+- [Deep indexing and MC review](DEEPIDX_MC_REVIEW.md)
+- [Hermes hook validation](HERMES_HOOK_VALIDATION.md)
+- [MC accuracy evaluation, 2026-09-21](MC_ACCURACY_EVAL_20260921.md)
+- [Initial prompt retrieval gate experiment](PROMPT_RETRIEVAL_GATE.md)
+- [Expanded prompt retrieval gate evaluation](PROMPT_RETRIEVAL_GATE_V2.md)
+- [Tool output validation, 2026-09-22](TOOL_OUTPUT_VALIDATION_20260922.md)
+
+The expanded prompt-gate evaluation supersedes the initial measurements; both
+remain available for provenance.
+
+## Retired features
+
+- [Session compaction retirement](SESSION_COMPACT.md)
+- [Live session compaction retirement](LIVE_SESSION_COMPACT.md)
+
+The session compaction implementations are no longer shipped. These notices
+preserve the retirement context and point to command output handling.
+
+## GitHub App startup
+
+The optional GitHub App server starts with `node dist/app/main.js`. This checkout
+contains no deployment automation; the operator must provide hosting, secrets,
+TLS/routing and process supervision.
+
+Set `GRAFLY_APP_ID`, `GRAFLY_APP_PRIVATE_KEY` (PEM, raw or with escaped newlines),
+`GRAFLY_WEBHOOK_SECRET`, and `GRAFLY_PUBLIC_URL`. `PORT` defaults to `3000` and
+`GRAFLY_CONCURRENCY` to `2`. LLM-backed operations use the normal Grafly provider
+configuration. Set `GRAFLY_PAGE_DIR` to persistent storage if review page links
+must survive restarts. `GRAFLY_BRAIN_BUILD_SECRET` explicitly enables the optional
+`POST /brain/build` route. The server drains its queue on SIGTERM/SIGINT with a
+25-second shutdown deadline. These are startup requirements, not evidence of an
+existing deployment.
+
+## Outstanding dependency advisory
+
+`npm audit` currently reports four moderate entries along the single
+`gray-matter → js-yaml → argparse → sprintf-js` chain. The underlying
+[sprintf-js advisory](https://github.com/advisories/GHSA-hp3w-g68c-fv3c)
+lists no patched version. Grafly uses gray-matter for local frontmatter handling.
+
+Do not use `npm audit fix --force`: the reported fix downgrades gray-matter to
+2.0.1 across a major-version boundary. A major override of js-yaml/argparse also
+changes their APIs and needs separate compatibility work. Retain the current
+dependency until a compatible fix or a verified parser migration is available;
+the warning is not suppressed.

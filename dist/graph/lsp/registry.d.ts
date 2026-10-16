@@ -12,4 +12,3 @@ export declare const LSP_SERVERS: readonly LspServer[];
  * languages present in the repo, with `command` resolved to an absolute path.
  * Returns null if none is installed. */
 export declare function pickServer(languagesPresent: Set<string>): LspServer | null;
-//# sourceMappingURL=registry.d.ts.map

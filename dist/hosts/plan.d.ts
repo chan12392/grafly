@@ -29,4 +29,3 @@ export declare function planInit(repo: string, opts?: {
 }): HostPlan[];
 /** Flatten a plan down to the writes for the selected host ids. */
 export declare function selectedWrites(plan: HostPlan[], ids: string[]): PlannedWrite[];
-//# sourceMappingURL=plan.d.ts.map

@@ -30,4 +30,3 @@ export function readSession(d, id) {
 export function writeSession(d, id, s) {
     writeJsonAtomic(sessionPath(d, id), s);
 }
-//# sourceMappingURL=state.js.map

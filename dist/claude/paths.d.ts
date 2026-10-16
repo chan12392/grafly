@@ -6,4 +6,3 @@ export declare function graftCliPath(): string;
 export declare function claudeDistDir(): string;
 /** Absolute path to a sibling script in the claude dir (e.g. `sync-run.js`). */
 export declare function claudeScriptPath(name: string): string;
-//# sourceMappingURL=paths.d.ts.map

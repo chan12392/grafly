@@ -9,4 +9,3 @@ export interface VizServer {
     close(): Promise<void>;
 }
 export declare function startVizServer(opts: VizServerOptions): Promise<VizServer>;
-//# sourceMappingURL=serve.d.ts.map

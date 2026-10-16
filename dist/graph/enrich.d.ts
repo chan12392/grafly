@@ -59,4 +59,3 @@ export interface EnrichStats {
     fatal?: string;
 }
 export declare function enrichGraph(nodes: NodeV1[], prior: Map<string, NodeV1>, sources: Map<string, string>, opts?: EnrichOptions): Promise<EnrichStats>;
-//# sourceMappingURL=enrich.d.ts.map

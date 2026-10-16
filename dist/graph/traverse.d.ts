@@ -48,6 +48,8 @@ export interface ResolveSymbolOptions {
  * substring. Multiple matches are not an error — every match is returned.
  */
 export declare function resolveSymbol(graph: GraphV1, query: string, opts?: ResolveSymbolOptions): NodeV1[];
+/** Remove extractor collision ordinals for qualified-name matching. */
+export declare function stripOrdinals(idTail: string): string;
 /** One traversed edge. `node` is null when the edge's other endpoint isn't a
  * real node in the graph (e.g. an unresolved import module string) — such
  * hits are kept, labeled by the raw id, rather than dropped. */
@@ -109,4 +111,3 @@ export declare function impactOfFile(graph: GraphV1, fileNode: NodeV1, maxDepth?
  * {@link impactOfMany}) so file-level dependents aren't silently dropped.
  */
 export declare function edgeWalk(graph: GraphV1, node: NodeV1, direction: Direction, depth: number): EdgeHit[];
-//# sourceMappingURL=traverse.d.ts.map

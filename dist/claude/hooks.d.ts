@@ -44,4 +44,3 @@ export declare function editedFilePath(input: any, dir: string): string | null;
  */
 export declare function lastFileScopeHint(dir: string, lastFile: string | null | undefined): string | null;
 export declare function main(event: string): Promise<void>;
-//# sourceMappingURL=hooks.d.ts.map

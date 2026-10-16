@@ -48,4 +48,3 @@ export declare function reachTerms(seeds: Seed[], changed: ChangedFile[]): Reach
 /** Read each file once, and never fail: a snippet is a nicety, and a symbol whose
  * file moved under us must not take the whole page down. */
 export declare function fileReader(root: string | undefined): (path: string) => string[] | null;
-//# sourceMappingURL=evidence.d.ts.map

@@ -44,4 +44,3 @@ export declare function planRetract(repo: string, opts?: RetractOpts): Retractio
 export declare function runRetract(repo: string, opts?: RetractOpts): Retraction[];
 /** The subset worth showing a user: targets that had something to remove. */
 export declare function changed(retractions: Retraction[]): Retraction[];
-//# sourceMappingURL=retract.d.ts.map

@@ -30,4 +30,3 @@ export interface InvariantResult {
 }
 /** Check a graph's structural invariants. `problems` is empty for a valid graph. */
 export declare function checkGraphInvariants(graph: GraphV1): InvariantResult;
-//# sourceMappingURL=invariants.d.ts.map

@@ -65,4 +65,3 @@ export declare function readBranchProtection(owner: string, repo: string, branch
 export declare function budgetSources(sources: HistorySource[], maxChars?: number, maxCount?: number): HistorySource[];
 /** Repo-relative path, for readers handed an absolute one. */
 export declare function relPath(root: string, abs: string): string;
-//# sourceMappingURL=sources.d.ts.map

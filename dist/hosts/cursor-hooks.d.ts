@@ -15,4 +15,3 @@ export declare function cursorHookTargets(repo: string): PlannedWrite[];
  * so an upgrade re-points to the current shim/sub-command instead of stacking.
  */
 export declare function installCursorHooks(repo: string): ConfigWrite[];
-//# sourceMappingURL=cursor-hooks.d.ts.map

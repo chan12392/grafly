@@ -21,4 +21,3 @@ export function computeStats(w) {
         readyCount,
     };
 }
-//# sourceMappingURL=stats.js.map

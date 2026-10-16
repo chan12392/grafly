@@ -37,4 +37,3 @@ export declare class WorkQueue<T> {
     drain(): Promise<void>;
     private pump;
 }
-//# sourceMappingURL=queue.d.ts.map

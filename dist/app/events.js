@@ -61,4 +61,3 @@ export function reviewJobFor(event, payload) {
 }
 /** Collapse queued work per pull request: only the newest push is worth reviewing. */
 export const jobKey = (j) => `${j.owner}/${j.repo}#${j.number}`;
-//# sourceMappingURL=events.js.map

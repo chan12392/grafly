@@ -68,4 +68,3 @@ export function normalizePathPrefix(p) {
     // which is exactly how `pathUnderPrefix` reads an empty prefix.
     return stripTrailingSlashes(out);
 }
-//# sourceMappingURL=paths.js.map

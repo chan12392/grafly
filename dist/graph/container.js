@@ -182,4 +182,3 @@ export function extractContainer(rel, source, lang) {
     nodes.unshift(containerFileNode(rel, source, residuals.join("\n")));
     return { nodes, rawEdges };
 }
-//# sourceMappingURL=container.js.map

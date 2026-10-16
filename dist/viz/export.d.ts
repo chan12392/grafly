@@ -36,4 +36,3 @@ export interface VizExportResult {
     tabs: Array<"context" | "code" | "outline">;
 }
 export declare function exportViz(opts: VizExportOptions): VizExportResult;
-//# sourceMappingURL=export.d.ts.map

@@ -62,4 +62,3 @@ export function windsurfRule() {
     return `${instructionBody()}
 `;
 }
-//# sourceMappingURL=instructions.js.map

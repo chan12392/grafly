@@ -15,4 +15,3 @@ export declare function traversePath(outDir: string): string;
  */
 export declare function readGraph(path: string): GraphV1 | null;
 export declare function writeGraph(graph: GraphV1, outDir: string): string;
-//# sourceMappingURL=write.d.ts.map

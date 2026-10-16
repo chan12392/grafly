@@ -6,6 +6,6 @@ import { type ConfigWrite } from './config-write.js';
  * repo opened with Codex, not just this one. Empty when the CLI isn't installed,
  * mirroring `installCodexHooks`' early return.
  */
-export declare function hookTargets(home: string): PlannedWrite[];
-export declare function installCodexHooks(home: string): ConfigWrite[];
-//# sourceMappingURL=codex-hooks.d.ts.map
+export declare function codexHomeDir(home?: string): string;
+export declare function hookTargets(home?: string): PlannedWrite[];
+export declare function installCodexHooks(home?: string, options?: { apply?: boolean }): ConfigWrite[];

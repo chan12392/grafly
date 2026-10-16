@@ -73,4 +73,3 @@ export declare function driftCount(d: Drift): number;
  */
 export declare function probeDrift(root: string, outDir: string): Drift | null;
 export {};
-//# sourceMappingURL=fingerprint.d.ts.map

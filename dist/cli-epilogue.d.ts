@@ -15,4 +15,3 @@ export interface InitEpilogueOptions {
 /** Renders the `graft init` next-steps epilogue (no trailing newline — the
  * caller's `console.error` adds the one trailing newline). */
 export declare function formatInitEpilogue(opts: InitEpilogueOptions): string;
-//# sourceMappingURL=cli-epilogue.d.ts.map

@@ -824,4 +824,3 @@ function resolveGoImport(spec, modules, filesByDir) {
         return spec;
     return [...files].sort()[0];
 }
-//# sourceMappingURL=resolve.js.map

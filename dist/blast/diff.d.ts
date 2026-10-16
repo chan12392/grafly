@@ -50,4 +50,3 @@ export declare function refExists(root: string, ref: string): boolean;
  * and CI passes `--base` for the real PR range.
  */
 export declare function changedFiles(root: string, base?: string): DiffResult | null;
-//# sourceMappingURL=diff.d.ts.map

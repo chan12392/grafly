@@ -46,4 +46,3 @@ export declare function dollarsSaved(savedTokens: number, costMicros: number | u
  * rounded-to-nothing number reads as "graft saved you nothing", which is a
  * different claim from "graft saved you less than a cent". */
 export declare function formatDollars(usd: number): string;
-//# sourceMappingURL=price.d.ts.map

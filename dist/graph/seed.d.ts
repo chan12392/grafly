@@ -35,4 +35,3 @@ export interface SeedResult {
 export declare function seedGraph(root: string, opts?: {
     contextDir?: string;
 }): SeedResult;
-//# sourceMappingURL=seed.d.ts.map

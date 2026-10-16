@@ -273,4 +273,3 @@ export function formatWiringRefresh(r) {
     const scope = r.global && r.hosts.includes('agents') ? " (including this machine's ~/.codex config)" : '';
     return `· grafly refreshed this repo's agent wiring${scope} (written by ${r.from}, now ${r.to}): ${r.hosts.join(', ')}.`;
 }
-//# sourceMappingURL=upkeep.js.map

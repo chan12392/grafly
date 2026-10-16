@@ -192,4 +192,3 @@ export interface ScopeRankOps {
  * child repo, so it still gates on strength; see `src/graph/workspace.ts`.
  */
 export declare function rankScopesAndFuse(scopes: string[], ops: ScopeRankOps, graphWeight: number, rescueFloor: number): FusionResult;
-//# sourceMappingURL=fuse.d.ts.map

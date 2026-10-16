@@ -19,4 +19,3 @@ export function claudeDistDir() {
 export function claudeScriptPath(name) {
     return join(CLAUDE_DIR, name);
 }
-//# sourceMappingURL=paths.js.map

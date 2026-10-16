@@ -1,5 +1,4 @@
 import { type GlobalWrite } from '../hosts/claude-global.js';
-import { type McpWrite } from '../hosts/mcp-config.js';
 import type { PlannedWrite } from '../hosts/plan.js';
 /**
  * The files `runInit` writes — pure, no writes, so `--dry-run` and the picker
@@ -21,8 +20,6 @@ export interface InitResult {
     settingsPath: string;
     shims: string[];
     skill: string;
-    /** the `.mcp.json` write registering the graft MCP server for Claude Code. */
-    mcp: McpWrite;
     /** the user-level writes under `~/.claude`, empty when `global: false`. */
     global: GlobalWrite[];
     warnings: string[];
@@ -35,4 +32,3 @@ export declare function runInit(dir: string, opts?: {
     global?: boolean;
     home?: string;
 }): InitResult;
-//# sourceMappingURL=init.d.ts.map

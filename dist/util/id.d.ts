@@ -4,4 +4,3 @@ export declare function newId(prefix: string): string;
 export declare function contentHash(input: string): string;
 /** Normalize a name/alias for case- and whitespace-insensitive matching. */
 export declare function normalizeName(name: string): string;
-//# sourceMappingURL=id.d.ts.map

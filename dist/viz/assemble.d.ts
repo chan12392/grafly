@@ -80,4 +80,3 @@ export declare const NORMALIZE_RELATION: Record<string, string>;
 export declare function normalizeRelation(rel: string): string;
 /** Read a context dir and assemble the render-ready graph document. */
 export declare function assembleContextGraph(contextDir: string): VizGraph;
-//# sourceMappingURL=assemble.d.ts.map

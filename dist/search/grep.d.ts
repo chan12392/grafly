@@ -57,4 +57,3 @@ export interface GrepOptions {
     maxHits?: number;
 }
 export declare function grepGraph(graph: GraphV1, repoRoot: string, pattern: string, opts?: GrepOptions): GrepResult;
-//# sourceMappingURL=grep.d.ts.map

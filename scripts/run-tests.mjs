@@ -8,8 +8,13 @@ if (!existsSync(testDir)) { console.error(`✗ no test directory found in ${test
 const files = readdirSync(testDir).filter((f) => /\.test\.(?:mjs|js|ts)$/.test(f)).sort().map((f) => join(testDir, f));
 if (files.length === 0) { console.error(`✗ no test files found in ${testDir}`); process.exit(1); }
 const gitEnv={GIT_CONFIG_COUNT:"2",GIT_CONFIG_KEY_0:"commit.gpgsign",GIT_CONFIG_VALUE_0:"false",GIT_CONFIG_KEY_1:"tag.gpgsign",GIT_CONFIG_VALUE_1:"false"};
+// User-level product settings must not change test defaults. Keep only the
+// explicit external-runtime opt-ins; test fixtures set their own other flags.
+const optIns=new Set(["GRAFLY_TEST_CODEX","GRAFLY_TEST_PYTHON"]);
+const testEnv=Object.fromEntries(Object.entries(process.env).filter(([key])=>
+    !/^(?:GRAFLY|GRAFT)_/i.test(key)||optIns.has(key.toUpperCase())));
 const hasTs=files.some((f)=>f.endsWith(".ts"));
 const args=[...(hasTs?["--import","tsx"]:[]),"--test",...files];
-const result=spawnSync(process.execPath,args,{cwd:repoRoot,stdio:"inherit",env:{...process.env,...gitEnv}});
+const result=spawnSync(process.execPath,args,{cwd:repoRoot,stdio:"inherit",windowsHide:true,env:{...testEnv,...gitEnv}});
 if(result.error){console.error(`✗ could not start test runner: ${result.error.message}`);process.exit(1);}
 process.exit(result.status??1);

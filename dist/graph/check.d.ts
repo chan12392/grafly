@@ -22,4 +22,3 @@ export interface GraphCheckOptions {
 export declare function checkGraph(dir: string, opts?: GraphCheckOptions): Promise<GraphCheckResult>;
 /** Render a graph-check result as a human-readable report. */
 export declare function formatGraphCheckReport(r: GraphCheckResult): string;
-//# sourceMappingURL=check.d.ts.map

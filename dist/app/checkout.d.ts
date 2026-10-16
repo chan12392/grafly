@@ -75,4 +75,3 @@ export interface RepoCheckout {
 export declare function checkoutRepository(req: RepoCheckoutRequest): RepoCheckout;
 /** Never let a token reach a log line, even inside git's own error text. */
 export declare function redact(text: string, token: string): string;
-//# sourceMappingURL=checkout.d.ts.map

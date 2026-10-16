@@ -11,4 +11,3 @@ export function contentHash(input) {
 export function normalizeName(name) {
     return name.trim().toLowerCase().replace(/\s+/g, " ");
 }
-//# sourceMappingURL=id.js.map

@@ -80,4 +80,3 @@ export function dirLabel(path) {
     const cut = path.lastIndexOf("/");
     return cut === -1 ? "(root)" : path.slice(0, cut) + "/";
 }
-//# sourceMappingURL=modules.js.map

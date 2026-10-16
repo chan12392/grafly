@@ -6,4 +6,3 @@ export declare function instructionBody(): string;
 export declare function cursorRule(): string;
 export declare function kiroSteering(): string;
 export declare function windsurfRule(): string;
-//# sourceMappingURL=instructions.d.ts.map

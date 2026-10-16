@@ -953,4 +953,3 @@ function defScope(node, langName) {
     }
     return n;
 }
-//# sourceMappingURL=generic.js.map

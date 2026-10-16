@@ -65,4 +65,3 @@ export interface TsNode {
     namedChild?(i: number): TsNode | null;
     childForFieldName?(field: string): TsNode | null;
 }
-//# sourceMappingURL=generic.d.ts.map

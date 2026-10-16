@@ -208,4 +208,3 @@ export function renderSubagent(agentName, session) {
     const tail = q ? SEP + C.muted('grafly: ') + C.text(q) : '';
     return C.muted('◤ ') + C.indigo(agentName) + tail;
 }
-//# sourceMappingURL=format.js.map

@@ -341,4 +341,3 @@ export function rankScopesAndFuse(scopes, ops, graphWeight, rescueFloor) {
         alsoMatched: [...alsoMatched, ...combined.alsoMatched],
     };
 }
-//# sourceMappingURL=fuse.js.map

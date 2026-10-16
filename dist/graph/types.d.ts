@@ -75,4 +75,3 @@ export interface GraphV1 {
     nodes: NodeV1[];
     edges: EdgeV1[];
 }
-//# sourceMappingURL=types.d.ts.map

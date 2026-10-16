@@ -43,4 +43,3 @@ export function main() {
 // Run only when executed directly (node dist/claude/sync-run.js <dir>), not on import.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
     main();
-//# sourceMappingURL=sync-run.js.map

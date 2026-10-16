@@ -29,4 +29,3 @@ export declare function zeroHitNote(result: GrepResult): string;
  * error: it prints a loud note to stderr and exits 0.
  */
 export declare function runGrepCommand(pattern: string, dir: string, opts: GrepCliOptions): void;
-//# sourceMappingURL=grep-cli.d.ts.map

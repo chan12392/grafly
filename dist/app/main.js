@@ -65,4 +65,3 @@ for (const signal of ["SIGTERM", "SIGINT"]) {
         setTimeout(() => process.exit(1), 25_000).unref();
     });
 }
-//# sourceMappingURL=main.js.map

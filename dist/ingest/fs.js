@@ -304,4 +304,3 @@ function walkFilesystem(dir, includes) {
     }
     return out;
 }
-//# sourceMappingURL=fs.js.map

@@ -39,4 +39,3 @@ export function installAntigravitySkill(home) {
     writeFileSync(path, content);
     return [{ id: 'antigravity-skill', path, action: existed ? 'updated' : 'created' }];
 }
-//# sourceMappingURL=antigravity.js.map

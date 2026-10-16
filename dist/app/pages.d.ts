@@ -53,4 +53,3 @@ export declare class PageStore {
     private write;
     private remove;
 }
-//# sourceMappingURL=pages.d.ts.map

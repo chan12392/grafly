@@ -115,4 +115,3 @@ export function upsertSection(filePath, body, markers = GRAFT_MARKERS) {
     writeFileSync(filePath, `${text}${sep}${block}${eol}`);
     return { action: 'appended' };
 }
-//# sourceMappingURL=sections.js.map

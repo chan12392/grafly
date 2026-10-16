@@ -30,4 +30,3 @@ export declare function claudeGlobalTargets(home: string): PlannedWrite[];
  * action, never raised, so a bad `~/.claude.json` can't fail a `graft init`.
  */
 export declare function installClaudeGlobal(home: string): GlobalWrite[];
-//# sourceMappingURL=claude-global.d.ts.map

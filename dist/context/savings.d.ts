@@ -64,4 +64,3 @@ export declare function sumSavingsFooters(text: string): number;
  * survives. Emitted once — a second copy at the bottom would be double-counted
  * by that accumulator's `matchAll`. */
 export declare function withSavings(body: string, saved: Savings | undefined): string;
-//# sourceMappingURL=savings.d.ts.map

@@ -8,4 +8,3 @@ export declare function enrichWithLsp(graph: GraphV1, root: string, opts?: {
     onProgress?: (done: number, total: number) => void;
     maxNodes?: number;
 }): Promise<LspEnrichResult>;
-//# sourceMappingURL=enrich.d.ts.map

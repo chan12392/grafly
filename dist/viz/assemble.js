@@ -98,4 +98,3 @@ export function assembleContextGraph(contextDir) {
         edges,
     };
 }
-//# sourceMappingURL=assemble.js.map

@@ -36,6 +36,8 @@
   },
   "files": [
     "dist",
+    "!dist/**/*.map",
+    "!dist/graph/types.js",
     "native/Cargo.toml",
     "native/Cargo.lock",
     "native/build.rs",

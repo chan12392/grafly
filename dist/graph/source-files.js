@@ -82,4 +82,3 @@ export function listSourceStats(root, outDir, repoFiles, onlyDirs) {
     }
     return out;
 }
-//# sourceMappingURL=source-files.js.map

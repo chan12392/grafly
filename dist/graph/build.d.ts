@@ -55,4 +55,3 @@ export interface GraphBuildResult {
     errors: string[];
 }
 export declare function buildGraph(dir: string, opts?: GraphBuildOptions): Promise<GraphBuildResult>;
-//# sourceMappingURL=build.d.ts.map

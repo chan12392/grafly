@@ -57,4 +57,3 @@ export declare function createApp(config: AppConfig, seams?: AppSeams): {
     queue: WorkQueue<ReviewJob>;
     pages: PageStore;
 };
-//# sourceMappingURL=server.d.ts.map

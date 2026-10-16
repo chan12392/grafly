@@ -73,12 +73,14 @@ export interface BuildConfig {
         brainId: string;
         token: string;
         baseUrl?: string;
+        local?: boolean;
     };
 }
 /** Local, Git-ignored repository configuration. Kept outside generated
  * `graft/` output so deleting/replacing that cache, workspace federation, and
  * custom `--dir` builds cannot erase or redirect the persisted choice. */
-export declare const BUILD_CONFIG_DIR = ".graft";
+export declare const BUILD_CONFIG_DIR = ".grafly";
+export declare const LEGACY_BUILD_CONFIG_DIR = ".graft";
 export declare function buildConfigPath(d: string): string;
 export declare function readBuildConfig(d: string): BuildConfig | null;
 export declare function writeBuildConfig(d: string, c: BuildConfig): void;
@@ -106,4 +108,3 @@ export declare function releaseLock(d: string): void;
  */
 export declare function acquireLockIn(cache: string): boolean;
 export declare function releaseLockIn(cache: string): void;
-//# sourceMappingURL=state.d.ts.map

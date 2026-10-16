@@ -22,7 +22,7 @@ export function checkGraphInvariants(graph) {
     const seen = new Set();
     for (const n of graph.nodes) {
         if (seen.has(n.id))
-            problems.push(`duplicate node id: ${n.id}`);
+            problems.push(`dup id: ${n.id}`);
         seen.add(n.id);
         if (!n.name || !String(n.name).trim())
             problems.push(`empty name: ${n.id}`);
@@ -37,9 +37,9 @@ export function checkGraphInvariants(graph) {
     let selfLoopCalls = 0;
     for (const e of graph.edges) {
         if (!RELATIONS.has(e.relation))
-            problems.push(`bad relation '${e.relation}': ${e.source}`);
+            problems.push(`bad relation '${e.relation}'`);
         if (!CONFIDENCE.has(e.confidence))
-            problems.push(`bad confidence '${e.confidence}': ${e.source} → ${e.target}`);
+            problems.push(`bad confidence '${e.confidence}'`);
         if (!ids.has(e.source))
             problems.push(`dangling source: ${e.source}`);
         if (!ids.has(e.target) && !TARGET_MAY_BE_EXTERNAL.has(e.relation))
@@ -49,4 +49,3 @@ export function checkGraphInvariants(graph) {
     }
     return { problems, selfLoopCalls };
 }
-//# sourceMappingURL=invariants.js.map

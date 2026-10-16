@@ -142,4 +142,3 @@ async function findComment(base, headers, fetchImpl) {
     }
     return null;
 }
-//# sourceMappingURL=review.js.map

@@ -339,4 +339,3 @@ export function discoverWorkspaceChildren(root) {
 export function scopesOfGraph(graph) {
     return graph.meta.scopes ?? CANONICAL_ROOT;
 }
-//# sourceMappingURL=scopes.js.map

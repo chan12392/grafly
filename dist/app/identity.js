@@ -165,4 +165,3 @@ export function verifySignature(secret, body, header) {
     const b = Buffer.from(header);
     return a.length === b.length && timingSafeEqual(a, b);
 }
-//# sourceMappingURL=identity.js.map

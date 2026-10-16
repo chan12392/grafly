@@ -15,4 +15,3 @@ export interface HostTarget {
 export declare const HOSTS: HostTarget[];
 export declare function hostIds(): string[];
 export declare function detectHosts(probe: DetectProbe): HostTarget[];
-//# sourceMappingURL=registry.d.ts.map

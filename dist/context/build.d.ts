@@ -51,4 +51,3 @@ export interface BuildResult {
  */
 export declare function listContextFiles(root: string, outDir: string, exts: readonly string[], explicitOnlyDirs?: readonly string[]): string[];
 export declare function buildContext(dir: string, opts: BuildOptions): Promise<BuildResult>;
-//# sourceMappingURL=build.d.ts.map

@@ -1,5 +1,5 @@
-export declare const START = "<!-- graft:start -->";
-export declare const END = "<!-- graft:end -->";
+export declare const START = "<!-- grafly:start -->";
+export declare const END = "<!-- grafly:end -->";
 /**
  * A brain's rules go in their OWN fenced block, not inside the instruction
  * block above.
@@ -10,8 +10,8 @@ export declare const END = "<!-- graft:end -->";
  * refresh rewrites the instructions too, and `graft uninstall` could not remove
  * one without the other.
  */
-export declare const BRAIN_START = "<!-- graft:brain:start -->";
-export declare const BRAIN_END = "<!-- graft:brain:end -->";
+export declare const BRAIN_START = "<!-- grafly:brain:start -->";
+export declare const BRAIN_END = "<!-- grafly:brain:end -->";
 /** One addressable managed region in a file the user owns. */
 export interface Markers {
     start: string;
@@ -27,5 +27,7 @@ export declare function fencedBlock(body: string, eol?: LineEnding, markers?: Ma
 export declare function upsertSection(filePath: string, body: string, markers?: Markers): {
     action: UpsertAction;
 };
+export declare function removeSection(filePath: string, markers?: Markers): {
+    action: 'removed' | 'unchanged';
+};
 export {};
-//# sourceMappingURL=sections.d.ts.map
