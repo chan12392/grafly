@@ -5,9 +5,9 @@ import { dirname, join } from 'node:path';
 // hooks work when graft is installed as a dependency in someone else's repo (where
 // <projectDir>/dist/ does not exist). In graft's own repo it resolves to ./dist all the same.
 const CLAUDE_DIR = dirname(fileURLToPath(import.meta.url));
-/** Absolute path to the graft CLI (`<pkgRoot>/dist/cli.js`), resolved from this module. */
+/** Absolute path to the Grafly entry shim, resolved from this module. */
 export function graftCliPath() {
-    return join(CLAUDE_DIR, '..', 'cli.js');
+    return join(CLAUDE_DIR, '..', 'entry.js');
 }
 /** Absolute path to this package's `dist/claude` dir. Baked into the generated shims at
  * init time as their primary resolution candidate, so the statusline/hooks find graft

@@ -38,7 +38,7 @@ export function readXerjState(outDir) {
 function sourceStamp(outDir) {
     return [wiringPath(outDir), askIndexPath(outDir)].map((path) => {
         const s = statSync(path);
-        return [s.mtimeMs, s.size];
+        return [s.mtimeMs, s.ctimeMs, s.size, s.ino];
     });
 }
 
@@ -46,7 +46,7 @@ function sameStamp(a, b) {
     return JSON.stringify(a) === JSON.stringify(b);
 }
 
-async function request(endpoint, path, { method = "GET", body, ndjson = false, timeout = 1000 } = {}) {
+async function request(endpoint, path, { method = "GET", body, ndjson = false, timeout = 1000, signal } = {}) {
     const key = process.env.GRAFLY_XERJ_API_KEY;
     const res = await fetch(`${endpoint}${path}`, {
         method,
@@ -56,7 +56,7 @@ async function request(endpoint, path, { method = "GET", body, ndjson = false, t
             ...(key ? { authorization: `ApiKey ${key}` } : {}),
         },
         body: body === undefined ? undefined : ndjson ? body : JSON.stringify(body),
-        signal: AbortSignal.timeout(timeout),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout),
     });
     if (!res.ok)
         throw new Error(`XERJ HTTP ${res.status}`);
@@ -71,7 +71,7 @@ function bagText(bag) {
 /** Sync every graph node, publishing the manifest only after all bulk writes
  * succeed. Physical indexes are scoped to checkout + content generation, so a
  * failed/new build cannot alter the previously published search generation. */
-export async function syncXerj(root, outDir, endpoint) {
+export async function syncXerj(root, outDir, endpoint, { signal } = {}) {
     const previous = readXerjState(outDir);
     if (endpoint === undefined && !previous)
         return null;
@@ -94,7 +94,7 @@ export async function syncXerj(root, outDir, endpoint) {
     let exists = false;
     let count;
     try {
-        count = await request(endpoint, `/${index}/_count`);
+        count = await request(endpoint, `/${index}/_count`, { signal });
         exists = true;
         present = count.count === graph.nodes.length;
     }
@@ -102,7 +102,7 @@ export async function syncXerj(root, outDir, endpoint) {
     if (count?.count > graph.nodes.length)
         throw new Error("XERJ generation contains unexpected documents");
     if (!present) {
-        if (!exists) await request(endpoint, `/${index}`, { method: "PUT", timeout: 10000, body: {
+        if (!exists) await request(endpoint, `/${index}`, { method: "PUT", timeout: 10000, signal, body: {
             mappings: { properties: {
                 name: { type: "text" }, path: { type: "text" }, body: { type: "text" },
                 source_path: { type: "keyword" }, is_test: { type: "boolean" },
@@ -113,7 +113,7 @@ export async function syncXerj(root, outDir, endpoint) {
         const flush = async () => {
             if (!lines.length) return;
             const result = await request(endpoint, "/_bulk", {
-                method: "POST", body: `${lines.join("\n")}\n`, ndjson: true, timeout: 30000,
+                method: "POST", body: `${lines.join("\n")}\n`, ndjson: true, timeout: 30000, signal,
             });
             if (result.errors || !Array.isArray(result.items) || result.items.length !== lines.length / 2 ||
                 result.items.some((item) => !item.index || item.index.status >= 300))
@@ -132,7 +132,7 @@ export async function syncXerj(root, outDir, endpoint) {
             bytes += size;
         }
         await flush();
-        const count = await request(endpoint, `/${index}/_count`, { timeout: 10000 });
+        const count = await request(endpoint, `/${index}/_count`, { timeout: 10000, signal });
         if (count.count !== graph.nodes.length)
             throw new Error("XERJ graph index is incomplete; previous generation retained");
     }

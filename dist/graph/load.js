@@ -5,19 +5,15 @@
  * process — a workspace command, or `graft ask` invoked repeatedly in one
  * process — that means re-parsing the same ~tens-of-MB JSON on every call.
  *
- * Keyed by `(path, mtimeMs, size)` from `statSync`, so a rebuild (`graft
+ * Keyed by `(path, mtimeMs, ctimeMs, inode, size)` from `statSync`, so a rebuild (`graft
  * build`) is picked up on the very next call with no polling and no TTL: the
  * stat is cheap relative to the parse it guards, and a changed mtime or size
  * invalidates the entry. A missing file returns null and is never cached — the
  * next call re-stats, so a file created after a prior miss is picked up
  * immediately (no negative caching).
  *
- * **Cache invalidation assumption:** This strategy assumes filesystem mtime
- * resolution is finer than build cadence. This is safe because `graft build`
- * rewrites the entire output file atomically, so same-size rewrites within a
- * single mtime tick (which would serve stale data) are infeasible in practice.
- * On APFS (macOS) mtime is nanosecond-granular and a build takes milliseconds,
- * so invalidation is immediate and reliable.
+ * ctime and inode also detect same-size replacements whose mtime is restored
+ * by checkout/sync tools. In-process rebuilds still invalidate explicitly.
  *
  * Dependency-free by design: this module imports only `node:fs`, `./write.js`,
  * and `../ask/index-file.js`, so it can be imported from `ask.ts`, the CLI
@@ -41,7 +37,7 @@ export function __resetParseCounts() {
 function statOf(path) {
     try {
         const s = statSync(path);
-        return { mtimeMs: s.mtimeMs, size: s.size };
+        return { mtimeMs: s.mtimeMs, ctimeMs: s.ctimeMs, ino: s.ino, size: s.size };
     }
     catch {
         return null;
@@ -57,12 +53,12 @@ function loadCached(cache, path, parse, onParse) {
         return null;
     }
     const cached = cache.get(path);
-    if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+    if (cached && cached.mtimeMs === st.mtimeMs && cached.ctimeMs === st.ctimeMs && cached.ino === st.ino && cached.size === st.size) {
         return cached.value;
     }
     onParse();
     const value = parse();
-    cache.set(path, { mtimeMs: st.mtimeMs, size: st.size, value });
+    cache.set(path, { ...st, value });
     return value;
 }
 /** Cached `readGraph(wiringPath(outDir))` — same null-on-missing/unparseable
