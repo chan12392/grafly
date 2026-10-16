@@ -36,6 +36,11 @@
   },
   "files": [
     "dist",
+    "native/Cargo.toml",
+    "native/Cargo.lock",
+    "native/build.rs",
+    "native/src",
+    "THIRD_PARTY_NOTICES",
     "scripts",
     "service",
     "README.md",
@@ -43,6 +48,7 @@
     "TELEMETRY.md"
   ],
   "scripts": {
+    "build:xerj": "node scripts/build-xerj.mjs",
     "test": "node scripts/run-tests.mjs",
     "postinstall": "node scripts/postinstall.mjs"
   },

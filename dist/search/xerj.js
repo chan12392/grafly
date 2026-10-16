@@ -1,5 +1,5 @@
-/** Optional local XERJ candidate index. Grafly owns files, graph and ranking;
- * XERJ holds a regenerable projection of the complete ask token bags. */
+/** Embedded XERJ candidate index, with explicit legacy loopback support.
+ * Grafly owns files, graph and ranking; XERJ indexes complete ask token bags. */
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -12,11 +12,13 @@ import { wiringPath } from "../graph/write.js";
 import { normalizePathPrefix } from "../util/paths.js";
 import { pathUnderPrefix } from "../graph/scopes.js";
 import { readJson, writeJsonAtomic } from "../util/state.js";
+import { buildEmbedded, openEmbedded } from "./embedded.js";
 
 const VERSION = 1;
 export const xerjStatePath = (outDir) => join(outDir, CACHE_DIR, "xerj.json");
 
 function localEndpoint(value) {
+    if (value === "embedded") return value;
     const url = new URL(value);
     if (!["http:", "https:"].includes(url.protocol) ||
         !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) ||
@@ -89,6 +91,19 @@ export async function syncXerj(root, outDir, endpoint, { signal } = {}) {
         readFileSync(wiringPath(outDir)), readFileSync(askIndexPath(outDir)),
     ]));
     const index = `grafly-${hash(identity)}-${generation}`;
+    if (endpoint === "embedded") {
+        signal?.throwIfAborted();
+        const state = { version: VERSION, enabled: true, endpoint, index, generation, stamp, nodes: graph.nodes.length };
+        state.directory = buildEmbedded(outDir, state, graph.nodes.map((node) => {
+            const doc = docs.get(node.id);
+            return { id: node.id, name: bagText(doc.name), path: bagText(doc.path), body: bagText(doc.body),
+                source_path: node.path, is_test: isTestPath(node.path) };
+        }), previous);
+        signal?.throwIfAborted();
+        if (!sameStamp(stamp, sourceStamp(outDir))) throw new Error("Grafly graph changed during XERJ sync; run sync again");
+        writeJsonAtomic(xerjStatePath(outDir), state, true);
+        return state;
+    }
     // Reuse a complete generation; repair it if the server lost its data.
     let present = false;
     let exists = false;
@@ -158,7 +173,7 @@ export function xerjStatus(outDir) {
 }
 
 /** null candidates means run the trusted local search. Returned IDs are checked
- * against the current graph; source snippets always come from Grafly, never HTTP. */
+ * against the current graph; source snippets always come from Grafly. */
 export async function xerjCandidates(outDir, query, graph, opts = {}) {
     const status = xerjStatus(outDir);
     if (!status.enabled || opts.xerj === false)
@@ -176,7 +191,10 @@ export async function xerjCandidates(outDir, query, graph, opts = {}) {
         const filters = prefix ? [{ bool: { should: [
             { term: { source_path: prefix } }, { prefix: { source_path: `${prefix}/` } },
         ], minimum_should_match: 1 } }] : [];
-        const search = (testOnly) => request(state.endpoint, `/${state.index}/_search`, {
+        const search = (testOnly) => state.endpoint === "embedded"
+            ? { hits: { hits: openEmbedded(outDir, state).search(tokenize(query).join(" "),
+                Math.min(512, Math.max(64, (opts.limit ?? 8) * 12)), prefix, testOnly).map((_id) => ({ _id })) } }
+            : request(state.endpoint, `/${state.index}/_search`, {
             method: "POST", body: {
                 size: Math.min(512, Math.max(64, (opts.limit ?? 8) * 12)),
                 query: { bool: { must: [match], filter: [...filters, ...(testOnly ? [{ term: { is_test: true } }] : [])] } },

@@ -20,3 +20,7 @@ node_modules/
 
 # Python bytecode caches from repo scripts.
 __pycache__/
+
+# Native XERJ build output; source and lockfile are committed.
+/native/target/
+/dist/search/native/*.node
