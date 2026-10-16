@@ -5,6 +5,7 @@
  * engine dependencies). The federated command bodies live in `workspace.ts`;
  * this file only renders them and wires the child builds through the engine.
  */
+import { exitCommand } from "../util/cli-exit.js";
 import { contextDirFor, ensureGitignored } from "../context/node-file.js";
 import { patchBuildConfig } from "../util/state.js";
 import { formatAsk } from "../ask/ask.js";
@@ -77,13 +78,13 @@ export async function runWorkspaceCheck(root, override) {
     const { text, ok } = await federateCheck(root, override);
     process.stdout.write(text);
     if (!ok)
-        process.exit(1);
+        exitCommand(1);
 }
 export function runWorkspaceCallers(root, override, symbol, opts) {
     const { text, found } = federateCallers(root, override, symbol, opts);
     if (!found) {
         console.error(`✗ ${text}`);
-        process.exit(1);
+        exitCommand(1);
     }
     process.stdout.write(text + "\n");
 }
