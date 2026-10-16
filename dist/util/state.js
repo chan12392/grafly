@@ -9,7 +9,7 @@
  * on top of each other. `claude/state.ts` re-exports all of this, so nothing
  * outside had to change when it moved.
  */
-import { readFileSync, writeFileSync, mkdirSync, renameSync, rmSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
 import location from '../context/location.cjs';
 export const LOCK_STALE_MS = 300000;

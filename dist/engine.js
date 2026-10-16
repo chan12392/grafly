@@ -1,14 +1,8 @@
 /**
- * The Context Graph Engine.
- *
- * Two operations, no database:
- *   - {@link Grafly.init}  build `.context/` from a code repo.
- *   - {@link Grafly.check} report whether `.context/` is still in
- *     sync with the code (for CI).
- *
- * The graph is a folder of linked markdown files committed to the repo; git is
- * the sync. This class wires the configured LLM provider into the build/check
- * pipelines; an API key is required for any LLM-backed operation.
+ * Grafly's local graph engine. `graph` builds the regenerable .grafly index;
+ * `ask` retrieves synchronously and `askAsync` can use local XERJ candidates.
+ * Structural queries and ranking remain in Grafly. The legacy prose init/check
+ * APIs are retained. LLM configuration is needed only for an LLM-backed pass.
  */
 import { resolveConfig, ambientLlmConfig } from "./ai/providers.js";
 import { ChatSynthesizer } from "./ai/synthesize.js";
@@ -19,7 +13,7 @@ import { buildContext, CODE_EXTENSIONS } from "./context/build.js";
 import { checkContext } from "./context/check.js";
 import { buildGraph } from "./graph/build.js";
 import { checkGraph } from "./graph/check.js";
-import { ask } from "./ask/ask.js";
+import { ask, askAsync } from "./ask/ask.js";
 export { CODE_EXTENSIONS };
 export class Grafly {
     cfg;
@@ -48,7 +42,7 @@ export class Grafly {
         return checkGraph(dir, { contextDir: this.cfg.contextDir });
     }
     /**
-     * Build `.context/graph.json` — a per-symbol code graph from tree-sitter.
+     * Build `.grafly/.graph/wiring.json` — a per-symbol graph from tree-sitter.
      * Tier-1 (structure) always runs; the Tier-2 meaning layer runs only when
      * `opts.llm` is set. Either way the prior meaning layer is preserved.
      */
@@ -64,7 +58,7 @@ export class Grafly {
         });
     }
     /**
-     * Answer a plain-words query from the local `grafly/` graph — the active
+     * Answer a plain-words query from the local `.grafly/` graph — the active
      * channel. Deterministic and $0: routes structural queries to the wiring
      * edges and everything else to a lexical rank over concepts + symbols.
      */
@@ -77,6 +71,10 @@ export class Grafly {
             in: opts.in,
             graphRank: opts.graphRank,
         });
+    }
+    /** Optional XERJ candidate retrieval, with Grafly ranking and local fallback. */
+    askAsync(dir, query, opts = {}) {
+        return askAsync(dir, query, { ...opts, contextDir: this.cfg.contextDir });
     }
     _chatModel;
     /** The configured transport, or a clear error telling the user how to set a key. */

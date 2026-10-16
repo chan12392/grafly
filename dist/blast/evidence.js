@@ -9,7 +9,6 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 /** Symbols given their own snippet per node. Past this the panel is a file listing
  * rather than a summary — the rest are still counted in the headline. */
 export const MAX_EVIDENCE = 4;

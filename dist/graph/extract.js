@@ -74,22 +74,10 @@ export function languageOf(path) {
 export function languageLabelOf(path) {
     return entryFor(path)?.label ?? null;
 }
-/** Max chars of normalized body stored per symbol for search. Large enough that
- * essentially every real definition is stored whole — only a rare giant function
- * is clipped — while bounding how much the committed graph can grow. */
-const MAX_BODY_CHARS = 5000;
-/** Cap for a file node's module-level residual (imports, constants, module
- * docstring — everything not inside a symbol). Higher than the per-symbol cap
- * because a data-heavy module (constant tables, big config dicts) is legitimate
- * residual, and it's the recall play — but still bounded. */
-const MAX_FILE_BODY_CHARS = 16000;
-/** The searchable body of a definition: its source text, whitespace-collapsed
- * so every identifier becomes a token, capped at `max`. Search-only — the agent
- * still reads verbatim source via `ask --source`, which slices the file from
- * disk, so nothing here reaches the agent's context. */
-function searchBody(text, max = MAX_BODY_CHARS) {
-    const norm = text.replace(/\s+/g, " ").trim();
-    return norm.length > max ? norm.slice(0, max) : norm;
+/** Index the complete body. wiring.json strips this derived field; output
+ * excerpts are bounded separately, without making the rest unsearchable. */
+function searchBody(text) {
+    return text.replace(/\s+/g, " ").trim();
 }
 /** A file's module-level residual: the lines NOT covered by any symbol span.
  * Symbol bodies are already indexed on their own nodes, so this captures only
@@ -111,7 +99,7 @@ function fileResidual(source, symbols) {
     for (let i = 0; i < lines.length; i++)
         if (!covered[i + 1])
             kept.push(lines[i]);
-    return searchBody(kept.join(" "), MAX_FILE_BODY_CHARS);
+    return searchBody(kept.join(" "));
 }
 const TS_KINDS = {
     class_declaration: "class",

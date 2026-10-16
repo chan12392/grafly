@@ -18,7 +18,7 @@ import { withSavings, savingsFor } from "../context/savings.js";
 import { loadTraverseCached } from "./load.js";
 import { resolveSymbol } from "./traverse.js";
 import { WALK_RELATIONS } from "./relations.js";
-import { judgeSymbols, cwdContextTokens, ABSTAIN_GAP } from "../circuit/judge.js";
+import { judgeSymbols, cwdContextTokens } from "../circuit/judge.js";
 import { appendCircuitRecord, jidFor, recordFollowup } from "../circuit/feedback.js";
 import { escalateAmbiguous, escalationLines } from "../circuit/escalate.js";
 const ARROW = { in: "←", out: "→" };

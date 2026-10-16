@@ -1,17 +1,15 @@
 /**
- * `graph` — build `.context/graph.json` from a code repository.
+ * Build `.grafly/.graph/wiring.json` from a code repository.
  *
- * M1 pipeline (Tier-1 only, deterministic, no LLM):
- *   1. Walk the repo for TS/Python source files.
- *   2. Parse each with tree-sitter and emit one NodeV1 per definition.
- *   3. Write a sorted graph.json.
- * Edges (M2) and LLM summary/crux (M3) layer onto this without changing it.
+ * Tier-1 is deterministic: discover supported source files, extract definitions
+ * and calls, resolve edges, then write the graph and complete lexical sidecar.
+ * Tier-2 optionally enriches definitions with summaries/crux.
  *
  * Step 2 is memoized per file (`extract-cache.ts`): a file whose bytes haven't
  * moved replays its last parse instead of re-running tree-sitter, so a rebuild
  * costs ~the files that changed. Everything after extraction still runs over the
  * whole node set, so an incremental build's output is byte-identical to a cold
- * one — the invariant `test/graph-incremental.test.ts` pins down.
+ * one.
  */
 import { readFileSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
@@ -34,6 +32,7 @@ import { readGraph, writeGraph, wiringPath } from "./write.js";
 import { writeCards, writeIndex, writeCovers } from "./cards.js";
 import { writeAskIndex } from "../ask/index-file.js";
 import { discoverScopes, scopeOf } from "./scopes.js";
+import { syncXerj } from "../search/xerj.js";
 export { listSourceFiles } from "./source-files.js";
 /** Minimum non-file node count for a discovered sub-scope to stand on its own
  * (over-split guard 3). A scope with fewer nodes than this is folded into the
@@ -283,6 +282,14 @@ export async function buildGraph(dir, opts = {}) {
     // safe to write here, and why `graphOnly` builds (the query path, which stops
     // right after this line) are still recorded as fresh.
     writeFingerprint(outDir, entries, opts.onlyDirs);
+    // Only a previously connected local backend receives this derived index.
+    // Failed sync leaves its old generation stale; queries use local retrieval.
+    try {
+        await syncXerj(root, outDir);
+    }
+    catch (err) {
+        errors.push(`xerj: ${err instanceof Error ? err.message : String(err)}`);
+    }
     // Tier-2 passive surface: project the nodes into per-file markdown cards, and
     // refresh the INDEX roster. Pure projection — no LLM, no network.
     //

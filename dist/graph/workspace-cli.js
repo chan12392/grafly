@@ -5,15 +5,15 @@
  * engine dependencies). The federated command bodies live in `workspace.ts`;
  * this file only renders them and wires the child builds through the engine.
  */
-import { Graft } from "../engine.js";
 import { contextDirFor, ensureGitignored } from "../context/node-file.js";
 import { patchBuildConfig } from "../util/state.js";
 import { formatAsk } from "../ask/ask.js";
-import { federateAsk, federateCallers, federateCheck, federateGrep, federateMap, formatGrepResult, migrationNote, splitWorkspace, zeroHitNote, } from "./workspace.js";
+import { federateAskAsync, federateCallers, federateCheck, federateGrep, federateMap, formatGrepResult, migrationNote, splitWorkspace, zeroHitNote, } from "./workspace.js";
 /** Build every git child into its own committable `grafly/`, then replace the
  * parent's `grafly/` with `workspace.json`. Prints the one-time split warning
  * first when migrating away from a mega-graph. */
 export async function runWorkspaceBuild(root, opts) {
+    const { Grafly } = await import("../engine.js");
     const buildChild = async (childDir, childName) => {
         // Persisted BEFORE the child build itself runs, same as the single-repo
         // path in cli.ts, so this build and every later no-flag child build agree.
@@ -30,7 +30,7 @@ export async function runWorkspaceBuild(root, opts) {
         if (Object.keys(childConfigPatch).length > 0) {
             patchBuildConfig(childDir, childConfigPatch);
         }
-        const engine = new Graft({ ...opts.childConfig, contextDir: undefined });
+        const engine = new Grafly({ ...opts.childConfig, contextDir: undefined });
         if (opts.deep)
             await engine.init(childDir, { extensions: opts.extensions });
         const g = await engine.graph(childDir, { llm: opts.deep, concurrency: opts.concurrency });
@@ -49,8 +49,8 @@ export async function runWorkspaceBuild(root, opts) {
     console.log(`✓ workspace: ${children.length} repos federated → grafly/workspace.json`);
     console.log(`  grafly/ is git-ignored — each teammate runs \`grafly build\` to regenerate it locally.`);
 }
-export function runWorkspaceAsk(root, override, query, opts) {
-    const r = federateAsk(root, override, query, { limit: opts.limit, source: opts.source, full: opts.full, in: opts.in });
+export async function runWorkspaceAsk(root, override, query, opts) {
+    const r = await federateAskAsync(root, override, query, opts);
     if (opts.json)
         console.log(JSON.stringify(r, null, 2));
     else

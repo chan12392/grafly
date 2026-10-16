@@ -23,12 +23,14 @@ export interface WorkspaceBuildOptions {
  * first when migrating away from a mega-graph. */
 export declare function runWorkspaceBuild(root: string, opts: WorkspaceBuildOptions): Promise<void>;
 export declare function runWorkspaceAsk(root: string, override: string | undefined, query: string, opts: {
+    xerj?: boolean;
+    graphRank?: boolean;
     limit?: number;
     source?: boolean;
     full?: boolean;
     in?: string;
     json?: boolean;
-}): void;
+}): Promise<void>;
 export declare function runWorkspaceGrep(root: string, override: string | undefined, pattern: string, opts: {
     ignoreCase?: boolean;
     fixed?: boolean;

@@ -31,6 +31,9 @@ import { counts, tokenize } from "./index-file.js";
 import { matchesIdentifier, prependExactHits, queryIdentifiers } from "./exact-symbol.js";
 import { rulesForPointers, formatRules } from "../brain/attach.js";
 import { readLink, readRulesCache } from "../brain/link.js";
+import { xerjCandidates } from "../search/xerj.js";
+import { isTestPath, queryWantsTests } from "./query.js";
+export { isTestPath };
 /** Max source lines to inline per hit — a definition longer than this is
  * truncated with a marker, so one giant function can't blow up the pack. */
 const MAX_SPAN_LINES = 80;
@@ -106,9 +109,6 @@ function loadCorpus(outDir) {
  * sending the agent to the wrong file). A multiplicative de-rank keeps tests in
  * the results (they still matter for "where are the tests") but below the real
  * definition. Covers Go (`_test.go`), JS/TS (`.test.` / `.spec.`), and test dirs. */
-export function isTestPath(path) {
-    return /(^|\/)(tests?|__tests__|spec)\/|(_test|\.test|\.spec)\.[a-z]+$|(^|\/)(test_[^/]+|conftest)\.py$/i.test(path || "");
-}
 const TEST_RANK_PENALTY = 0.35;
 function score(query, doc, idf) {
     let s = 0;
@@ -339,7 +339,7 @@ function normalizedQueryWeights(q, idf, dfltIdf) {
         return new Map();
     return new Map([...q.keys()].map((term) => [term, (idf.get(term) ?? dfltIdf) / total]));
 }
-function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fileComplement = false, fileTopLock = false, includeRankingMetadata = false) {
+function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fileComplement = false, fileTopLock = false, includeRankingMetadata = false, candidateIds) {
     // Binary query terms: a word repeated in a pasted issue body counts once, so a
     // ranty description can't linearly amplify an incidental word.
     const q = new Map([...counts(tokenize(query)).keys()].map((t) => [t, 1]));
@@ -349,7 +349,7 @@ function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fi
     // definition first. This stops a test that merely contains the query's literals
     // (e.g. `TestDownloadStall` matching "download stall") from outranking the
     // source it exercises — the "tests ranked above the actual code" trap.
-    const wantsTests = /\b(tests?|specs?|coverage|assert(?:ion)?s?|fixtures?|mocks?)\b/i.test(query);
+    const wantsTests = queryWantsTests(query);
     const testFactor = (path) => (!wantsTests && isTestPath(path) ? TEST_RANK_PENALTY : 1);
     // ── Pass 1: tokenize every scored field once, and collect per-document token
     // bags so IDF can down-weight words that occur across the whole corpus. `--in`
@@ -397,7 +397,11 @@ function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fi
     // (idf, avgdl, candidates, the per-scope partition below) then naturally
     // reflects only the filtered set with no other code needing to know about it.
     const graphNodes = inPrefix ? (graph?.nodes ?? []).filter((n) => pathUnderPrefix(n.path, inPrefix)) : (graph?.nodes ?? []);
-    const symbolDocs = graphNodes.map((n) => {
+    // Global statistics stay authoritative in the complete sidecar. Scoped
+    // queries retain all scoped bags for their own IDF/length statistics.
+    const scoringNodes = candidateIds && askIndex && !inPrefix
+        ? graphNodes.filter((node) => candidateIds.has(node.id)) : graphNodes;
+    const symbolDocs = scoringNodes.map((n) => {
         const d = docById?.get(n.id);
         if (d)
             return { n, name: new Map(d.name), path: new Map(d.path), body: new Map(d.body) };
@@ -519,6 +523,7 @@ function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fi
         : symbolDocs.length
             ? symbolDocs.reduce((a, d) => a + bodyLen(d.body), 0) / symbolDocs.length
             : 0;
+    const candidateDocs = candidateIds ? symbolDocs.filter((doc) => candidateIds.has(doc.n.id)) : symbolDocs;
     // Populated only for bounded file ranking. The baseline path pays no allocation
     // or matched-term tracking cost, and their scalar lexical path remains exact.
     const rawLexicalById = new Map();
@@ -539,7 +544,7 @@ function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fi
         // single-scope path; the combination itself lives in fuse.ts. ──
         const byScope = new Map();
         const scopeById = new Map();
-        for (const d of symbolDocs) {
+        for (const d of candidateDocs) {
             const s = scopeOf(d.n.path, scopes).prefix;
             scopeById.set(d.n.id, s);
             const list = byScope.get(s);
@@ -722,7 +727,7 @@ function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fi
         // now defined once above and shared with the multi-scope branch.
         const lex = new Map(); // node id → lexical score (>0 only)
         let maxLex = 0;
-        for (const { n, name, path, body } of symbolDocs) {
+        for (const { n, name, path, body } of candidateDocs) {
             // Name and path are short identifiers → plain idf-weighted overlap; the body
             // is length-normalized via BM25 so long definitions don't win on bulk.
             const factor = testFactor(n.path);
@@ -1099,8 +1104,35 @@ function baselineFor(hits, graph) {
 export function ask(dir, query, opts = {}) {
     const root = resolve(dir);
     const outDir = contextDirFor(root, opts.contextDir);
-    const limit = opts.limit ?? 8;
     const corpus = loadCorpus(outDir);
+    return askFromCorpus(root, query, opts, corpus);
+}
+
+/** Async retrieval preserves the synchronous public ask API. Only lexical
+ * queries consult the optional local XERJ service; structural queries stay local. */
+export async function askAsync(dir, query, opts = {}) {
+    const root = resolve(dir);
+    const outDir = contextDirFor(root, opts.contextDir);
+    const corpus = loadCorpus(outDir);
+    const prefix = opts.in ? normalizePathPrefix(opts.in) : undefined;
+    if (prefix && corpus.graph) assertPrefixIndexed(corpus.graph, prefix);
+    const structuralOutcome = corpus.graph ? structural(query, corpus.graph, opts.limit ?? 8, prefix) : null;
+    if (structuralOutcome?.result)
+        return askFromCorpus(root, query, opts, corpus, undefined, structuralOutcome);
+    const candidates = await xerjCandidates(outDir, query, corpus.graph, opts);
+    let result = askFromCorpus(root, query, opts, corpus, candidates.ids);
+    if (candidates.ids && !result.hits.length) {
+        result = askFromCorpus(root, query, opts, corpus);
+        candidates.reason = "no ranked candidates";
+    }
+    if (candidates.ids || candidates.reason)
+        result.searchBackend = { name: candidates.ids && !candidates.reason ? "xerj" : "builtin",
+            ...(candidates.reason ? { fallback: candidates.reason } : {}) };
+    return result;
+}
+
+function askFromCorpus(root, query, opts, corpus, candidateIds, structuralOutcome) {
+    const limit = opts.limit ?? 8;
     const graphRank = opts.graphRank ?? true;
     const fileFirst = opts.fileFirst ?? true;
     // The production path uses bounded file scoring plus an exact baseline top lock.
@@ -1120,12 +1152,12 @@ export function ask(dir, query, opts = {}) {
         assertPrefixIndexed(corpus.graph, inPrefix);
     let result;
     if (corpus.graph) {
-        const outcome = structural(query, corpus.graph, limit, inPrefix);
+        const outcome = structuralOutcome ?? structural(query, corpus.graph, limit, inPrefix);
         if (outcome && "result" in outcome) {
             result = outcome.result;
         }
         else {
-            result = lexical(query, corpus, limit, graphRank, inPrefix, fileFirst, fileComplement, fileTopLock, opts.includeRankingMetadata ?? false);
+            result = lexical(query, corpus, limit, graphRank, inPrefix, fileFirst, fileComplement, fileTopLock, opts.includeRankingMetadata ?? false, candidateIds);
             // A structural-intent query that couldn't be answered structurally still
             // gets a prominent note on the lexical fallback result — never silent.
             if (outcome && "fallthroughNote" in outcome) {
@@ -1134,7 +1166,7 @@ export function ask(dir, query, opts = {}) {
         }
     }
     else {
-        result = lexical(query, corpus, limit, graphRank, inPrefix, fileFirst, fileComplement, fileTopLock, opts.includeRankingMetadata ?? false);
+        result = lexical(query, corpus, limit, graphRank, inPrefix, fileFirst, fileComplement, fileTopLock, opts.includeRankingMetadata ?? false, candidateIds);
     }
     if (opts.source) {
         inlineSource(root, result.hits, corpus.graph, opts.full ?? false);
@@ -1226,7 +1258,8 @@ function toTokens(chars) {
 }
 /** Render an {@link AskResult} as a compact markdown context pack. */
 export function formatAsk(r) {
-    const head = `grafly ask — "${r.query}"  (${r.mode})`;
+    const backend = r.searchBackend ? `; ${r.searchBackend.name}${r.searchBackend.fallback ? ` fallback: ${r.searchBackend.fallback}` : ""}` : "";
+    const head = `grafly ask — "${r.query}"  (${r.mode}${backend})`;
     // The note prints as its own prominent line(s) right under the header —
     // above every hit — so a loud structural-fallthrough note (or the
     // no-structural-edges / no-lexical-match note) can never be missed by only

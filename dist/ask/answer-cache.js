@@ -22,6 +22,7 @@ import { readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { CACHE_DIR } from "../context/node-file.js";
 import { wiringPath } from "../graph/write.js";
+import { xerjStatePath } from "../search/xerj.js";
 import { normalizePathPrefix } from "../util/paths.js";
 import { readJson, writeJsonAtomic, buildConfigPath, LEGACY_BUILD_CONFIG_DIR } from "../util/state.js";
 import { rulesCachePath, readLink, brainIdentity } from "../brain/link.js";
@@ -71,6 +72,7 @@ export function cacheKey(query, opts, repoDir) {
         !!opts.full,
         opts.in ? normalizePathPrefix(opts.in) : "",
         opts.graphRank !== false,
+        opts.xerj !== false,
         !!opts.json,
         repoDir ? brainIdentity(readLink(repoDir)) : null,
     ]);
@@ -101,7 +103,7 @@ export function stampFiles(dir, relPaths) {
  * file the old answer never covered). */
 export function indexDeps(ctxDir, repoDir = dirname(ctxDir)) {
     const deps = [wiringPath(ctxDir), askIndexPath(ctxDir), buildConfigPath(repoDir),
-        join(repoDir, LEGACY_BUILD_CONFIG_DIR, 'config.json'), rulesCachePath(repoDir)];
+        join(repoDir, LEGACY_BUILD_CONFIG_DIR, 'config.json'), rulesCachePath(repoDir), xerjStatePath(ctxDir)];
     try {
         for (const entry of readdirSync(ctxDir))
             if (entry.endsWith(".md"))

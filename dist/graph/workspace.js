@@ -21,7 +21,7 @@
  * CLI print/exit wrappers and the per-child build orchestration live in
  * `workspace-cli.ts`, which calls the federate* functions directly.
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { contextDirFor } from "../context/node-file.js";
 import { archiveIndex } from '../context/archive-index.js';
@@ -34,7 +34,8 @@ import { resolveSymbol } from "./traverse.js";
 import { cwdContextTokens } from "../circuit/judge.js";
 import { recordFollowup } from "../circuit/feedback.js";
 import { wiringPath } from "./write.js";
-import { ask, } from "../ask/ask.js";
+import { ask, askAsync } from "../ask/ask.js";
+import { normalizePathPrefix } from "../util/paths.js";
 import { prependExactHits } from "../ask/exact-symbol.js";
 import { fileFirstRoundRobin, roundRobinQueues, } from "../ask/file-selection.js";
 import { fuseScopes, STRONG_FLOOR, HIGH_FLOOR } from "../ask/fuse.js";
@@ -172,16 +173,13 @@ function hitFile(pointer) {
  * Returns a normal `AskResult`; `formatAsk` renders it unchanged, labeling each
  * hit `[<child>/…]` via the standard multi-scope path.
  */
-export function federateAsk(root, override, query, opts = {}) {
-    const wg = loadWorkspaceGraphs(root, override);
-    const limit = opts.limit ?? 8;
-    const fileTopLock = opts.fileTopLock ?? true;
+function askScope(wg, opts) {
     // `--in` scopes to a single child (and, past the first segment, a sub-scope
     // within it). A prefix naming no known child at all is a caller mistake.
     let onlyChild;
     let childIn;
     if (opts.in) {
-        const prefix = opts.in.replace(/\/+$/, "");
+        const prefix = normalizePathPrefix(opts.in);
         const [name, ...rest] = prefix.split("/");
         const allChildren = [...wg.loaded.map((l) => l.child), ...wg.missing].sort();
         if (!allChildren.includes(name)) {
@@ -190,6 +188,40 @@ export function federateAsk(root, override, query, opts = {}) {
         onlyChild = name;
         childIn = rest.length ? rest.join("/") : undefined;
     }
+    return { onlyChild, childIn };
+}
+
+function childAskOptions(opts, childIn) {
+    const fileTopLock = opts.fileTopLock ?? true;
+    return {
+        limit: Math.max((opts.limit ?? 8) * 4, 20), source: opts.source, full: opts.full,
+        graphRank: opts.graphRank, xerj: opts.xerj, in: childIn,
+        fileFirst: false, fileComplement: fileTopLock, includeRankingMetadata: fileTopLock,
+    };
+}
+
+/** Async child retrieval shares the exact same authoritative workspace fusion. */
+export async function federateAskAsync(root, override, query, opts = {}) {
+    const wg = loadWorkspaceGraphs(root, override);
+    const { onlyChild, childIn } = askScope(wg, opts);
+    const childResults = new Map();
+    for (const { child } of wg.loaded) {
+        if (onlyChild && child !== onlyChild) continue;
+        try { childResults.set(child, await askAsync(join(root, child), query, childAskOptions(opts, childIn))); }
+        catch { childResults.set(child, null); }
+    }
+    const result = federateAsk(root, override, query, { ...opts, childResults });
+    const backends = Object.fromEntries([...childResults].filter(([, r]) => r?.searchBackend)
+        .map(([child, r]) => [child, r.searchBackend]));
+    if (Object.keys(backends).length) result.searchBackends = backends;
+    return result;
+}
+
+export function federateAsk(root, override, query, opts = {}) {
+    const wg = loadWorkspaceGraphs(root, override);
+    const limit = opts.limit ?? 8;
+    const fileTopLock = opts.fileTopLock ?? true;
+    const { onlyChild, childIn } = askScope(wg, opts);
     // Pass 1: run each child's ask; keep its hits + RAW top-hit coverage.
     const runs = [];
     for (const { child } of wg.loaded) {
@@ -199,23 +231,13 @@ export function federateAsk(root, override, query, opts = {}) {
         try {
             // Over-fetch per child so cross-child fusion has enough candidates to
             // rank before the final `limit` slice.
-            r = ask(join(root, child), query, {
-                limit: Math.max(limit * 4, 20),
-                source: opts.source,
-                full: opts.full,
-                graphRank: opts.graphRank,
-                in: childIn,
-                // The parent owns the final cross-repo ranking. Selecting inside each
-                // child would be undone by fusion and could truncate a hybrid list.
-                fileFirst: false,
-                fileComplement: fileTopLock,
-                includeRankingMetadata: fileTopLock,
-            });
+            r = opts.childResults ? opts.childResults.get(child)
+                : ask(join(root, child), query, childAskOptions(opts, childIn));
         }
         catch {
             continue; // corrupt child, or a sub-scope --in matching nothing here
         }
-        if (r.hits.length === 0)
+        if (!r || r.hits.length === 0)
             continue;
         const topGroup = r.ranking?.groups[0];
         runs.push({
