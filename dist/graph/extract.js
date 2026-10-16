@@ -6,15 +6,7 @@
  * arrow-function consts) plus unresolved edge intents. Edge *targets* are
  * resolved against the whole-repo node index later, in build.ts.
  */
-import Parser from "tree-sitter";
-import TypeScript from "tree-sitter-typescript";
-import Python from "tree-sitter-python";
-import Go from "tree-sitter-go";
-import R from "tree-sitter-r";
-import Java from "tree-sitter-java";
-import Kotlin from "tree-sitter-kotlin";
-import Swift from "tree-sitter-swift";
-import PHP from "tree-sitter-php";
+import { createRequire } from "node:module";
 import { basename } from "node:path";
 import { contentHash } from "../util/id.js";
 import { collectBindings, goReceiverVarOf, resolveRecvType } from "./bindings.js";
@@ -231,17 +223,18 @@ const FUNCTION_VALUE_TYPES = new Set([
     "generator_function",
 ]);
 const EMPTY_SET = new Set();
-const parser = new Parser();
+const require = createRequire(import.meta.url);
+let parser;
 const GRAMMARS = {
-    typescript: TypeScript.typescript,
-    tsx: TypeScript.tsx,
-    python: Python,
-    go: Go,
-    r: R,
-    java: Java,
-    kotlin: Kotlin,
-    swift: Swift,
-    php: PHP.php,
+    typescript: () => require("tree-sitter-typescript").typescript,
+    tsx: () => require("tree-sitter-typescript").tsx,
+    python: () => require("tree-sitter-python"),
+    go: () => require("tree-sitter-go"),
+    r: () => require("tree-sitter-r"),
+    java: () => require("tree-sitter-java"),
+    kotlin: () => require("tree-sitter-kotlin"),
+    swift: () => require("tree-sitter-swift"),
+    php: () => require("tree-sitter-php").php,
 };
 /** tree-sitter's string `parse()` fails with "Invalid argument" on any input
  * ≥ 32 KB, which silently drops large files — often the most important ones (a
@@ -253,7 +246,9 @@ function parseSource(source) {
     return parser.parse((index) => source.slice(index, index + PARSE_CHUNK)).rootNode;
 }
 export function extractFile(rel, source, lang) {
-    parser.setLanguage(GRAMMARS[lang]);
+    // Metadata queries need no native parser. Node caches each required grammar.
+    parser ??= new (require("tree-sitter"))();
+    parser.setLanguage(GRAMMARS[lang]());
     const root = parseSource(source);
     const bindings = collectBindings(root, lang);
     const importedSymbols = collectImportedSymbols(root, lang);
