@@ -10,7 +10,7 @@
  * --source/--full, --in, graph-rank, --json) plus the effective Brain connection,
  * so differently-shaped asks of
  * the same words can never replay each other's output. Freshness = an
- * (mtimeMs, size) fingerprint over every file the answer covered — the source
+ * (mtimeMs, ctimeMs, inode, size) fingerprint over every file the answer covered — the source
  * files its hits point into plus the index files it was ranked from
  * (`indexDeps`) — so a rebuild or an edit anywhere invalidates even a
  * zero-hit answer that covered no source files.
@@ -86,7 +86,7 @@ export function stampFiles(dir, relPaths) {
     for (const p of relPaths) {
         try {
             const s = statSync(resolve(dir, p));
-            stamp[p] = s.isFile() ? { m: s.mtimeMs, s: s.size } : null;
+            stamp[p] = s.isFile() ? { m: s.mtimeMs, c: s.ctimeMs, i: s.ino, s: s.size } : null;
         }
         catch (error) {
             if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
@@ -137,7 +137,7 @@ export function verify(dir, entry) {
             if (!s.isFile()) continue;
             return false;
         }
-        if (s.mtimeMs !== want.m || s.size !== want.s)
+        if (s.mtimeMs !== want.m || s.ctimeMs !== want.c || s.ino !== want.i || s.size !== want.s)
             return false;
     }
     return true;

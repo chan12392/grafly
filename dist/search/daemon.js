@@ -1,0 +1,144 @@
+import { connect, createServer } from "node:net";
+import { randomBytes } from "node:crypto";
+import { chmodSync, mkdirSync, openSync, closeSync, lstatSync, unlinkSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { setTimeout as delay } from "node:timers/promises";
+import { packageRoot, searchHome, searchEndpoint, searchConfig, serviceRequest } from "./client.js";
+
+export async function serveSearch() {
+    const home = searchHome(), endpoint = searchEndpoint();
+    mkdirSync(home, { recursive: true, mode: 0o700 });
+    if (process.platform !== "win32") {
+        // A corrupt/missing discovery file must never let a second process
+        // unlink a live Unix socket belonging to the first process.
+        const alive = await new Promise((done, fail) => {
+            const probe = connect(endpoint);
+            probe.once("connect", () => { probe.destroy(); done(true); });
+            probe.once("error", (error) => ["ENOENT", "ECONNREFUSED"].includes(error.code) ? done(false) : fail(error));
+        });
+        if (alive) return;
+        try {
+            if (lstatSync(endpoint).isSocket()) unlinkSync(endpoint);
+        } catch (error) { if (error.code !== "ENOENT") throw error; }
+    }
+    const token = randomBytes(32).toString("hex");
+    let queue = Promise.resolve(), queries = 0, stopping = false, tunnel, retry;
+    const started = Date.now();
+    const { executeSearch } = await import("./request.js");
+    const { __parseCount } = await import("../graph/load.js");
+    const server = createServer((socket) => {
+        socket.setEncoding("utf8");
+        socket.setTimeout(30000, () => socket.destroy());
+        socket.on("error", () => {});
+        let data = "", received = false;
+        socket.on("data", (chunk) => {
+            if (received) return;
+            data += chunk;
+            if (Buffer.byteLength(data) > 1024 * 1024) return socket.destroy();
+            const end = data.indexOf("\n");
+            if (end < 0) return;
+            received = true;
+            let request;
+            try { request = JSON.parse(data.slice(0, end)); } catch { return socket.destroy(); }
+            if (request.token !== token || request.protocol !== 1 || stopping) return socket.destroy();
+            queue = queue.then(async () => {
+                if (socket.destroyed) return;
+                let result;
+                if (request.action === "status") result = { status: "running", pid: process.pid, queries,
+                    uptimeSeconds: Math.floor((Date.now() - started) / 1000), rssMiB: Math.round(process.memoryUsage().rss / 1048576),
+                    parses: { ...__parseCount }, packageRoot, xerjUrl: searchConfig().xerjUrl || null };
+                else if (request.action === "stop") { result = { status: "stopped", pid: process.pid }; stopping = true; }
+                else if (request.action === "search" && ["ask", "grep"].includes(request.command) && typeof request.query === "string" && typeof request.cwd === "string") {
+                    // Search rendering and environment overrides contain process state.
+                    // Serialize requests so two hosts/repos cannot leak settings.
+                    const prior = Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(GRAFLY_|GRAFT_)/.test(key)));
+                    try {
+                        for (const key of Object.keys(prior)) delete process.env[key];
+                        for (const [key, value] of Object.entries(request.env || {}))
+                            if (/^(GRAFLY_|GRAFT_)/.test(key) && typeof value === "string") process.env[key] = value;
+                        result = await executeSearch(request);
+                        queries++;
+                    } finally {
+                        for (const key of Object.keys(process.env)) if (/^(GRAFLY_|GRAFT_)/.test(key)) delete process.env[key];
+                        Object.assign(process.env, prior);
+                    }
+                } else return socket.destroy();
+                socket.end(JSON.stringify(result) + "\n");
+                if (stopping) shutdown();
+            }).catch((error) => { console.error(error.message); socket.destroy(); });
+        });
+    });
+    function shutdown() {
+        stopping = true;
+        clearTimeout(retry);
+        tunnel?.kill();
+        server.close();
+    }
+    await new Promise((done, fail) => { server.once("error", fail); server.listen(endpoint, done); });
+    if (process.platform !== "win32") chmodSync(endpoint, 0o600);
+    writeFileSync(join(home, "state.json"), JSON.stringify({ protocol: 1, token, pid: process.pid, packageRoot }), { mode: 0o600 });
+    server.on("error", (error) => { console.error(error.message); shutdown(); process.exitCode = 1; });
+    process.once("SIGINT", shutdown); process.once("SIGTERM", shutdown);
+    const config = searchConfig();
+    if (config.oracleHost && config.xerjPort) {
+        const log = openSync(join(home, "tunnel.log"), "a");
+        const reconnect = () => {
+            tunnel = spawn("ssh", ["-N", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ExitOnForwardFailure=yes",
+                "-o", "ConnectTimeout=10", "-o", "ForwardAgent=no", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
+                "-L", `127.0.0.1:${config.xerjPort}:127.0.0.1:${config.xerjPort}`, config.oracleHost],
+                { windowsHide: true, stdio: ["ignore", log, log] });
+            tunnel.on("error", (error) => console.error("Search tunnel:", error.message));
+            tunnel.once("close", () => { if (!stopping) retry = setTimeout(reconnect, 5000); });
+        };
+        reconnect();
+        server.once("close", () => closeSync(log));
+    }
+    console.log(`Grafly search ready: pid=${process.pid}`);
+}
+
+export async function daemonAction(action) {
+    if (!["start", "status", "stop", "restart"].includes(action)) throw new Error("Use daemon start|status|stop|restart");
+    const status = await serviceRequest({ action: "status" }, 1000);
+    if (action === "status") return status || { status: "stopped" };
+    if (action === "stop" || action === "restart") {
+        if (status) await serviceRequest({ action: "stop" });
+        for (let i = 0; i < 40 && await serviceRequest({ action: "status" }, 100); i++) await delay(50);
+        if (action === "stop") return { status: "stopped" };
+    } else if (status) return status;
+    const home = searchHome();
+    mkdirSync(home, { recursive: true, mode: 0o700 });
+    const entry = fileURLToPath(import.meta.url);
+    if (process.platform === "win32") {
+        const quote = (s) => "'" + s.replace(/'/g, "''") + "'";
+        const manual = `Start-Process -FilePath ${quote(process.execPath)} -ArgumentList ${quote('"' + entry + '"')} -WindowStyle Hidden -RedirectStandardOutput ${quote(join(home, "stdout.log"))} -RedirectStandardError ${quote(join(home, "stderr.log"))}`;
+        const script = `$task = Get-ScheduledTask -TaskName 'Grafly-Search' -ErrorAction SilentlyContinue; if ($task -and ${quote(home)} -eq ${quote(join(process.env.USERPROFILE, ".grafly", "search-service"))} -and $task.Actions.Arguments.Contains(${quote(entry)})) { if ($task.State -eq 'Running') { Stop-ScheduledTask -TaskName 'Grafly-Search' }; Start-ScheduledTask -TaskName 'Grafly-Search' } else { ${manual} }`;
+        await new Promise((done, fail) => {
+            const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+            let errors = "";
+            child.stdout.resume();
+            child.stderr.on("data", (chunk) => { errors += chunk; });
+            child.on("error", fail);
+            child.on("exit", (code) => {
+                // Start-Process descendants may inherit pipe handles after the
+                // short launcher exits. Do not wait for the resident's lifetime.
+                child.stdout.destroy(); child.stderr.destroy();
+                code ? fail(new Error(errors)) : done();
+            });
+        });
+    } else {
+        const out = openSync(join(home, "stdout.log"), "a"), err = openSync(join(home, "stderr.log"), "a");
+        const child = spawn(process.execPath, [entry], { detached: true, windowsHide: true, stdio: ["ignore", out, err] });
+        child.on("error", (error) => console.error(error.message)); child.unref();
+        closeSync(out); closeSync(err);
+    }
+    for (let i = 0; i < 100; i++) {
+        const ready = await serviceRequest({ action: "status" }, 200);
+        if (ready) return ready;
+        await delay(50);
+    }
+    throw new Error(`Search service did not start; see ${home}`);
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+    serveSearch().catch((error) => { if (error.code !== "EADDRINUSE") { console.error(error.message); process.exitCode = 1; } });
