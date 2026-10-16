@@ -253,7 +253,7 @@ export function extractGeneric(rel, source, langName) {
             span: `L${startRow + 1}-L${endRow + 1}`,
             signature: sigLine || null, exported: true, origin: "generic",
             body_hash: contentHash(source.slice(whole.startIndex, whole.endIndex)),
-            body_text: source.slice(whole.startIndex, whole.endIndex).replace(/\s+/g, " ").slice(0, 5000),
+            body_text: source.slice(whole.startIndex, whole.endIndex).replace(/\s+/g, " ").trim(),
             summary_state: "pending", summary: null, crux: null,
         });
         defs.push({ id, startIndex: whole.startIndex, endIndex: whole.endIndex });

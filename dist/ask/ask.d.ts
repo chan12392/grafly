@@ -78,6 +78,8 @@ export interface AskResult {
      * workspace federation to gate a weak child out of the cross-repo ranking.
      * Absent in structural mode; same lexical-only contract as `coverage`. */
     coverageStrong?: number;
+    searchBackend?: { name: "builtin" | "xerj"; fallback?: string };
+    searchBackends?: Record<string, { name: "builtin" | "xerj"; fallback?: string }>;
     /** Multi-scope lexical results only: which scopes federated into the fused
      * ranking, plus scopes that matched too weakly to federate (with their best
      * doc id). Drives formatAsk's `matched in:` / `also matched:` footer.
@@ -131,6 +133,8 @@ export declare function strongShare(q: Map<string, number>, node: NodeV1, doc: {
     name: Map<string, number>;
 }, idf: Map<string, number>, dfltIdf: number): number;
 export interface AskOptions {
+    /** Async retrieval only: bypass a connected local XERJ backend. */
+    xerj?: boolean;
     contextDir?: string;
     limit?: number;
     /** Inline the source at each `path:Lx-Ly` hit, sliced from `dir`. Turns the
@@ -167,6 +171,7 @@ export interface AskOptions {
 }
 /** Answer a query from the graft/ graph at `dir`. Deterministic, $0. */
 export declare function ask(dir: string, query: string, opts?: AskOptions): AskResult;
+export declare function askAsync(dir: string, query: string, opts?: AskOptions): Promise<AskResult>;
 export interface SkeletonEntry {
     name: string;
     kind: string;

@@ -4,7 +4,7 @@
  *
  * The blast report already answers "what does this reach"; the author's next
  * question is "who do I ask about it", and git has the answer without a single
- * API call. One `git log` per area over that area's OWN files, scored by recency,
+ * API call. Batched `git log` over all of an area's OWN files, scored by recency,
  * ranked, capped.
  *
  * Two rules keep the output honest, and both exist because a wrong name here is
@@ -32,18 +32,10 @@ import { resolve } from "node:path";
  */
 const HALF_LIFE_MS = 120 * 24 * 60 * 60 * 1000;
 /**
- * History window and commit cap, per area.
- *
- * Both are bounds on the walk, not on the answer: at 36 months a commit is worth
- * 0.002 of a fresh one, so nothing outside the window could survive the share
- * floor anyway, and the pair keeps one `git log` off a large repo's full history.
+ * The ownership policy considers commits from the last 36 months. Every file
+ * and every commit within that window participates; no sorted-prefix sample.
  */
 const SINCE = "36.months";
-const MAX_COMMITS = 400;
-/** Files passed to one `git log`. A very wide area is sampled rather than blowing
- * the argument list; the sample is the area's own sorted file list, so it is
- * stable between runs rather than whichever files git happened to yield. */
-const MAX_PATHSPEC = 80;
 /** Share of an area's total weight an owner must hold to be named. */
 const MIN_SHARE = 0.15;
 /** Names listed per area, and in the tag line. */
@@ -80,6 +72,7 @@ function git(root, args) {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
         maxBuffer: 64 * 1024 * 1024,
+        windowsHide: true,
     });
     if (res.error || res.status !== 0 || typeof res.stdout !== "string")
         return null;
@@ -95,27 +88,33 @@ function git(root, args) {
  * cost to graft.
  */
 export function ownersFor(root, files, opts = {}) {
-    const paths = [...files].sort().slice(0, MAX_PATHSPEC);
+    const paths = [...new Set(files)].sort();
     if (paths.length === 0)
         return [];
     const now = opts.now ?? Date.now();
-    const out = git(resolve(root), [
-        "log",
-        "--no-merges",
-        `--since=${SINCE}`,
-        "-n",
-        String(MAX_COMMITS),
-        "--format=\x01%H\x02%aI\x02%aN\x02%aE",
-        "--name-only",
-        "--",
-        ...paths,
-    ]);
-    if (out === null)
-        return [];
+    // Bound command-line length, not analysis coverage. A commit appearing in
+    // multiple batches is counted once by the existing per-person seen set.
+    const batches = [[]];
+    let chars = 0;
+    for (const path of paths) {
+        if (chars + path.length > 8000 && batches.at(-1).length) {
+            batches.push([]);
+            chars = 0;
+        }
+        batches.at(-1).push(path);
+        chars += path.length + 3;
+    }
+    const history = [];
+    for (const batch of batches) {
+        const out = git(resolve(root), ["--literal-pathspecs", "log", "--no-merges", `--since=${SINCE}`,
+            "--format=\x01%H\x02%aI\x02%aN\x02%aE", "--name-only", "--", ...batch]);
+        if (out === null) return []; // never present partial history as complete
+        history.push(out);
+    }
     const wanted = new Set(paths);
     const people = new Map();
     let commit = null;
-    for (const line of out.split("\n")) {
+    for (const line of history.join("\n").split("\n")) {
         if (line.startsWith("\x01")) {
             const [hash, iso, name, email] = line.slice(1).split("\x02");
             const at = Date.parse(iso ?? "");

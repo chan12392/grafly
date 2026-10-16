@@ -54,6 +54,7 @@ export declare function loadWorkspaceGraphs(root: string, override?: string): Wo
  * Empty string when every child has a graph. */
 export declare function coverageNote(g: WorkspaceGraphs): string;
 export interface FederateAskOptions {
+    xerj?: boolean;
     limit?: number;
     source?: boolean;
     full?: boolean;
@@ -81,6 +82,7 @@ export interface FederateAskOptions {
  * hit `[<child>/…]` via the standard multi-scope path.
  */
 export declare function federateAsk(root: string, override: string | undefined, query: string, opts?: FederateAskOptions): AskResult;
+export declare function federateAskAsync(root: string, override: string | undefined, query: string, opts?: FederateAskOptions): Promise<AskResult>;
 /** Merge every child's `GrepResult` into one, prefixing group paths with the
  * child dir and re-sorting by coupling (inDegree desc, path asc) across repos.
  * In-degree stays each child's own — it comes from that child's graph. */

@@ -1,21 +1,15 @@
 /**
- * The Context Graph Engine.
- *
- * Two operations, no database:
- *   - {@link Grafly.init}  build `.context/` from a code repo.
- *   - {@link Grafly.check} report whether `.context/` is still in
- *     sync with the code (for CI).
- *
- * The graph is a folder of linked markdown files committed to the repo; git is
- * the sync. This class wires the configured LLM provider into the build/check
- * pipelines; an API key is required for any LLM-backed operation.
+ * Grafly's local graph engine. `graph` builds the regenerable .grafly index;
+ * `ask` retrieves synchronously and `askAsync` can use local XERJ candidates.
+ * Structural queries and ranking remain in Grafly. The legacy prose init/check
+ * APIs are retained. LLM configuration is needed only for an LLM-backed pass.
  */
 import { type EngineConfig } from "./ai/providers.js";
 import { CODE_EXTENSIONS, type BuildProgress, type BuildResult } from "./context/build.js";
 import { type CheckResult } from "./context/check.js";
 import { type GraphBuildOptions, type GraphBuildResult } from "./graph/build.js";
 import { type GraphCheckResult } from "./graph/check.js";
-import { type AskResult } from "./ask/ask.js";
+import { type AskResult, type AskOptions } from "./ask/ask.js";
 export { CODE_EXTENSIONS };
 export type { BuildResult, BuildProgress, CheckResult, GraphBuildResult, GraphCheckResult, AskResult };
 export interface InitOptions {
@@ -53,13 +47,13 @@ export declare class Grafly {
      * Async because the breadth tier warms WASM grammars before re-extraction. */
     checkGraph(dir: string): Promise<GraphCheckResult>;
     /**
-     * Build `.context/graph.json` — a per-symbol code graph from tree-sitter.
+     * Build `.grafly/.graph/wiring.json` — a per-symbol graph from tree-sitter.
      * Tier-1 (structure) always runs; the Tier-2 meaning layer runs only when
      * `opts.llm` is set. Either way the prior meaning layer is preserved.
      */
     graph(dir: string, opts?: GraphRunOptions): Promise<GraphBuildResult>;
     /**
-     * Answer a plain-words query from the local `grafly/` graph — the active
+     * Answer a plain-words query from the local `.grafly/` graph — the active
      * channel. Deterministic and $0: routes structural queries to the wiring
      * edges and everything else to a lexical rank over concepts + symbols.
      */
@@ -70,6 +64,8 @@ export declare class Grafly {
         in?: string;
         graphRank?: boolean;
     }): AskResult;
+    /** Optional local XERJ candidates, with Grafly ranking and builtin fallback. */
+    askAsync(dir: string, query: string, opts?: AskOptions): Promise<AskResult>;
     private _chatModel?;
     /** The configured transport, or a clear error telling the user how to set a key. */
     private chatModel;

@@ -23,7 +23,7 @@
  *      contribution is deleted, not truncated to `{}` or a blank document —
  *      an orphan file is the very residue this exists to remove.
  */
-import { readFileSync, writeFileSync, existsSync, rmSync, rmdirSync, statSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, rmSync, rmdirSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { HOSTS } from './registry.js';
@@ -417,20 +417,6 @@ function stripIgnoreEntries(path, entries, apply) {
         return removeFile(path, true);
     writeFileSync(path, kept.endsWith('\n') ? kept : `${kept}\n`);
     return 'removed';
-}
-function removeDir(path, apply) {
-    try {
-        if (!statSync(path).isDirectory())
-            return 'absent';
-    }
-    catch {
-        return 'absent';
-    }
-    if (apply) {
-        rmSync(path, { recursive: true, force: true });
-        pruneEmptyDirs(dirname(path));
-    }
-    return 'deleted';
 }
 /**
  * Every target graft could have written, in removal order.

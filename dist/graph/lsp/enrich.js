@@ -46,7 +46,6 @@ export async function enrichWithLsp(graph, root, opts = {}) {
     } })();
     root = realRoot;
     // Index nodes by file for both source selection and callee→node mapping.
-    const byId = new Map(graph.nodes.map((n) => [n.id, n]));
     const spansByFile = new Map();
     for (const n of graph.nodes) {
         if (n.kind === "file" || !DEFN.has(n.kind))
