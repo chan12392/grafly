@@ -1059,7 +1059,8 @@ export function ask(dir, query, opts = {}) {
 }
 
 /** Async retrieval preserves the synchronous public ask API. Only lexical
- * queries consult the optional local XERJ service; structural queries stay local. */
+ * queries consult the embedded XERJ core (or an explicit legacy server);
+ * structural queries stay in Grafly. */
 export async function askAsync(dir, query, opts = {}) {
     const root = resolve(dir);
     const outDir = contextDirFor(root, opts.contextDir);

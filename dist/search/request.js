@@ -51,13 +51,16 @@ export async function executeSearch({ command, query, dir, cwd = process.cwd(), 
                 // Explicit per-repo disconnect remains an opt-out from defaults.
                 if (!status.enabled && existsSync(xerjStatePath(out))) continue;
                 if ((!status.fresh || status.endpoint !== xerjUrl) && Date.now() >= (syncRetryAfter.get(out) || 0)) {
-                    try { await syncXerj(child, out, xerjUrl, { signal: AbortSignal.timeout(3000) }); syncRetryAfter.delete(out); }
+                    try {
+                        await syncXerj(child, out, xerjUrl, xerjUrl === "embedded" ? {} : { signal: AbortSignal.timeout(3000) });
+                        syncRetryAfter.delete(out);
+                    }
                     catch { syncRetryAfter.set(out, Date.now() + 30000); }
                 }
             }
         }
         if (ws) {
-            const r = await federateAskAsync(root, opts.contextDir, query, { ...opts, limit: Number(opts.limit) });
+            const r = await federateAskAsync(root, opts.contextDir, query, { ...opts, limit: Number(opts.limit ?? 8) });
             return { stdout: opts.json ? JSON.stringify(r, null, 2) + "\n" : formatAsk(r), stderr, exitCode: 0, root, hit: !!r.hits.length };
         }
         const ctxDir = contextDirFor(root, opts.contextDir);
@@ -68,7 +71,7 @@ export async function executeSearch({ command, query, dir, cwd = process.cwd(), 
             const note = `[grafly] answer cache hit — ${Object.keys(cached.stamp).length} file(s) verified unchanged; replayed without re-walking the graph.\n`;
             return { stdout: cached.text + (opts.json ? "" : "\n" + note), stderr: stderr + (opts.json ? note : ""), exitCode: 0, root };
         }
-        const r = await askAsync(root, query, { ...opts, limit: Number(opts.limit) });
+        const r = await askAsync(root, query, { ...opts, limit: Number(opts.limit ?? 8) });
         const stdout = opts.json ? JSON.stringify(r, null, 2) + "\n" : formatAsk(r);
         if (!r.searchBackend?.fallback) {
             try {

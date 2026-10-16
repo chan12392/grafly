@@ -1,0 +1,24 @@
+[package]
+name = "grafly-xerj"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2", default-features = false, features = ["napi8"] }
+napi-derive = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The actual XERJ full-text core, pinned to the rc.95 release commit.
+# No server, HTTP, vector models or second process is linked into Grafly.
+xerj-fts = { git = "https://github.com/xerj-org/xerj", rev = "692a4a59b1e660531fae8cf39c5c6a0518300fa5" }
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+lto = "thin"
+strip = true

@@ -5,9 +5,11 @@ import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
+import { createInterface } from "node:readline";
+import { embeddedBinding } from "./embedded.js";
 import { packageRoot, searchHome, searchEndpoint, searchConfig, serviceRequest } from "./client.js";
 
-export async function serveSearch() {
+export async function serveSearch({ stdio = false } = {}) {
     const home = searchHome(), endpoint = searchEndpoint();
     mkdirSync(home, { recursive: true, mode: 0o700 });
     if (process.platform !== "win32") {
@@ -18,7 +20,10 @@ export async function serveSearch() {
             probe.once("connect", () => { probe.destroy(); done(true); });
             probe.once("error", (error) => ["ENOENT", "ECONNREFUSED"].includes(error.code) ? done(false) : fail(error));
         });
-        if (alive) return;
+        if (alive) {
+            if (stdio) throw new Error("Grafly is already resident; stop it before opening a stdio session");
+            return;
+        }
         try {
             if (lstatSync(endpoint).isSocket()) unlinkSync(endpoint);
         } catch (error) { if (error.code !== "ENOENT") throw error; }
@@ -28,6 +33,33 @@ export async function serveSearch() {
     const started = Date.now();
     const { executeSearch } = await import("./request.js");
     const { __parseCount } = await import("../graph/load.js");
+    const config = searchConfig();
+    // Fail visibly at startup, rather than silently claiming an embedded engine
+    // while every query actually falls back to the old JS implementation.
+    if (config.xerjUrl === "embedded") embeddedBinding();
+    const status = () => ({ status: "running", role: "resident-cli", pid: process.pid, queries,
+        uptimeSeconds: Math.floor((Date.now() - started) / 1000), rssMiB: Math.round(process.memoryUsage().rss / 1048576),
+        parses: { ...__parseCount }, packageRoot, xerjUrl: config.xerjUrl || null });
+    async function execute(request) {
+        if (request.action === "status") return status();
+        if (request.action === "stop") { stopping = true; return { status: "stopped", pid: process.pid }; }
+        if (request.action !== "search" || !["ask", "grep"].includes(request.command) || typeof request.query !== "string" || typeof request.cwd !== "string")
+            throw new Error("Use status, stop, or search with command ask|grep, query and cwd");
+        const prior = Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(GRAFLY_|GRAFT_)/.test(key)));
+        try {
+            for (const key of Object.keys(prior)) delete process.env[key];
+            for (const [key, value] of Object.entries(request.env || {}))
+                if (/^(GRAFLY_|GRAFT_)/.test(key) && key !== "GRAFLY_SEARCH_HOME" && typeof value === "string") process.env[key] = value;
+            // The service owns its endpoint/config independently of client env.
+            if (prior.GRAFLY_SEARCH_HOME) process.env.GRAFLY_SEARCH_HOME = prior.GRAFLY_SEARCH_HOME;
+            const result = await executeSearch(request);
+            queries++;
+            return result;
+        } finally {
+            for (const key of Object.keys(process.env)) if (/^(GRAFLY_|GRAFT_)/.test(key)) delete process.env[key];
+            Object.assign(process.env, prior);
+        }
+    }
     const server = createServer((socket) => {
         socket.setEncoding("utf8");
         socket.setTimeout(30000, () => socket.destroy());
@@ -42,47 +74,31 @@ export async function serveSearch() {
             received = true;
             let request;
             try { request = JSON.parse(data.slice(0, end)); } catch { return socket.destroy(); }
-            if (request.token !== token || request.protocol !== 1 || stopping) return socket.destroy();
+            if (!request || request.token !== token || request.protocol !== 1 || stopping) return socket.destroy();
             queue = queue.then(async () => {
                 if (socket.destroyed) return;
-                let result;
-                if (request.action === "status") result = { status: "running", pid: process.pid, queries,
-                    uptimeSeconds: Math.floor((Date.now() - started) / 1000), rssMiB: Math.round(process.memoryUsage().rss / 1048576),
-                    parses: { ...__parseCount }, packageRoot, xerjUrl: searchConfig().xerjUrl || null };
-                else if (request.action === "stop") { result = { status: "stopped", pid: process.pid }; stopping = true; }
-                else if (request.action === "search" && ["ask", "grep"].includes(request.command) && typeof request.query === "string" && typeof request.cwd === "string") {
-                    // Search rendering and environment overrides contain process state.
-                    // Serialize requests so two hosts/repos cannot leak settings.
-                    const prior = Object.fromEntries(Object.entries(process.env).filter(([key]) => /^(GRAFLY_|GRAFT_)/.test(key)));
-                    try {
-                        for (const key of Object.keys(prior)) delete process.env[key];
-                        for (const [key, value] of Object.entries(request.env || {}))
-                            if (/^(GRAFLY_|GRAFT_)/.test(key) && typeof value === "string") process.env[key] = value;
-                        result = await executeSearch(request);
-                        queries++;
-                    } finally {
-                        for (const key of Object.keys(process.env)) if (/^(GRAFLY_|GRAFT_)/.test(key)) delete process.env[key];
-                        Object.assign(process.env, prior);
-                    }
-                } else return socket.destroy();
+                const result = await execute(request);
                 socket.end(JSON.stringify(result) + "\n");
                 if (stopping) shutdown();
             }).catch((error) => { console.error(error.message); socket.destroy(); });
         });
     });
+    let input;
     function shutdown() {
         stopping = true;
         clearTimeout(retry);
         tunnel?.kill();
+        input?.close();
+        if (stdio) process.stdin.destroy();
         server.close();
     }
-    await new Promise((done, fail) => { server.once("error", fail); server.listen(endpoint, done); });
+    try { await new Promise((done, fail) => { server.once("error", fail); server.listen(endpoint, done); }); }
+    catch (error) { if (error.code === "EADDRINUSE" && !stdio) return; throw error; }
     if (process.platform !== "win32") chmodSync(endpoint, 0o600);
     writeFileSync(join(home, "state.json"), JSON.stringify({ protocol: 1, token, pid: process.pid, packageRoot }), { mode: 0o600 });
     server.on("error", (error) => { console.error(error.message); shutdown(); process.exitCode = 1; });
     process.once("SIGINT", shutdown); process.once("SIGTERM", shutdown);
-    const config = searchConfig();
-    if (config.oracleHost && config.xerjPort) {
+    if (config.xerjUrl !== "embedded" && config.oracleHost && config.xerjPort) {
         const log = openSync(join(home, "tunnel.log"), "a");
         const reconnect = () => {
             tunnel = spawn("ssh", ["-N", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ExitOnForwardFailure=yes",
@@ -95,7 +111,26 @@ export async function serveSearch() {
         reconnect();
         server.once("close", () => closeSync(log));
     }
-    console.log(`Grafly search ready: pid=${process.pid}`);
+    if (stdio) {
+        input = createInterface({ input: process.stdin, crlfDelay: Infinity });
+        input.on("line", (line) => {
+            queue = queue.then(async () => {
+                let request;
+                try {
+                    if (Buffer.byteLength(line) > 1024 * 1024) throw new Error("Request exceeds 1 MiB");
+                    request = JSON.parse(line);
+                    if (!request || typeof request !== "object" || stopping) throw new Error("Invalid request");
+                    const result = await execute({ ...request, action: request.action || "search", cwd: request.cwd || process.cwd() });
+                    process.stdout.write(JSON.stringify({ id: request.id ?? null, ...result }) + "\n");
+                    if (stopping) shutdown();
+                } catch (error) {
+                    process.stdout.write(JSON.stringify({ id: request?.id ?? null, stdout: "", stderr: error.message + "\n", exitCode: 1 }) + "\n");
+                }
+            });
+        });
+        input.on("close", () => { queue = queue.then(shutdown); });
+        process.stdout.write(JSON.stringify({ type: "ready", ...status() }) + "\n");
+    } else console.log(`Grafly CLI ready: pid=${process.pid}, XERJ=${config.xerjUrl}`);
 }
 
 export async function daemonAction(action) {
@@ -109,10 +144,10 @@ export async function daemonAction(action) {
     } else if (status) return status;
     const home = searchHome();
     mkdirSync(home, { recursive: true, mode: 0o700 });
-    const entry = fileURLToPath(import.meta.url);
+    const entry = fileURLToPath(new URL("../entry.js", import.meta.url));
     if (process.platform === "win32") {
         const quote = (s) => "'" + s.replace(/'/g, "''") + "'";
-        const manual = `Start-Process -FilePath ${quote(process.execPath)} -ArgumentList ${quote('"' + entry + '"')} -WindowStyle Hidden -RedirectStandardOutput ${quote(join(home, "stdout.log"))} -RedirectStandardError ${quote(join(home, "stderr.log"))}`;
+        const manual = `Start-Process -FilePath ${quote(process.execPath)} -ArgumentList ${quote('"' + entry + '" serve')} -WindowStyle Hidden -RedirectStandardOutput ${quote(join(home, "stdout.log"))} -RedirectStandardError ${quote(join(home, "stderr.log"))}`;
         const script = `$task = Get-ScheduledTask -TaskName 'Grafly-Search' -ErrorAction SilentlyContinue; if ($task -and ${quote(home)} -eq ${quote(join(process.env.USERPROFILE, ".grafly", "search-service"))} -and $task.Actions.Arguments.Contains(${quote(entry)})) { if ($task.State -eq 'Running') { Stop-ScheduledTask -TaskName 'Grafly-Search' }; Start-ScheduledTask -TaskName 'Grafly-Search' } else { ${manual} }`;
         await new Promise((done, fail) => {
             const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
@@ -129,7 +164,7 @@ export async function daemonAction(action) {
         });
     } else {
         const out = openSync(join(home, "stdout.log"), "a"), err = openSync(join(home, "stderr.log"), "a");
-        const child = spawn(process.execPath, [entry], { detached: true, windowsHide: true, stdio: ["ignore", out, err] });
+        const child = spawn(process.execPath, [entry, "serve"], { detached: true, windowsHide: true, stdio: ["ignore", out, err] });
         child.on("error", (error) => console.error(error.message)); child.unref();
         closeSync(out); closeSync(err);
     }

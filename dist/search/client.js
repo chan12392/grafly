@@ -11,8 +11,8 @@ export const searchEndpoint = () => process.platform === "win32"
     : join(searchHome(), "search.sock");
 export const packageRoot = resolve(fileURLToPath(new URL("../../", import.meta.url)));
 export function searchConfig() {
-    try { return JSON.parse(readFileSync(join(searchHome(), "config.json"), "utf8").replace(/^\uFEFF/, "")); }
-    catch { return {}; }
+    try { return { xerjUrl: "embedded", ...JSON.parse(readFileSync(join(searchHome(), "config.json"), "utf8").replace(/^\uFEFF/, "")) }; }
+    catch { return { xerjUrl: "embedded" }; }
 }
 function state() {
     try { return JSON.parse(readFileSync(join(searchHome(), "state.json"), "utf8")); }
