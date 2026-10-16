@@ -1,7 +1,6 @@
 /**
- * Pure graph-traversal core shared by `graft callers` (its `--direction`/
- * `--depth` flags), the MCP `graft_trace_calls` tool, and `ask`'s structural
- * intent path.
+ * Pure graph-traversal core shared by `grafly callers` (its `--direction`/
+ * `--depth` flags) and `ask`'s structural intent path.
  *
  * Centralizes the symbol-resolution contract (bare name, qualified id-suffix,
  * last-segment fallback, `--in` narrowing) so all surfaces agree on what a
@@ -98,8 +97,8 @@ export declare function impactOfMany(graph: GraphV1, seeds: NodeV1[], maxDepth?:
  */
 export declare function impactOfFile(graph: GraphV1, fileNode: NodeV1, maxDepth?: number, direction?: Direction): EdgeHit[];
 /**
- * The single entry point behind `graft callers` and the MCP `graft_trace_calls`
- * tool, covering all of what were once three commands:
+ * The single entry point behind `grafly callers`, covering all of what were
+ * once three commands:
  *   - `direction:in,  depth:1`  → callers      (who calls/references this)
  *   - `direction:out, depth:1`  → callees      (what this calls/references)
  *   - `direction:in,  depth>1`  → blast radius  (transitive dependents)

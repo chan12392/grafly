@@ -44,6 +44,8 @@
     "native/src",
     "THIRD_PARTY_NOTICES",
     "scripts",
+    "!scripts/build-viewer.mjs",
+    "!scripts/hermes-route.py",
     "service",
     "README.md",
     "LICENSE",
@@ -78,10 +80,7 @@
     "web-tree-sitter": "^0.26.13"
   },
   "devDependencies": {
-    "@types/d3-force": "^3.0.10",
     "@types/node": "^26.1.0",
-    "d3-force": "^3.0.0",
-    "esbuild": "^0.28.1",
     "node-gyp": "^12.4.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"

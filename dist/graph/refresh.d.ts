@@ -43,6 +43,6 @@ export declare function ensureFreshGraph(root: string, opts?: RefreshOptions): P
  * very path that's supposed to feel free.
  */
 export declare function ensureFreshChildren(root: string, children: string[], opts?: RefreshOptions): Promise<RefreshResult>;
-/** The one-line note a CLI/MCP surface prints when a refresh actually happened.
+/** The one-line note a CLI or hook prints when a refresh actually happened.
  * Null when there's nothing to say (the overwhelmingly common case). */
 export declare function refreshNote(r: RefreshResult): string | null;

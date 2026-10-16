@@ -1,5 +1,4 @@
-/** The result of one config/shim write, reported by every installer and by MCP
- *  registration so they speak the same vocabulary. `McpWrite` aliases this. */
+/** The result of one config/shim write, shared by host installers. */
 export interface ConfigWrite {
     id: string;
     path: string;

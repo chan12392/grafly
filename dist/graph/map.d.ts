@@ -14,9 +14,8 @@
  * thing everywhere in graft) — never by lines of code or heuristics that
  * drift from the actual wiring.
  *
- * Pure and synchronous: same fixture-testable shape as `grep.ts` — no CLI or
- * MCP concerns live here. `cli.ts` and `mcp/tools.ts` both call
- * `buildRepoMap` + `formatRepoMap` directly.
+ * Pure and synchronous: same fixture-testable shape as `grep.js` — no CLI I/O
+ * lives here. The CLI calls `buildRepoMap` + `formatRepoMap` directly.
  */
 import type { GraphV1 } from "./types.js";
 import { type Savings } from "../context/savings.js";

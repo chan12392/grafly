@@ -147,6 +147,21 @@ test("brain server serves the public brain API", async () => {
     // No repo ingested yet: expected-repo check finds nothing, fails open.
     const repoInfo = await (await fetch(`${base}/api/public/brains/${brainId}/repo`, { headers: auth })).json();
     assert.equal(repoInfo.repo.slug, "");
+    // Malformed request JSON is a client error, after authentication and
+    // before any state write. Empty bodies and truncated JSON both count.
+    for (const endpoint of ["repo", "rules"]) {
+      const url = `${base}/api/public/brains/${brainId}/${endpoint}`;
+      const denied = await fetch(url, { method: "POST", headers: { authorization: "Bearer nope" }, body: "{" });
+      assert.equal(denied.status, 401);
+      await denied.text();
+      for (const body of ["", "{", '{"anchors":]']) {
+        const invalid = await fetch(url, { method: "POST", headers: auth, body });
+        assert.equal(invalid.status, 400, `${endpoint}: ${body}`);
+        assert.deepEqual(await invalid.json(), { error: "invalid JSON body" });
+      }
+    }
+    assert.equal(existsSync(join(data, "digests", `${brainId}.json`)), false);
+    assert.equal(existsSync(join(data, "rules", `${brainId}.json`)), false);
     // Ingest a minimal digest; mining is skipped without BRAIN_LLM_*.
     const digest = { provider: "github", owner: "o", name: "r", head_sha: "x", default_branch: "main",
       is_private: true, commits: [{ sha: "abc1234", subject: "s", body: "", files: [], symbols: [] }],
@@ -177,6 +192,16 @@ test("brain server serves the public brain API", async () => {
     const after = (await (await fetch(`${base}/api/public/brains/${brainId}/rules/anchors`, { headers: auth })).json()).anchors;
     assert.equal(after.length, 3);
     assert.equal(after.find((a) => a.rule === "agent-written note").fingerprint, "h1");
+    // A valid request that cannot be persisted remains a server error.
+    const mint2 = spawnSync(process.execPath, [server, "create-brain", "--name", "blocked"], { env, windowsHide: true, encoding: "utf8" });
+    assert.equal(mint2.status, 0, mint2.stderr);
+    const [blockedId, blockedToken] = mint2.stdout.trim().split(":");
+    mkdirSync(join(data, "digests", `${blockedId}.json`));
+    const failed = await fetch(`${base}/api/public/brains/${blockedId}/repo`, {
+      method: "POST", headers: { ...auth, authorization: `Bearer ${blockedToken}` }, body: JSON.stringify(digest),
+    });
+    assert.equal(failed.status, 500);
+    assert.ok((await failed.json()).error);
   } finally {
     child.kill();
   }

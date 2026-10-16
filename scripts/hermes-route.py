@@ -1,4 +1,7 @@
-"""Installable Hermes hook: preserve host guards and only modify local terminal args."""
+"""Legacy standalone Hermes hook, retained for provenance and excluded from npm.
+
+Current installations use scripts/hermes-grafly, which owns grafly_route too.
+"""
 import json
 import os
 from pathlib import Path

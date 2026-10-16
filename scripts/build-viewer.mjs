@@ -1,14 +1,20 @@
 /**
- * Bundles the viewer into dist/viewer/ (app.js via esbuild + copied static
- * assets). Runs as part of `npm run build`; the bundle ships in the package
- * so `graft viz` needs no install or build step at runtime.
+ * Legacy viewer build, retained only as provenance. This dist-level checkout
+ * ships the prebuilt dist/viewer assets; its original viewer/src inputs are
+ * absent. This script is excluded from npm packages and is not a build step.
  */
-import { build } from "esbuild";
-import { mkdirSync, copyFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, copyFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const inputs = ["viewer/main.ts", "viewer/index.html", "viewer/style.css", "src/graph/queries"];
+if (inputs.some((path) => !existsSync(join(root, path)))) {
+  console.error("Legacy viewer build is unavailable: original viewer/src inputs are absent. Grafly uses the shipped dist/viewer assets; no rebuild is required.");
+  process.exit(1);
+}
+// Restoring the original sources would also require their old build dependencies.
+const { build } = await import("esbuild");
 const outDir = join(root, "dist", "viewer");
 mkdirSync(outDir, { recursive: true });
 

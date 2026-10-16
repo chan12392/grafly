@@ -24,7 +24,7 @@ what established it.
 - Load circuit weights from a JSON artifact and permit an explicit GRAFLY_WEIGHTS override instead of hardcoding retrained weights in JavaScript. (https://github.com/chan12392/grafly/commit/cf1d1f68a3)
 - Rank ambiguous symbols using working-directory affinity and a mild test-path penalty so production definitions win ties. (https://github.com/chan12392/grafly/commit/ab59ae4094)
 - Expose explainable verdict reasons that distinguish feature separation, ties, weak gaps, and entirely vendored candidate pools. (https://github.com/chan12392/grafly/commit/2081e54952)
-- Run the same circuit, ranking, verdict, and shared-adjacency behavior across CLI, MCP, and workspace callers surfaces. (https://github.com/chan12392/grafly/commit/5d8ae982ad)
+- Run the same circuit, ranking, verdict, and shared-adjacency behavior across CLI and workspace callers surfaces. (https://github.com/chan12392/grafly/commit/5d8ae982ad)
 
 ### dist/graph/build.js
 - Treat dist/*.js as the product source and edit it directly because this repository has no src tree or build step.

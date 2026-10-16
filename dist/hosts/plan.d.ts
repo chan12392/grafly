@@ -8,7 +8,7 @@ export interface PlannedWrite {
     id: string;
     path: string;
     scope: WriteScope;
-    kind: 'instruction' | 'mcp' | 'hook' | 'claude' | 'skill';
+    kind: 'instruction' | 'hook' | 'claude' | 'skill';
     /** Short human label for what changes in that file. */
     what: string;
 }

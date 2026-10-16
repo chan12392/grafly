@@ -1,12 +1,12 @@
 /**
- * "Saved vs said": how often does the agent actually TELL the user what graft saved?
+ * "Saved vs said": how often does the agent tell the user what Grafly saved?
  *
  *   node scripts/tally-audit.mjs [transcript-dir] [--json]
  *
- * `savedTokens` (src/claude/state.ts) counts what graft *computed* — every
- * `[graft] tokens saved ≈ N` footer the PostToolUse accumulator swept up. This
+ * `savedTokens` (dist/claude/state.js) counts what Grafly *computed* — every
+ * `[grafly] tokens saved ≈ N` footer the PostToolUse accumulator swept up. This
  * script measures the other half, offline and in full detail: of the turns that
- * used graft, how many closed with the one-line tally SKILL.md asks for, was the
+ * used Grafly, how many closed with the one-line tally the guidance asks for, was the
  * number right, and did it name the call count.
  *
  * The shipped metric (`graft_turns_bucket` / `reported_turns_bucket` on
@@ -21,11 +21,11 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-const SAVED_FOOTER = /\[graft\] tokens saved ≈ ([\d,]+)/g;
-const TALLY = /graft\s+saved\s*[~≈]?\s*([\d,.]+)\s*(k|m)?\s*(?:tok|tokens)/i;
+const SAVED_FOOTER = /\[(?:grafly|graft)\] tokens saved ≈ ([\d,]+)/g;
+const TALLY = /(?:grafly|graft)\s+saved\s*[~≈]?\s*([\d,.]+)\s*(k|m)?\s*(?:tok|tokens)/i;
 const CALLS = /(\d+)\s*calls?/i;
 /** How far past the tally to look for its call count. The tally is one line
- * ("🌱 graft saved ~12,400 tokens this turn (3 calls)"); scanning the rest of
+ * ("🌱 Grafly saved ~12,400 tokens this turn (3 calls)"); scanning the rest of
  * the reply instead would match any unrelated "3 calls" further down and report
  * near-perfect compliance for a field the agent mostly omits. */
 const TALLY_WINDOW = 60;
@@ -110,7 +110,7 @@ for (const t of said.filter((t) => t.saved > 0)) {
 
 const report = {
   transcripts: readdirSync(dir).filter((f) => f.endsWith(".jsonl")).length,
-  graft_turns: turns.length,
+  graft_turns: turns.length, // Keep the legacy JSON field for report consumers.
   reported: said.length,
   silent: turns.length - said.length,
   reported_pct: turns.length ? Number(((said.length / turns.length) * 100).toFixed(1)) : 0,
@@ -126,7 +126,7 @@ if (asJson) {
 } else {
   const { graft_turns: n } = report;
   console.log(`transcripts scanned:      ${report.transcripts}  (${dir})`);
-  console.log(`turns that used graft:    ${n}`);
+  console.log(`turns that used Grafly:   ${n}`);
   console.log(`  ...reported a tally:    ${report.reported}  (${report.reported_pct}%)`);
   console.log(`  ...silent:              ${report.silent}`);
   console.log(`  ...named the call count ${report.stated_call_count}/${report.reported}`);
@@ -135,6 +135,6 @@ if (asJson) {
   if (outliers.length) {
     console.log(`\n⚠ ${outliers.length} turn(s) claim ≥${IMPLAUSIBLE_TOKENS.toLocaleString()} tokens saved ` +
       `(max ${report.implausible_max.toLocaleString()}) — an estimator artifact, excluded from the median. ` +
-      `See savingsFor() in src/context/savings.ts.`);
+      `See savingsFor() in dist/context/savings.js.`);
   }
 }

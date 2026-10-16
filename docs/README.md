@@ -58,3 +58,24 @@ Do not use `npm audit fix --force`: the reported fix downgrades gray-matter to
 changes their APIs and needs separate compatibility work. Retain the current
 dependency until a compatible fix or a verified parser migration is available;
 the warning is not suppressed.
+
+## Development utilities
+
+These scripts are manual tools, so they need no import from the runtime:
+
+- `node scripts/circuit-log-analyze.mjs --dir <repo> [--query X]` summarizes
+  local circuit verdicts and feedback; explicit JSONL paths are also accepted.
+- `node scripts/tally-audit.mjs <transcript-dir> [--json]` audits local Claude
+  transcripts for reported token savings. It recognizes Grafly and legacy Graft
+  footers; the JSON field `graft_turns` is retained for compatibility.
+
+`scripts/build-viewer.mjs` is an obsolete build recipe whose original
+`viewer/` and `src/` inputs are absent. Grafly ships `dist/viewer/` directly;
+there is no viewer rebuild step. The recipe now exits before writing anything
+when those inputs are missing. The direct `esbuild`, `d3-force` and
+`@types/d3-force` development dependencies are no longer needed. `tsx` still
+uses esbuild transitively for the test runner's TypeScript support.
+
+`scripts/hermes-route.py` is a legacy standalone adapter. Current installations
+use `scripts/hermes-grafly/`. Both legacy files remain in the repository for
+provenance and are excluded from npm packages.

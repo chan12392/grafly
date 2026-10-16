@@ -50,8 +50,8 @@ export declare function latestSession(dir: string): SessionSummary | null;
  * What this repo's most recent session has actually been paying per million
  * input tokens, or null when no turn has been billed yet.
  *
- * `latestSession` rather than a session id because the callers are CLI and MCP
- * processes answering one query: they know the repo, never the host's session
+ * `latestSession` rather than a session id because the callers are CLI
+ * invocations answering one query: they know the repo, never the host's session
  * id. The rate belongs to the repo's current session, which is the one whose
  * reply the number is about to appear in.
  */

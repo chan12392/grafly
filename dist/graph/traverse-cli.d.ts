@@ -35,9 +35,7 @@ export declare function judgeAndRank(graph: GraphV1, query: string, matches: Nod
 export declare function circuitVerdictLine(circuit: Pick<CircuitReport, "verdict" | "gap" | "reason" | "top">, matchCount: number): string;
 export declare function circuitLogPath(contextDir: string): string | null;
 export declare function logCircuit(logPath: string | null, record: Record<string, unknown>): void;
-/** Exported so the MCP `graft_trace_calls` tool (`src/mcp/tools.ts`) can render the
- * same human report format as the CLI, rather than re-implementing it — both
- * surfaces walk the same edges via the same `resolveSymbol` / `edgeWalk` core. */
+/** Human report header for callers results from the shared traversal core. */
 export declare function headerOf(n: NodeV1): string;
 /** `showDepth` is set for multi-hop walks (depth > 1), matching the old
  * `graft impact` output which tagged every hit with its BFS depth.
@@ -54,8 +52,7 @@ interface Quote {
 }
 /** Tokens-saved baseline for a callers/callees walk: the files of the matched
  * symbols plus every resolved edge endpoint, read whole — the files you'd open
- * to trace these edges by hand. Shared by the CLI and the MCP tool so both
- * surfaces report the same number. */
+ * to trace these edges by hand. Shared by single-repo and workspace CLI output. */
 export declare function callersSavings(graph: GraphV1, results: {
     symbol: NodeV1;
     hits: EdgeHit[];

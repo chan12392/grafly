@@ -3,9 +3,9 @@
  *
  * Resolved from *this* module rather than the caller's: `readCurrentVersion`
  * looks one level up from the module URL it's given, which lands on the package
- * root for `dist/upkeep.js` but misses entirely for `dist/claude/hooks.js` and
- * `dist/mcp/server.js`. Every caller asking here instead of passing its own
- * `import.meta.url` is what keeps the hook and the MCP server from reading
+ * root for `dist/upkeep.js` but misses entirely for `dist/claude/hooks.js`.
+ * Every caller asking here instead of passing its own
+ * `import.meta.url` is what keeps the hook from reading
  * `0.0.0` and re-initing on every single session.
  */
 export declare function runningVersion(): string;
@@ -41,15 +41,15 @@ export declare function needsRefresh(cache: UpdateCache | null, now?: number): b
  * `checkedAt` first so concurrent callers (and a child that dies) don't spawn a
  * fetch per invocation. Never waits, never throws.
  *
- * Only called from long-lived or already-slow contexts (a CLI command, MCP
- * boot) — never from a hook, which reads the cache and nothing else.
+ * Only called from long-lived or already-slow contexts (a CLI command)
+ * — never from a hook, which reads the cache and nothing else.
  */
 export declare function maybeRefreshInBackground(home?: string, now?: number): boolean;
 /**
  * Refresh the attached brain's rules in a detached child, when they are stale.
  *
  * The same shape as the update check above, and for the same reason: this runs
- * inside session-start hooks and MCP boot, where waiting on the network is a
+ * inside session-start hooks, where waiting on the network is a
  * stalled first turn. So nothing here blocks — the child does the fetch and
  * this call returns immediately.
  *
@@ -79,8 +79,6 @@ export declare function formatUpdateNudge(current: string, latest: string | null
 export interface WiringOpts {
     /** false → never write outside the repo (`--no-global`). */
     global: boolean;
-    /** false → skip MCP server registration (`--no-mcp`). */
-    mcp: boolean;
     /** false → skip hook installation (`--no-hooks`). */
     hooks: boolean;
     /** false → skip Claude Code statusLine (`--no-statusline` / GRAFT_NO_STATUSLINE). */

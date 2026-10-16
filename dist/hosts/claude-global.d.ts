@@ -6,19 +6,12 @@ export type GlobalWrite = ConfigWrite;
 export declare function globalHelpersDir(home: string): string;
 /**
  * The files a user-level install would touch — pure, no writes, so `--dry-run` and
- * the picker can report them up front. All three are scoped 'global': they apply to
+ * the picker can report them up front. Both are scoped 'global': they apply to
  * every project opened with Claude Code, not just this one.
- *
- * `~/.claude.json` holds the *user* MCP scope — the top-level `mcpServers` map, the
- * one `claude mcp add --scope user` writes. Not to be confused with the same file's
- * `projects["<abs path>"].mcpServers`, which is `--scope local` and per-directory:
- * a worktree is its own project entry there, so a local registration would miss it
- * for precisely the same reason the repo file does.
  */
 export declare function claudeGlobalTargets(home: string): PlannedWrite[];
 /**
- * Install the user-level copy: the shim, the hook entries that call it, and the
- * user-scope MCP registration.
+ * Install the user-level copy: the shim and the hook entries that call it.
  *
  * The shim is written to `home` and the hook commands name it by absolute path, for
  * the reason the repo form can't be reused: `${CLAUDE_PROJECT_DIR}/.claude/helpers/`
