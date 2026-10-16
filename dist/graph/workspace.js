@@ -25,7 +25,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { contextDirFor } from "../context/node-file.js";
 import { archiveIndex } from '../context/archive-index.js';
-import { checkGraph } from "./check.js";
 import { loadGraphCached, loadTraverseCached } from "./load.js";
 import { buildRepoMap, formatRepoMap } from "./map.js";
 import { discoverWorkspaceChildren } from "./scopes.js";
@@ -555,6 +554,7 @@ export function federateMap(root, override, opts = {}) {
 /** Per-child drift status. `ok` is false when any BUILT child is stale — an
  * unbuilt child is surfaced (coverage), never a failure. */
 export async function federateCheck(root, override) {
+    const { checkGraph } = await import("./check.js");
     const wg = loadWorkspaceGraphs(root, override);
     const lines = [`workspace check — ${wg.loaded.length + wg.missing.length} repo(s)`, ""];
     let ok = true;

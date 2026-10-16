@@ -13,7 +13,7 @@
  * v1 is deterministic and $0 (term-overlap scoring, no LLM, no embeddings). The
  * output is markdown so it drops straight into an agent's context.
  */
-import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import matter from "gray-matter";
 import { contextDirFor } from "../context/node-file.js";
@@ -69,13 +69,21 @@ function parseConcept(content) {
         [language]: normalized === "json" ? parseJson : parseYaml,
     } });
 }
+const conceptCache = new Map();
 function loadCorpus(outDir) {
     const concepts = [];
+    const previous = conceptCache.get(outDir);
+    const current = new Map();
     if (existsSync(outDir)) {
         for (const entry of readdirSync(outDir)) {
             if (!entry.endsWith(".md") || entry === "INDEX.md")
                 continue;
-            const parsed = parseConcept(readFileSync(join(outDir, entry), "utf8"));
+            const path = join(outDir, entry);
+            const stat = statSync(path);
+            const stamp = `${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}:${stat.ino}`;
+            const cached = previous?.get(entry);
+            const parsed = cached?.stamp === stamp ? cached.parsed : parseConcept(readFileSync(path, "utf8"));
+            current.set(entry, { stamp, parsed });
             const fm = parsed.data;
             const sources = Array.isArray(fm.sources)
                 ? fm.sources.map((s) => s.path)
@@ -94,6 +102,9 @@ function loadCorpus(outDir) {
             });
         }
     }
+    // Re-list on every query: additions, deletions and renames invalidate naturally.
+    if (current.size) conceptCache.set(outDir, current);
+    else conceptCache.delete(outDir);
     return { concepts, graph: loadGraphCached(outDir), askIndex: loadAskIndexCached(outDir) };
 }
 /** Score a document's token counts against the query counts (name field
@@ -536,6 +547,55 @@ function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fi
         const match = span.match(/^L(\d+)-L\d+$/);
         return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
     };
+    // Both scope paths use the same corpus statistics and lexical evidence.
+    const scoreDocs = (docs) => {
+        const scores = new Map();
+        for (const { n, name, path, body } of docs) {
+            const total = (score(q, name, idf) * 3 + score(q, path, idf) * 2 +
+                bm25(q, body, idf, bodyLen(body), avgBodyLen)) * testFactor(n.path);
+            if (!(total > 0))
+                continue;
+            scores.set(n.id, total);
+            if (fileComplement) {
+                rawLexicalById.set(n.id, total);
+                matchedTermsById.set(n.id, matchedLexicalTerms(q, name, path, body));
+                if (n.kind !== "file")
+                    matchedStrongTermsById.set(n.id, matchedStrongTerms(q, name));
+            }
+        }
+        return scores;
+    };
+    const appendFileGroup = (file, leaderScore, scoreFor, scopeFor = () => undefined) => {
+        const materializeFileQueue = () => file.queue.flatMap((member, index) => {
+            if (index > 0) {
+                const baselineHit = baselineHitById.get(member.id);
+                if (baselineHit)
+                    return [baselineHit];
+            }
+            const hit = makeSymbolHit(member.id, index === 0 ? leaderScore : scoreFor(member), scopeFor(member));
+            return hit ? [hit] : [];
+        });
+        const materializeBaselineQueue = () => file.queue.flatMap((member) => {
+            const hit = makeSymbolHit(member.id, scoreFor(member), scopeFor(member));
+            return hit ? [hit] : [];
+        });
+        const leader = file.queue[0];
+        const hit = !includeRankingMetadata && leader
+            ? makeSymbolHit(leader.id, leaderScore, scopeFor(leader)) : null;
+        const hits = includeRankingMetadata ? materializeFileQueue() : hit ? [hit] : [];
+        if (!hits.length)
+            return;
+        const group = {
+            key: `file:${file.file}`,
+            hits,
+            coverage: file.unionCoverage,
+            coverageStrong: file.unionStrongCoverage,
+        };
+        fileQueueHitsByGroup.set(group.key, materializeFileQueue);
+        baselineQueueHitsByGroup.set(group.key, materializeBaselineQueue);
+        fileGroups.push(group);
+        symbolHits.push(hits[0]);
+    };
     if (scopes && scopes.length > 1) {
         // ── Multi-scope repo: partition by sub-project and walk each subgraph
         // separately — so the big scope can't drown the small one — but score every
@@ -563,33 +623,7 @@ function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fi
         let collapsedComponentById;
         let collapsedFileByRepresentative;
         const fusion = rankScopesAndFuse([...byScope.keys()].sort(), {
-            lex: (s) => {
-                const docs = byScope.get(s);
-                // Repo-wide IDF and length prior — the SAME `idf`/`avgBodyLen` the
-                // single-scope path uses. Scoring each scope against its own corpus
-                // (as this did before #117) made a term worth a different amount in
-                // every scope, so the resulting scores could not be compared and the
-                // combined order had to fall back on rank. Only the PARTITION is
-                // per-scope now; the statistics are global.
-                const out = new Map();
-                for (const { n, name, path, body } of docs) {
-                    const factor = testFactor(n.path);
-                    const total = (score(q, name, idf) * 3 +
-                        score(q, path, idf) * 2 +
-                        bm25(q, body, idf, bodyLen(body), avgBodyLen)) *
-                        factor;
-                    if (total > 0) {
-                        out.set(n.id, total);
-                        if (fileComplement) {
-                            rawLexicalById.set(n.id, total);
-                            matchedTermsById.set(n.id, matchedLexicalTerms(q, name, path, body));
-                            if (n.kind !== "file")
-                                matchedStrongTermsById.set(n.id, matchedStrongTerms(q, name));
-                        }
-                    }
-                }
-                return out;
-            },
+            lex: (s) => scoreDocs(byScope.get(s)),
             // Body-only suppression: does any doc in this scope carry a query term
             // in an identifier (name) or its path, rather than only in prose?
             hasIdentifierMatch: (s) => (byScope.get(s) ?? []).some(({ name, path }) => {
@@ -668,43 +702,9 @@ function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fi
                 const file = collapsedFileByRepresentative?.get(ranked.id);
                 if (!file)
                     continue;
-                const materializeFileQueue = () => file.queue.flatMap((member, index) => {
-                    const component = collapsedComponentById?.get(member.id);
-                    if (index > 0) {
-                        const baselineHit = baselineHitById.get(member.id);
-                        if (baselineHit)
-                            return [baselineHit];
-                    }
-                    const hit = makeSymbolHit(member.id, index === 0
-                        ? ranked.score
-                        : baselineScoreById.get(member.id) ?? member.baselineScore, component?.scope ?? ranked.scope);
-                    return hit ? [hit] : [];
-                });
-                const materializeBaselineQueue = () => file.queue.flatMap((member) => {
-                    const hit = makeSymbolHit(member.id, baselineScoreById.get(member.id) ?? member.baselineScore, collapsedComponentById?.get(member.id)?.scope ?? ranked.scope);
-                    return hit ? [hit] : [];
-                });
-                const hits = includeRankingMetadata
-                    ? materializeFileQueue()
-                    : (() => {
-                        const leader = file.queue[0];
-                        if (!leader)
-                            return [];
-                        const hit = makeSymbolHit(leader.id, ranked.score, collapsedComponentById?.get(leader.id)?.scope ?? ranked.scope);
-                        return hit ? [hit] : [];
-                    })();
-                if (hits.length === 0)
-                    continue;
-                const group = {
-                    key: `file:${file.file}`,
-                    hits,
-                    coverage: file.unionCoverage,
-                    coverageStrong: file.unionStrongCoverage,
-                };
-                fileQueueHitsByGroup.set(group.key, materializeFileQueue);
-                baselineQueueHitsByGroup.set(group.key, materializeBaselineQueue);
-                fileGroups.push(group);
-                symbolHits.push(hits[0]);
+                appendFileGroup(file, ranked.score,
+                    (member) => baselineScoreById.get(member.id) ?? member.baselineScore,
+                    (member) => collapsedComponentById?.get(member.id)?.scope ?? ranked.scope);
             }
         }
         else {
@@ -725,27 +725,10 @@ function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fi
         // `--in` is absent (Task 3's regression guarantee: `askIndex && !inPrefix`
         // reduces to plain `askIndex` when `inPrefix` is undefined). `avgBodyLen` is
         // now defined once above and shared with the multi-scope branch.
-        const lex = new Map(); // node id → lexical score (>0 only)
+        const lex = scoreDocs(candidateDocs);
         let maxLex = 0;
-        for (const { n, name, path, body } of candidateDocs) {
-            // Name and path are short identifiers → plain idf-weighted overlap; the body
-            // is length-normalized via BM25 so long definitions don't win on bulk.
-            const factor = testFactor(n.path);
-            const total = (score(q, name, idf) * 3 +
-                score(q, path, idf) * 2 +
-                bm25(q, body, idf, bodyLen(body), avgBodyLen)) *
-                factor;
-            if (total > 0) {
-                lex.set(n.id, total);
-                maxLex = Math.max(maxLex, total);
-                if (fileComplement) {
-                    rawLexicalById.set(n.id, total);
-                    matchedTermsById.set(n.id, matchedLexicalTerms(q, name, path, body));
-                    if (n.kind !== "file")
-                        matchedStrongTermsById.set(n.id, matchedStrongTerms(q, name));
-                }
-            }
-        }
+        for (const value of lex.values())
+            maxLex = Math.max(maxLex, value);
         // ── Graph-rank: let connectivity to the matched set reorder and rescue ──
         // `--in` restricts the walk itself, not just the seeds: without a nodeFilter
         // here, a RESCUE_FLOOR-qualifying neighbour OUTSIDE the prefix could still
@@ -818,40 +801,7 @@ function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fi
                 }
             }
             for (const file of rankedFiles) {
-                const materializeFileQueue = () => file.queue.flatMap((member, index) => {
-                    if (index > 0) {
-                        const baselineHit = baselineHitById.get(member.id);
-                        if (baselineHit)
-                            return [baselineHit];
-                    }
-                    const hit = makeSymbolHit(member.id, index === 0 ? file.score : member.baselineScore);
-                    return hit ? [hit] : [];
-                });
-                const materializeBaselineQueue = () => file.queue.flatMap((member) => {
-                    const hit = makeSymbolHit(member.id, member.baselineScore);
-                    return hit ? [hit] : [];
-                });
-                const hits = includeRankingMetadata
-                    ? materializeFileQueue()
-                    : (() => {
-                        const leader = file.queue[0];
-                        if (!leader)
-                            return [];
-                        const hit = makeSymbolHit(leader.id, file.score);
-                        return hit ? [hit] : [];
-                    })();
-                if (hits.length === 0)
-                    continue;
-                const group = {
-                    key: `file:${file.file}`,
-                    hits,
-                    coverage: file.unionCoverage,
-                    coverageStrong: file.unionStrongCoverage,
-                };
-                fileQueueHitsByGroup.set(group.key, materializeFileQueue);
-                baselineQueueHitsByGroup.set(group.key, materializeBaselineQueue);
-                fileGroups.push(group);
-                symbolHits.push(hits[0]);
+                appendFileGroup(file, file.score, (member) => member.baselineScore);
             }
         }
         else if (rankedFiles) {

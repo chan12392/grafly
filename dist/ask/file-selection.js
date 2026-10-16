@@ -21,22 +21,7 @@ export function fileFirstRoundRobin(ranked, limit = Number.POSITIVE_INFINITY) {
         else
             grouped.set(candidate.group, [candidate.value]);
     }
-    const queues = [...grouped.values()];
-    const out = [];
-    for (let depth = 0;; depth += 1) {
-        let added = false;
-        for (const queue of queues) {
-            if (depth >= queue.length)
-                continue;
-            out.push(queue[depth]);
-            added = true;
-            if (out.length >= cap)
-                return out;
-        }
-        if (!added)
-            break;
-    }
-    return out;
+    return roundRobinQueues([...grouped.values()], cap);
 }
 /** Project already-grouped queues directly. Unlike {@link fileFirstRoundRobin}
  * this does not flatten and rebuild a grouping map, so a file-aware ranker can
