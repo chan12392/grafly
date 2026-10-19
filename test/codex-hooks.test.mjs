@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { hookTargets, installCodexHooks } from '../dist/hosts/codex-hooks.js';
 
 function fixture(t, { hooks = true } = {}) {
@@ -85,6 +86,48 @@ test('apply:false reports the drift without writing', (t) => {
   assert.equal(byId['codex-hooks'], 'unchanged');
   assert.equal(readFileSync(join(f.dir, 'grafly-devin-hook.cjs'), 'utf8'), 'tampered');
   assert.equal(readFileSync(f.cfg, 'utf8'), cfgBefore);
+});
+
+test('account reinstall updates shared shims without changing trusted definitions or retracting shared files', (t) => {
+  const f = fixture(t);
+  installCodexHooks(f.home);
+  const account = join(f.home, 'account');
+  const repo = join(f.home, 'repo');
+  mkdirSync(account);
+  mkdirSync(repo);
+  const before = readFileSync(f.cfg, 'utf8');
+  writeFileSync(join(account, 'hooks.json'), before);
+  const sharedAgent = join(f.dir, 'grafly-devin-hook.cjs');
+  writeFileSync(sharedAgent, 'old generated shim');
+  const installer = new URL('../dist/hosts/codex-hooks.js', import.meta.url).href;
+  const retractor = new URL('../dist/hosts/retract.js', import.meta.url).href;
+  const result = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', `
+    import { hookTargets, installCodexHooks } from ${JSON.stringify(installer)};
+    import { planRetract } from ${JSON.stringify(retractor)};
+    import { readFileSync } from 'node:fs';
+    const targets = hookTargets();
+    const plan = installCodexHooks(undefined, { apply: false });
+    const beforeApply = readFileSync(${JSON.stringify(sharedAgent)}, 'utf8');
+    const applied = installCodexHooks();
+    const again = installCodexHooks();
+    const retract = planRetract(${JSON.stringify(repo)});
+    console.log(JSON.stringify({ targets, plan, beforeApply, applied, again, retract }));
+  `], {
+    env: { ...process.env, HOME: f.home, USERPROFILE: f.home, CODEX_HOME: account },
+    encoding: 'utf8', windowsHide: true,
+  }));
+  assert.equal(readFileSync(join(account, 'hooks.json'), 'utf8'), before, 'command paths, metadata and slots stay identical');
+  assert.equal(readFileSync(f.cfg, 'utf8'), before, 'default home config stays untouched');
+  assert.equal(result.targets[0].path, join(f.dir, 'grafly-hooks.cjs'));
+  assert.equal(result.targets[1].path, sharedAgent);
+  assert.equal(result.beforeApply, 'old generated shim', 'planning performs no write');
+  assert.match(readFileSync(sharedAgent, 'utf8'), /autoBuildRoot/, 'the registered shared shim is refreshed');
+  assert.equal(existsSync(join(account, 'hooks')), false, 'no unused account shim copies');
+  assert.equal(result.plan.find((r) => r.id === 'codex-hooks').action, 'unchanged');
+  assert.equal(result.applied.find((r) => r.id === 'codex-hooks').action, 'unchanged');
+  assert.ok(result.again.every((r) => r.action === 'unchanged'));
+  assert.ok(result.retract.some((r) => r.path === join(account, 'hooks.json')));
+  assert.ok(result.retract.every((r) => ![sharedAgent, join(f.dir, 'grafly-hooks.cjs')].includes(r.path)), 'account retraction leaves shared files owned by the default home');
 });
 
 test('unparseable hooks.json is left alone; absent codex dir installs nothing', (t) => {

@@ -31,15 +31,29 @@ export function hookTargets(home = homedir()) {
     const base = codexHomeDir(home);
     if (!dirExists(base))
         return [];
+    const loaded = readJsonObject(join(base, 'hooks.json'));
+    const commands = Object.values(loaded?.root?.hooks ?? {})
+        .flatMap((entries) => Array.isArray(entries) ? entries : [])
+        .flatMap((entry) => Array.isArray(entry?.hooks) ? entry.hooks : [])
+        .map((handler) => handler?.command);
+    const shimPath = (file, subs) => {
+        const shared = join(home, '.codex', 'hooks', 'grafly', file);
+        // Keep registered shared shim paths stable because Codex hashes command definitions.
+        if (base !== resolve(home, '.codex')
+            && subs.some((sub) => commands.includes(`node "${shared}" ${sub}`))
+            && statSync(shared, { throwIfNoEntry: false })?.isFile())
+            return shared;
+        return join(base, 'hooks', 'grafly', file);
+    };
     return [
         {
             hostId: 'agents', id: 'codex-hook-shim',
-            path: join(base, 'hooks', 'grafly', 'grafly-hooks.cjs'),
+            path: shimPath('grafly-hooks.cjs', ['post-edit', 'stop']),
             scope: 'global', kind: 'hook', what: 'post-edit/stop hook shim',
         },
         {
             hostId: 'agents', id: 'codex-agent-shim',
-            path: join(base, 'hooks', 'grafly', 'grafly-devin-hook.cjs'),
+            path: shimPath('grafly-devin-hook.cjs', ['session-start', 'prompt']),
             scope: 'global', kind: 'hook', what: 'session-start/prompt hook shim',
         },
         {

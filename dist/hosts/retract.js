@@ -538,6 +538,9 @@ function targets(repo, opts) {
         }
         if (!exclude.has('agents')) {
             for (const t of hookTargets(home)) {
+                // An account must not remove shims shared with the default home.
+                if (t.id !== 'codex-hooks' && dirname(dirname(dirname(t.path))) !== codexHomeDir(home))
+                    continue;
                 add({
                     hostId: t.hostId, path: t.path, what: t.what, scope: 'global',
                     run: (a) => (t.path.endsWith('.json') ? stripHookConfig(t.path, a) : removeFile(t.path, a)),
