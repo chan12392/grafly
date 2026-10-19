@@ -50,11 +50,12 @@ export function hookTargets(home = homedir()) {
     ];
 }
 function desiredEntries(shims) {
+    // Codex hook timeouts are expressed in seconds.
     return [
-        { event: 'SessionStart', matcher: 'startup|resume|compact', sub: 'session-start', timeout: 10000, shim: shims.agent },
-        { event: 'UserPromptSubmit', sub: 'prompt', timeout: 15000, shim: shims.agent },
-        { event: 'PostToolUse', matcher: 'apply_patch|Write|Edit|MultiEdit', sub: 'post-edit', timeout: 10000, shim: shims.gen },
-        { event: 'Stop', sub: 'stop', timeout: 10000, shim: shims.gen },
+        { event: 'SessionStart', matcher: 'startup|resume|compact', sub: 'session-start', timeout: 10, shim: shims.agent },
+        { event: 'UserPromptSubmit', sub: 'prompt', timeout: 15, shim: shims.agent },
+        { event: 'PostToolUse', matcher: 'apply_patch|Write|Edit|MultiEdit', sub: 'post-edit', timeout: 10, shim: shims.gen },
+        { event: 'Stop', sub: 'stop', timeout: 10, shim: shims.gen },
     ];
 }
 export function installCodexHooks(home, { apply = true } = {}) {
