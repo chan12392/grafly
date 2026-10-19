@@ -11,11 +11,16 @@ export interface GenericLang {
 export declare const GENERIC_LANGS: readonly GenericLang[];
 /** The generic language for a path, or null if no breadth grammar claims it. */
 export declare function genericLangOf(path: string): GenericLang | null;
+export declare function fallbackLangOf(name: string): GenericLang | null;
 /** Every file extension a breadth-tier (generic tree-sitter) grammar claims. */
 export declare function genericExtensions(): string[];
 export interface Loaded {
     language: unknown;
     query: unknown | null;
+    parser: {
+        parse(input: (index: number) => string): TsTree | null;
+        reset(): void;
+    };
 }
 /** Warm the WASM grammars for the given graft lang names. Idempotent; must be
  * awaited once before extractGeneric is used in a sync loop. Unknown/unavailable
@@ -37,10 +42,12 @@ export declare function swapGrammarForTest(name: string, entry: Loaded | null): 
  * where an embedded language starts but none of the tags.scm machinery above.
  * Kept here so web-tree-sitter is initialised exactly once per process. */
 export declare function loadWasmLanguage(wasm: string): Promise<unknown | null>;
-/** Parse with an already-loaded grammar. Returns the root node, or null if the
- * grammar was never warmed or the parse blew up. Companion to
- * `loadWasmLanguage` for callers outside this module. */
-export declare function parseWasm(language: unknown, source: string): TsNode | null;
+/** Caller must delete the returned tree after walking its nodes. */
+export declare function parseWasm(language: unknown, source: string): TsTree | null;
+export interface TsTree {
+    rootNode: TsNode;
+    delete(): void;
+}
 /** Extract a single generic-tier file. Synchronous; needs the grammar pre-warmed.
  * Uses the grammar's compiled tags.scm when present (symbols + call edges);
  * otherwise falls back to a node-kind tree walker (symbols only) so ANY warmed

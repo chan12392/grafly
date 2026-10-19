@@ -44,27 +44,26 @@ const CHILD_TIMEOUT_MS = 8000;
 /** Headroom left for the hook's own work (read stdin, score, write session, emit)
  * after its `graft ask` child returns. */
 const HOOK_OVERHEAD_MS = 2000;
-/** Floor, so a hand-edited tiny timeout can't leave the child no time at all. */
+/** Preferred minimum, capped below the actual hook budget even for tiny values. */
 const MIN_CHILD_TIMEOUT_MS = 4000;
 /**
  * How long the prompt hook may let `graft ask` run — derived from the budget that is
  * *actually installed* in this repo's `.claude/settings.json`, not from what the
  * current version of `settings-merge.ts` would install.
  *
- * A query now brings the graph up to date first, so `graft init` raises the
- * UserPromptSubmit budget to 15s to cover the one cold rebuild after an upgrade. But
- * `mergeGraftSettings` only runs during `graft init` — upgrading the npm package does
- * not re-run it. So every repo wired before that change keeps `"timeout": 8000`, and
- * hard-coding a 13s child there means Claude Code kills the hook first: `emit()` and
- * `writeSession()` never run, the turn gets no retrieval pack at all, and the SIGKILLed
- * child can't even release the build lock. Reading the installed number keeps the child
- * strictly inside whatever budget this repo really has.
+ * Claude settings use seconds. Legacy millisecond-shaped values are interpreted
+ * conservatively, and the tightest matching hook budget leaves headroom for emit.
  */
 export function promptAskTimeout(dir) {
-    const installed = installedHookTimeout(dir, 'UserPromptSubmit');
+    return childTimeoutFor(installedHookTimeout(dir, 'UserPromptSubmit', 'prompt'));
+}
+export function postEditCheckTimeout(dir) {
+    return childTimeoutFor(installedHookTimeout(dir, 'PostToolUse', 'post-edit'));
+}
+function childTimeoutFor(installed) {
     if (installed === null)
         return CHILD_TIMEOUT_MS - HOOK_OVERHEAD_MS;
-    return Math.max(MIN_CHILD_TIMEOUT_MS, installed - HOOK_OVERHEAD_MS);
+    return Math.max(1, Math.min(Math.max(MIN_CHILD_TIMEOUT_MS, installed - HOOK_OVERHEAD_MS), installed - 500));
 }
 /**
  * Every settings file Claude Code merges hook definitions from, for a session
@@ -82,20 +81,24 @@ function hookSettingsFiles(dir) {
 }
 /** The timeout on one settings file's graft hook entry for `event`, or null if it
  * can't be read (no settings file, hand-edited shape, unparseable JSON). */
-function hookTimeoutIn(file, event) {
+function hookTimeoutIn(file, event, subcommand) {
     try {
         const settings = JSON.parse(readFileSync(file, 'utf8'));
         const blocks = settings?.hooks?.[event];
         if (!Array.isArray(blocks))
             return null;
+        let smallest = null;
         for (const block of blocks) {
             for (const h of block?.hooks ?? []) {
-                if (typeof h?.command === 'string' && /(?:grafly|graft)-hooks\.cjs/.test(h.command) && typeof h.timeout === 'number') {
-                    return h.timeout;
+                if (typeof h?.command === 'string' && /(?:grafly|graft)-hooks\.cjs/.test(h.command) &&
+                    h.command.trim().split(/\s+/).includes(subcommand) && Number.isFinite(h.timeout) && h.timeout > 0) {
+                    // shortcut: values over 600 are legacy milliseconds; revisit for hooks needing over ten minutes.
+                    const ms = h.timeout > 600 ? h.timeout : h.timeout * 1000;
+                    smallest = smallest === null ? ms : Math.min(smallest, ms);
                 }
             }
         }
-        return null;
+        return smallest;
     }
     catch {
         return null;
@@ -112,10 +115,10 @@ function hookTimeoutIn(file, event) {
  * `writeSession()` never run and the turn silently gets no retrieval at all.
  * Guessing low only shortens one query.
  */
-function installedHookTimeout(dir, event) {
+function installedHookTimeout(dir, event, subcommand) {
     let smallest = null;
     for (const file of hookSettingsFiles(dir)) {
-        const timeout = hookTimeoutIn(file, event);
+        const timeout = hookTimeoutIn(file, event, subcommand);
         if (timeout === null)
             continue;
         if (smallest === null || timeout < smallest)
@@ -157,7 +160,7 @@ function graftJson(dir, args, timeout = CHILD_TIMEOUT_MS) {
     }
 }
 function checkStaleCount(dir) {
-    const r = graftJson(dir, withContextDirArg(dir, ['check', '.', '--json']));
+    const r = graftJson(dir, withContextDirArg(dir, ['check', '.', '--json']), postEditCheckTimeout(dir));
     const g = r?.graph ?? {};
     return (g.changed?.length ?? 0) + (g.added?.length ?? 0) + (g.removed?.length ?? 0);
 }

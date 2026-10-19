@@ -68,6 +68,8 @@ export interface GraphV1 {
         nodeCount: number;
         edgeCount: number;
         languages: string[];
+        /** Explicit extension selection; absent means every supported extension. */
+        extensions?: string[];
         /** Ranking scopes: posix path prefixes relative to the graph root, "" = root scope.
          * Absent (old graphs) ≡ [{ prefix: "", label: "" }]. Sorted by prefix length desc. */
         scopes?: ScopeV1[];

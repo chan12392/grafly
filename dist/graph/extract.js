@@ -225,6 +225,8 @@ const FUNCTION_VALUE_TYPES = new Set([
 const EMPTY_SET = new Set();
 const require = createRequire(import.meta.url);
 let parser;
+let coreUnavailable = false;
+const grammars = new Map();
 const GRAMMARS = {
     typescript: () => require("tree-sitter-typescript").typescript,
     tsx: () => require("tree-sitter-typescript").tsx,
@@ -236,6 +238,30 @@ const GRAMMARS = {
     swift: () => require("tree-sitter-swift"),
     php: () => require("tree-sitter-php").php,
 };
+/** Probe once per process; metadata queries never load native bindings. */
+export function nativeReady(lang) {
+    if (coreUnavailable)
+        return false;
+    if (!parser) {
+        try { parser = new (require("tree-sitter"))(); }
+        catch { coreUnavailable = true; return false; }
+    }
+    if (!grammars.has(lang)) {
+        try {
+            const grammar = GRAMMARS[lang]();
+            parser.setLanguage(grammar);
+            grammars.set(lang, grammar);
+        }
+        catch { grammars.set(lang, null); }
+    }
+    return grammars.get(lang) != null;
+}
+export function missingNativePackages(langs) {
+    if (coreUnavailable)
+        return ["tree-sitter"];
+    return [...new Set([...langs].map(lang => lang === "tsx" ? "tree-sitter-typescript"
+        : lang === "r" ? "@davisvaughan/tree-sitter-r" : `tree-sitter-${lang}`))].sort();
+}
 /** tree-sitter's string `parse()` fails with "Invalid argument" on any input
  * ≥ 32 KB, which silently drops large files — often the most important ones (a
  * 2000-line command module, a core tab implementation). The callback form has
@@ -246,9 +272,9 @@ function parseSource(source) {
     return parser.parse((index) => source.slice(index, index + PARSE_CHUNK)).rootNode;
 }
 export function extractFile(rel, source, lang) {
-    // Metadata queries need no native parser. Node caches each required grammar.
-    parser ??= new (require("tree-sitter"))();
-    parser.setLanguage(GRAMMARS[lang]());
+    if (!nativeReady(lang))
+        throw new Error(`${lang} native parser unavailable`);
+    parser.setLanguage(grammars.get(lang));
     const root = parseSource(source);
     const bindings = collectBindings(root, lang);
     const importedSymbols = collectImportedSymbols(root, lang);

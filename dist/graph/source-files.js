@@ -7,7 +7,7 @@
  * {@link listSourceFiles} so its existing importers are unaffected.
  */
 import { statSync } from "node:fs";
-import { resolve } from "node:path";
+import { extname, resolve } from "node:path";
 import { walkDir } from "../ingest/fs.js";
 import { relPosix } from "../util/paths.js";
 import { readFollowNestedRepos, readFollowSubmodules, readIncludeDirs } from "../util/state.js";
@@ -23,6 +23,9 @@ export function supportedExtensions() {
 function normExt(e) {
     const t = e.trim().toLowerCase();
     return t.startsWith(".") ? t : `.${t}`;
+}
+export function normalizeExtensions(exts) {
+    return exts?.length ? [...new Set(exts.map(normExt))].sort() : undefined;
 }
 /**
  * The subset of user-supplied `-e` extensions that no parser claims (depth or breadth).
@@ -56,11 +59,13 @@ export function filterByOnlyDirs(files, root, onlyDirs) {
 export function listSourceFiles(root, outDir, repoFiles = walkDir(root, readIncludeDirs(resolve(root)), {
     followSubmodules: readFollowSubmodules(resolve(root)),
     followNestedRepos: readFollowNestedRepos(resolve(root)),
-}), onlyDirs) {
+}), onlyDirs, extensions) {
+    const selected = normalizeExtensions(extensions);
     // A file is a source file if a depth-tier grammar (languageOf), a breadth-tier
     // grammar (genericLangOf) or a container (containerLangOf) claims its extension.
     // All three must agree here or `build` and `check` would enumerate different sets.
     return filterByOnlyDirs(repoFiles.filter((f) => !f.startsWith(outDir) &&
+        (!selected || selected.includes(extname(f).toLowerCase())) &&
         (languageOf(f) !== null || genericLangOf(f) !== null || containerLangOf(f) !== null)), root, onlyDirs);
 }
 /**
@@ -68,9 +73,9 @@ export function listSourceFiles(root, outDir, repoFiles = walkDir(root, readIncl
  * both the freshness probe and the extraction cache. Files that vanish between
  * the walk and the stat are dropped (same fail-soft posture as `walkDir`).
  */
-export function listSourceStats(root, outDir, repoFiles, onlyDirs) {
+export function listSourceStats(root, outDir, repoFiles, onlyDirs, extensions) {
     const out = [];
-    for (const abs of listSourceFiles(root, outDir, repoFiles, onlyDirs)) {
+    for (const abs of listSourceFiles(root, outDir, repoFiles, onlyDirs, extensions)) {
         let s;
         try {
             s = statSync(abs);

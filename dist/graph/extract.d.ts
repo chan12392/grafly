@@ -1,6 +1,8 @@
 import { type FileBindings } from "./bindings.js";
 import type { Kind, NodeV1, Relation } from "./types.js";
 export type Language = "typescript" | "tsx" | "python" | "go" | "java" | "kotlin" | "swift" | "php" | "r";
+export declare function nativeReady(lang: Language): boolean;
+export declare function missingNativePackages(langs: Iterable<Language>): string[];
 /** Every file extension a depth-tier (hand-written) extractor claims. */
 export declare function depthExtensions(): string[];
 /** Map a file path to a supported language, or null if unsupported. */

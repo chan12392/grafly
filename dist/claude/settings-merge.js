@@ -1,4 +1,4 @@
-import { mergeGraftHookEntries } from '../hosts/config-write.js';
+import { isGraftEntry, mergeGraftHookEntries } from '../hosts/config-write.js';
 const SL_CMD = 'node "${CLAUDE_PROJECT_DIR:-.}/.claude/helpers/grafly-statusline.cjs"';
 /** Stable marker for "this statusLine is Graft's", not the full command string —
  * an older shim path or a GRAFT_DIR wrapper still names this file. */
@@ -28,7 +28,7 @@ function hookCmd(arg, helpers = REPO_HELPERS) {
 function graftBlocks(helpers) {
     return {
         PostToolUse: [
-            { matcher: 'Write|Edit|MultiEdit', hooks: [{ type: 'command', command: hookCmd('post-edit', helpers), timeout: 10000 }] },
+            { matcher: 'Write|Edit|MultiEdit', hooks: [{ type: 'command', command: hookCmd('post-edit', helpers), timeout: 10 }] },
             // Score the usage mix and sum token savings. A graft retrieval (CLI `graft …`
             // via Bash) prints a `[graft] tokens saved ≈ N`
             // footer this hook sums into the session total; the same hook classifies
@@ -36,7 +36,7 @@ function graftBlocks(helpers) {
             // `graft stats` and the `session_summary` graft-vs-grep ratio. Broad matcher,
             // but the handler no-ops instantly unless there is something to record, so an
             // unrelated Bash or a plain Read costs only a stdin read.
-            { matcher: 'Bash|Read|Grep|Glob', hooks: [{ type: 'command', command: hookCmd('tool-savings', helpers), timeout: 8000 }] },
+            { matcher: 'Bash|Read|Grep|Glob', hooks: [{ type: 'command', command: hookCmd('tool-savings', helpers), timeout: 8 }] },
         ],
         // Longer budget than the other hooks: its `graft ask` is a real query, and a
         // query now brings the graph up to date first (graph/refresh.ts) — usually
@@ -46,10 +46,22 @@ function graftBlocks(helpers) {
         // this bump (8s) keeps a child that fits inside 8s. Changing the number here is
         // therefore safe on its own — but it only reaches an existing repo when someone
         // re-runs `graft init`, since that is the only caller of this function.
-        UserPromptSubmit: [{ hooks: [{ type: 'command', command: hookCmd('prompt', helpers), timeout: 15000 }] }],
-        SessionStart: [{ hooks: [{ type: 'command', command: hookCmd('session-start', helpers), timeout: 8000 }] }],
-        Stop: [{ hooks: [{ type: 'command', command: hookCmd('stop', helpers), timeout: 8000 }] }],
+        UserPromptSubmit: [{ hooks: [{ type: 'command', command: hookCmd('prompt', helpers), timeout: 15 }] }],
+        SessionStart: [{ hooks: [{ type: 'command', command: hookCmd('session-start', helpers), timeout: 8 }] }],
+        Stop: [{ hooks: [{ type: 'command', command: hookCmd('stop', helpers), timeout: 8 }] }],
     };
+}
+function preserveTimeouts(blocks, prior) {
+    // shortcut: values over 600 are legacy milliseconds; revisit for hooks needing over ten minutes.
+    const owned = prior.flatMap(entry => Array.isArray(entry?.hooks) ? entry.hooks : [entry]).filter(isGraftEntry);
+    for (const block of blocks) for (const hook of block.hooks) {
+        const subcommand = hook.command.split(/\s+/).at(-1);
+        for (const old of owned) {
+            if (old.command.split(/\s+/).includes(subcommand) && Number.isFinite(old.timeout) && old.timeout <= 600)
+                hook.timeout = Math.max(hook.timeout, old.timeout);
+        }
+    }
+    return blocks;
 }
 /**
  * Is this allowlist entry one graft wrote?
@@ -107,7 +119,7 @@ export function mergeGraftSettings(existing, opts = {}) {
     merged.hooks = { ...(merged.hooks ?? {}) };
     for (const [event, blocks] of Object.entries(graftBlocks())) {
         const prior = Array.isArray(merged.hooks[event]) ? merged.hooks[event] : [];
-        merged.hooks[event] = mergeGraftHookEntries(prior, blocks);
+        merged.hooks[event] = mergeGraftHookEntries(prior, preserveTimeouts(blocks, prior));
     }
     // Drop graft's own prior regex before re-adding, so a change to FOOTER replaces
     // the old pattern instead of stacking beside it. The user's regexes are kept.
@@ -143,7 +155,7 @@ export function mergeGraftHooks(existing, helpers) {
     merged.hooks = { ...(merged.hooks ?? {}) };
     for (const [event, blocks] of Object.entries(graftBlocks(helpers))) {
         const prior = Array.isArray(merged.hooks[event]) ? merged.hooks[event] : [];
-        merged.hooks[event] = mergeGraftHookEntries(prior, blocks);
+        merged.hooks[event] = mergeGraftHookEntries(prior, preserveTimeouts(blocks, prior));
     }
     return { merged };
 }

@@ -52,7 +52,7 @@ export function readFingerprint(outDir) {
 /** Project the extraction cache's entries into the probe sidecar. Best-effort:
  * the graph is already on disk when this runs, so a failed write costs the next
  * probe its fast path and nothing more. */
-export function writeFingerprint(outDir, entries, onlyDirs) {
+export function writeFingerprint(outDir, entries, onlyDirs, extensions) {
     const files = {};
     for (const [rel, e] of Object.entries(entries))
         files[rel] = [e.size, e.mtimeMs, e.hash];
@@ -60,6 +60,8 @@ export function writeFingerprint(outDir, entries, onlyDirs) {
         const record = { version: FINGERPRINT_VERSION, extractor: stamp(), files };
         if (onlyDirs && onlyDirs.length > 0)
             record.onlyDirs = onlyDirs;
+        if (extensions?.length)
+            record.extensions = extensions;
         writeJsonAtomic(fingerprintPath(outDir), record, true);
         pruneSidecars(join(outDir, CACHE_DIR), FINGERPRINT_PREFIX);
         return true;
@@ -115,7 +117,7 @@ export function probeDrift(root, outDir) {
     const drift = { changed: [], added: [], removed: [] };
     const seen = new Set();
     const onlyDirs = fp.onlyDirs && fp.onlyDirs.length > 0 ? new Set(fp.onlyDirs) : undefined;
-    for (const f of listSourceStats(root, outDir, undefined, onlyDirs)) {
+    for (const f of listSourceStats(root, outDir, undefined, onlyDirs, fp.extensions)) {
         seen.add(f.rel);
         const print = fp.files[f.rel];
         if (!print) {

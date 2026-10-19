@@ -37,7 +37,7 @@ import { contextDirFor } from "../context/node-file.js";
 import { acquireLockIn, releaseLockIn } from "../util/state.js";
 import { CACHE_DIR } from "../context/node-file.js";
 import { driftCount, isClean, probeDrift, readFingerprint } from "./fingerprint.js";
-import { invalidateGraphCaches } from "./load.js";
+import { invalidateGraphCaches, loadGraphCached } from "./load.js";
 import { seedGraph } from "./seed.js";
 import { wiringPath } from "./write.js";
 /** How long to wait for another process's in-flight rebuild before giving up and
@@ -193,9 +193,11 @@ export async function ensureFreshGraph(root, opts = {}) {
             // widening to the whole tree.
             const onlyDirs = readFingerprint(outDir)?.onlyDirs;
             const { buildGraph } = await import("./build.js");
-            await buildGraph(dir, { contextDir: opts.contextDir, graphOnly: true, onlyDirs });
+            const extensions = loadGraphCached(outDir)?.meta?.extensions;
+            const built = await buildGraph(dir, { contextDir: opts.contextDir, graphOnly: true, onlyDirs, extensions });
             invalidateGraphCaches(outDir);
-            return { refreshed: true, drift: drift ?? undefined, note: seedNote };
+            const note = built.structuralErrors ? `graph refresh incomplete: ${built.structuralErrors} structural error(s)` : seedNote;
+            return { refreshed: true, drift: drift ?? undefined, note };
         }
         finally {
             unhook();

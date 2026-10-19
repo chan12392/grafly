@@ -7,6 +7,7 @@ export declare function supportedExtensions(): string[];
  * on whatever this returns so an unsupported extension is never a quiet no-op.
  */
 export declare function unsupportedExtensions(exts: string[]): string[];
+export declare function normalizeExtensions(exts?: string[]): string[] | undefined;
 /**
  * The source files a graph build parses: supported languages, minus the
  * output dir. When no pre-enumerated `repoFiles` is passed, the walk reads
@@ -20,7 +21,7 @@ export declare function unsupportedExtensions(exts: string[]): string[];
  * itself (the fingerprint records it at build time), never in the source repo,
  * so a build and the query-path freshness probe read the identical set. */
 export declare function filterByOnlyDirs(files: string[], root: string, onlyDirs?: ReadonlySet<string>): string[];
-export declare function listSourceFiles(root: string, outDir: string, repoFiles?: string[], onlyDirs?: ReadonlySet<string>): string[];
+export declare function listSourceFiles(root: string, outDir: string, repoFiles?: string[], onlyDirs?: ReadonlySet<string>, extensions?: string[]): string[];
 export interface SourceStat {
     /** Absolute path. */
     abs: string;
@@ -36,4 +37,4 @@ export interface SourceStat {
  * both the freshness probe and the extraction cache. Files that vanish between
  * the walk and the stat are dropped (same fail-soft posture as `walkDir`).
  */
-export declare function listSourceStats(root: string, outDir: string, repoFiles?: string[], onlyDirs?: ReadonlySet<string>): SourceStat[];
+export declare function listSourceStats(root: string, outDir: string, repoFiles?: string[], onlyDirs?: ReadonlySet<string>, extensions?: string[]): SourceStat[];

@@ -9,10 +9,11 @@ export interface ExtractEntry {
     nodes: NodeV1[];
     rawEdges: RawEdge[];
     /** Set when this file couldn't be read or parsed. The entry exists anyway so the
-     * freshness probe doesn't flag the file as new on every query; replaying it
-     * re-reports the same error and contributes no nodes, exactly as a cold build
-     * would. */
+     * freshness probe doesn't flag the file as new on every query. Failed entries
+     * are retried on the next build, even when the bytes are unchanged. */
     error?: string;
+    /** WASM stand-in identity; prevents replay after native parsing is restored. */
+    via?: string;
 }
 export interface ExtractCache {
     version: number;

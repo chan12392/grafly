@@ -15,8 +15,8 @@ import { readFileSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { walkDir } from "../ingest/fs.js";
 import { contextDirFor, ensureGitignored, ensureSearchable } from "../context/node-file.js";
-import { extractFile, languageLabelOf, languageOf } from "./extract.js";
-import { extractGeneric, genericLangOf, warmGenericGrammars } from "./generic.js";
+import { extractFile, languageLabelOf, languageOf, missingNativePackages, nativeReady } from "./extract.js";
+import { extractGeneric, fallbackLangOf, genericLangOf, warmGenericGrammars } from "./generic.js";
 import { containerLangOf, extractContainer, warmContainerGrammars } from "./container.js";
 import { contentHash } from "../util/id.js";
 import { relPosix } from "../util/paths.js";
@@ -25,7 +25,7 @@ import { readFollowNestedRepos, readFollowSubmodules, readIncludeDirs } from "..
 import { emptyExtractCache, readExtractCache, writeExtractCache, } from "./extract-cache.js";
 import { writeFingerprint } from "./fingerprint.js";
 import { seedGraph } from "./seed.js";
-import { filterByOnlyDirs, listSourceStats } from "./source-files.js";
+import { filterByOnlyDirs, listSourceStats, normalizeExtensions } from "./source-files.js";
 import { resolveEdges } from "./resolve.js";
 import { enrichGraph } from "./enrich.js";
 import { readGraph, writeGraph, wiringPath } from "./write.js";
@@ -34,6 +34,21 @@ import { writeAskIndex } from "../ask/index-file.js";
 import { discoverScopes, scopeOf } from "./scopes.js";
 import { syncXerj } from "../search/xerj.js";
 export { listSourceFiles } from "./source-files.js";
+/** One dispatch table for build and check, including unavailable native bindings. */
+export function tierOf(path) {
+    const native = languageOf(path);
+    const lang = native && nativeReady(native) ? native : null;
+    const container = native ? null : containerLangOf(path);
+    const standIn = native && !lang ? native
+        : container && !nativeReady(container.inner) ? container.inner : null;
+    const generic = lang || container ? null : standIn ? fallbackLangOf(standIn) : genericLangOf(path);
+    return { lang, container, generic, standIn, via: standIn ? `wasm:${standIn}` : undefined };
+}
+export async function warmGrammarsFor(paths) {
+    const tiers = paths.map(tierOf);
+    await warmGenericGrammars(tiers.flatMap(t => [t.generic?.name, t.standIn].filter(Boolean)));
+    await warmContainerGrammars(tiers.map(t => t.container?.name).filter(Boolean));
+}
 /** Minimum non-file node count for a discovered sub-scope to stand on its own
  * (over-split guard 3). A scope with fewer nodes than this is folded into the
  * root scope — node counts aren't known until after the graph is assembled,
@@ -100,7 +115,8 @@ export async function buildGraph(dir, opts = {}) {
     });
     const onlyDirs = opts.onlyDirs && opts.onlyDirs.length > 0 ? new Set(opts.onlyDirs) : undefined;
     const repoFiles = filterByOnlyDirs(walked, root, onlyDirs);
-    const files = listSourceStats(root, outDir, repoFiles);
+    const extensions = normalizeExtensions(opts.extensions);
+    const files = listSourceStats(root, outDir, repoFiles, undefined, extensions);
     const discoveredScopes = discoverScopes(root, repoFiles);
     const nodes = [];
     const rawEdges = [];
@@ -122,24 +138,18 @@ export async function buildGraph(dir, opts = {}) {
     const entries = {};
     let parsed = 0;
     let reused = 0;
-    // Breadth tier: WASM grammars load asynchronously, so warm the ones this repo
-    // needs ONCE here (buildGraph is async) before the synchronous parse loop below
-    // can call extractGeneric. Depth-tier (native) grammars need no warmup.
-    await warmGenericGrammars(new Set(files.map((f) => genericLangOf(f.abs)?.name).filter((n) => !!n)));
-    // Container tier (.vue and friends) loads its wrapper grammars the same way,
-    // for the same reason: extractContainer runs inside the sync loop below.
-    await warmContainerGrammars(new Set(files.map((f) => containerLangOf(f.abs)?.name).filter((n) => !!n)));
+    // Warm WASM grammars, including native stand-ins and container wrappers,
+    // before the synchronous extraction loop.
+    await warmGrammarsFor(files.map(f => f.abs));
+    const nativeFallback = new Set();
     files.forEach((f, i) => {
         const rel = f.rel;
         opts.onProgress?.({ phase: "parse", index: i, total: files.length, file: rel });
         // Depth tier (hand-written, native grammar) if a language claims the file;
         // otherwise the breadth tier (generic tags.scm over a WASM grammar).
-        const lang = languageOf(f.abs);
-        // A container is neither tier: its wrapper grammar only locates the embedded
-        // block, which then goes to the depth-tier extractor. Checked before the
-        // breadth tier so a future grammar claiming .vue can't shadow it.
-        const container = lang ? null : containerLangOf(f.abs);
-        const generic = lang || container ? null : genericLangOf(f.abs);
+        const { lang, container, generic, standIn, via } = tierOf(f.abs);
+        if (standIn)
+            nativeFallback.add(standIn);
         const label = languageLabelOf(f.abs) ?? container?.name ?? generic?.name ?? "unknown";
         const cached = priorExtract.files[rel];
         // Every file is read and hashed, every build — only the *parse* is memoized.
@@ -170,14 +180,10 @@ export async function buildGraph(dir, opts = {}) {
             return;
         }
         const hash = contentHash(source);
-        if (cached && hash === cached.hash) {
+        if (cached && hash === cached.hash && !cached.error && cached.via === via) {
             entries[rel] = { ...cached, size: f.size, mtimeMs: f.mtimeMs };
             sources.set(rel, source);
             reused++;
-            if (cached.error) {
-                errors.push(cached.error); // this file failed to parse last time too
-                return;
-            }
             nodes.push(...cached.nodes);
             rawEdges.push(...cached.rawEdges);
             langs.add(label);
@@ -194,12 +200,12 @@ export async function buildGraph(dir, opts = {}) {
             rawEdges.push(...fileEdges);
             sources.set(rel, source);
             langs.add(label);
-            entries[rel] = { size: f.size, mtimeMs: f.mtimeMs, hash, nodes: fileNodes, rawEdges: fileEdges };
+            entries[rel] = { size: f.size, mtimeMs: f.mtimeMs, hash, nodes: fileNodes, rawEdges: fileEdges, via };
         }
         catch (err) {
             const message = `${rel}: parse failed — ${err instanceof Error ? err.message : String(err)}`;
             errors.push(message);
-            entries[rel] = { size: f.size, mtimeMs: f.mtimeMs, hash, nodes: [], rawEdges: [], error: message };
+            entries[rel] = { size: f.size, mtimeMs: f.mtimeMs, hash, nodes: [], rawEdges: [], error: message, via };
         }
     });
     // Persist the memo BEFORE enrichment, because `enrichGraph` mutates these very
@@ -227,6 +233,7 @@ export async function buildGraph(dir, opts = {}) {
             nodeCount: nodes.length,
             edgeCount: edges.length,
             languages: [...langs].sort(),
+            extensions,
             scopes,
         },
         nodes,
@@ -281,7 +288,7 @@ export async function buildGraph(dir, opts = {}) {
     // these source bytes." Nothing about the projections below — which is why it is
     // safe to write here, and why `graphOnly` builds (the query path, which stops
     // right after this line) are still recorded as fresh.
-    writeFingerprint(outDir, entries, opts.onlyDirs);
+    writeFingerprint(outDir, entries, opts.onlyDirs, extensions);
     // Only a previously connected local backend receives this derived index.
     // Failed sync leaves its old generation stale; queries use local retrieval.
     try {
@@ -335,6 +342,8 @@ export async function buildGraph(dir, opts = {}) {
         byRelation,
         languages: [...langs].sort(),
         meaning,
+        ...(nativeFallback.size ? { nativeFallback: { languages: [...nativeFallback].sort(), packages: missingNativePackages(nativeFallback) } } : {}),
+        structuralErrors: errors.length - meaning.errors.length,
         errors,
     };
 }

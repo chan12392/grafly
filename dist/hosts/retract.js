@@ -589,7 +589,7 @@ export function planRetract(repo, opts = {}) {
  * either the full sweep or just what changed.
  */
 export function runRetract(repo, opts = {}) {
-    const apply = opts.apply !== false;
+    const apply = opts.apply === true;
     return targets(repo, opts).map(({ run, ...t }) => ({ ...t, action: run(apply) }));
 }
 /** The subset worth showing a user: targets that had something to remove. */

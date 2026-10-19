@@ -21,8 +21,8 @@
  * to the wrong place. `test/container-extract.test.ts` pins this against
  * fixtures whose true line numbers are known.
  */
-import { extractFile, mintId } from "./extract.js";
-import { loadWasmLanguage, parseWasm } from "./generic.js";
+import { extractFile, mintId, nativeReady } from "./extract.js";
+import { extractGeneric, fallbackLangOf, loadWasmLanguage, parseWasm } from "./generic.js";
 import { contentHash } from "../util/id.js";
 /** The container registry. Svelte and Astro are the same shape and would be a
  * row each, but they are left out until someone has a repo to verify them
@@ -126,59 +126,58 @@ function blocks(root, lang) {
 /**
  * Extract one container file. Synchronous; needs the grammar pre-warmed.
  *
- * Never throws: a missing grammar, an unparseable SFC or a script block the
- * inner extractor chokes on all degrade to "fewer nodes", because a build must
- * not fail over one component.
+ * Parser failures propagate so the build reports incomplete extraction.
  */
 export function extractContainer(rel, source, lang) {
     const nodes = [];
     const rawEdges = [];
     const residuals = [];
     const language = loaded.get(lang.name);
-    const root = language ? parseWasm(language, source) : null;
-    if (root) {
-        // Ids are minted per file by the inner extractor, so two script blocks that
-        // both define `setup` would collide. Threading one set across the blocks
-        // makes the second one `path#setup~2`, and the rename is applied to that
-        // block's edges too so nothing points at an id that no longer exists.
-        const minted = new Set([rel]);
-        for (const body of blocks(root, lang)) {
-            const script = source.slice(body.startIndex, body.endIndex);
-            let inner;
-            try {
-                inner = extractFile(rel, script, lang.inner);
-            }
-            catch {
-                continue; // one bad block, not a bad build
-            }
-            // `raw_text` starts immediately after the `>` of the opening tag, so its
-            // row IS the tag's row and the slice begins with that line's newline.
-            // Script line 1 is therefore the tail of the tag line, and script line N
-            // lands on `.vue` line row + N — which is exactly "add the start row to a
-            // 1-based span". Taking the row from the tag node instead would look
-            // equivalent and be right only when the tag has no attributes.
-            const shift = body.startPosition.row;
-            // nodes[0] is the script's own file node: it describes the block, not the
-            // file, so it is dropped and its residual folded into the .vue file node.
-            const [scriptFile, ...symbols] = inner.nodes;
-            if (scriptFile?.body_text)
-                residuals.push(scriptFile.body_text);
-            const renamed = new Map();
-            for (const node of symbols) {
-                const id = mintId(node.id, minted);
-                if (id !== node.id)
-                    renamed.set(node.id, id);
-                nodes.push({ ...node, id, span: shiftSpan(node.span, shift) });
-            }
-            for (const edge of inner.rawEdges) {
-                const source_ = renamed.get(edge.source) ?? edge.source;
-                const targetId = edge.targetId === undefined ? undefined : (renamed.get(edge.targetId) ?? edge.targetId);
-                rawEdges.push({ ...edge, source: source_, ...(targetId === undefined ? {} : { targetId }) });
+    const tree = language ? parseWasm(language, source) : null;
+    try {
+        const root = tree?.rootNode;
+        if (root) {
+            // Ids are minted per file by the inner extractor, so two script blocks that
+            // both define `setup` would collide. Threading one set across the blocks
+            // makes the second one `path#setup~2`, and the rename is applied to that
+            // block's edges too so nothing points at an id that no longer exists.
+            const minted = new Set([rel]);
+            for (const body of blocks(root, lang)) {
+                const script = source.slice(body.startIndex, body.endIndex);
+                const inner = nativeReady(lang.inner) ? extractFile(rel, script, lang.inner)
+                    : extractGeneric(rel, script, fallbackLangOf(lang.inner).name);
+                // `raw_text` starts immediately after the `>` of the opening tag, so its
+                // row IS the tag's row and the slice begins with that line's newline.
+                // Script line 1 is therefore the tail of the tag line, and script line N
+                // lands on `.vue` line row + N — which is exactly "add the start row to a
+                // 1-based span". Taking the row from the tag node instead would look
+                // equivalent and be right only when the tag has no attributes.
+                const shift = body.startPosition.row;
+                // nodes[0] is the script's own file node: it describes the block, not the
+                // file, so it is dropped and its residual folded into the .vue file node.
+                const [scriptFile, ...symbols] = inner.nodes;
+                if (scriptFile?.body_text)
+                    residuals.push(scriptFile.body_text);
+                const renamed = new Map();
+                for (const node of symbols) {
+                    const id = mintId(node.id, minted);
+                    if (id !== node.id)
+                        renamed.set(node.id, id);
+                    nodes.push({ ...node, id, span: shiftSpan(node.span, shift) });
+                }
+                for (const edge of inner.rawEdges) {
+                    const source_ = renamed.get(edge.source) ?? edge.source;
+                    const targetId = edge.targetId === undefined ? undefined : (renamed.get(edge.targetId) ?? edge.targetId);
+                    rawEdges.push({ ...edge, source: source_, ...(targetId === undefined ? {} : { targetId }) });
+                }
             }
         }
+        // Built last so it can carry the residual, but unshifted first so the file node
+        // stays at index 0 like every other tier's output.
+        nodes.unshift(containerFileNode(rel, source, residuals.join("\n")));
+        return { nodes, rawEdges };
     }
-    // Built last so it can carry the residual, but unshifted first so the file node
-    // stays at index 0 like every other tier's output.
-    nodes.unshift(containerFileNode(rel, source, residuals.join("\n")));
-    return { nodes, rawEdges };
+    finally {
+        tree?.delete();
+    }
 }

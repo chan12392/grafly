@@ -24,6 +24,7 @@ export interface CheckRunOptions {
     extensions?: string[];
 }
 export interface GraphRunOptions {
+    extensions?: string[];
     /** Run the Tier-2 LLM meaning pass (summary + crux). Absent → Tier-1 only. */
     llm?: boolean;
     /** Max files summarized in parallel during the LLM pass. */

@@ -1,8 +1,21 @@
 import { type EnrichStats } from "./enrich.js";
 import type { Kind, Relation } from "./types.js";
 import type { CruxSummarizer } from "../ai/crux.js";
+import type { Language } from "./extract.js";
+import type { GenericLang } from "./generic.js";
+import type { ContainerLang } from "./container.js";
 export { listSourceFiles } from "./source-files.js";
+export declare function tierOf(path: string): {
+    lang: Language | null;
+    container: ContainerLang | null;
+    generic: GenericLang | null;
+    standIn: Language | null;
+    via: string | undefined;
+};
+export declare function warmGrammarsFor(paths: string[]): Promise<void>;
 export interface GraphBuildOptions {
+    /** Explicit extensions; omitted or empty indexes every supported extension. */
+    extensions?: string[];
     /** Override the output dir (default: `<root>/.context`). */
     contextDir?: string;
     /** Replay unchanged files from the extraction cache instead of re-parsing them
@@ -52,6 +65,8 @@ export interface GraphBuildResult {
     byRelation: Record<Relation, number>;
     languages: string[];
     meaning: EnrichStats;
+    structuralErrors: number;
+    nativeFallback?: { languages: Language[]; packages: string[] };
     errors: string[];
 }
 export declare function buildGraph(dir: string, opts?: GraphBuildOptions): Promise<GraphBuildResult>;

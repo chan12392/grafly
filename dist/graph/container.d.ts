@@ -55,8 +55,6 @@ export declare function isContainerWarm(langName: string): boolean;
 /**
  * Extract one container file. Synchronous; needs the grammar pre-warmed.
  *
- * Never throws: a missing grammar, an unparseable SFC or a script block the
- * inner extractor chokes on all degrade to "fewer nodes", because a build must
- * not fail over one component.
+ * Parser failures propagate so the build reports incomplete extraction.
  */
 export declare function extractContainer(rel: string, source: string, lang: ContainerLang): ExtractResult;

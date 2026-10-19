@@ -47,7 +47,13 @@ export const GENERIC_LANGS = [
     { name: "nix", exts: [".nix"], wasm: "nix" },
     { name: "lua", exts: [".lua"], wasm: "lua" },
     { name: "powershell", exts: [".ps1", ".psm1"], wasm: "powershell" },
+    // No extensions: selected only when the corresponding native binding fails.
+    ...["typescript", "tsx", "python", "go", "r", "kotlin", "swift", "php"]
+        .map(name => ({ name, exts: [], wasm: name })),
 ];
+export function fallbackLangOf(name) {
+    return GENERIC_LANGS.find(lang => lang.name === name) ?? null;
+}
 const byExt = new Map();
 for (const l of GENERIC_LANGS)
     for (const e of l.exts)
@@ -86,9 +92,15 @@ function requireWasm(wasm) {
     }
 }
 function loadQuery(name) {
-    for (const dir of QUERY_DIRS) {
+    let bundled;
+    try { bundled = require.resolve(`tree-sitter-wasm/${name}/tags.scm`); }
+    catch { /* not every grammar ships tags */ }
+    for (const path of [...QUERY_DIRS.map(dir => join(dir, `${name}.scm`)), bundled].filter(Boolean)) {
         try {
-            const raw = readFileSync(join(dir, `${name}.scm`), "utf8");
+            let raw = readFileSync(path, "utf8");
+            // TypeScript's tags add types to the JavaScript query rather than repeat functions.
+            if (name === "typescript" || name === "tsx")
+                raw = readFileSync(require.resolve("tree-sitter-wasm/javascript/tags.scm"), "utf8") + "\n" + raw;
             // Sanitize editor-specific query predicates the tree-sitter Query compiler rejects.
             return raw.replace(/\(#(?:strip!|set!|set-adjacent!|select-adjacent!|make-range!|offset!|gsub!)[^()]*\)/g, "");
         }
@@ -129,7 +141,9 @@ export async function warmGenericGrammars(langNames) {
                     query = null;
                 }
             }
-            loaded.set(name, { language, query });
+            const parser = new tsMod.Parser();
+            parser.setLanguage(language);
+            loaded.set(name, { language, query, parser });
         }
         catch {
             /* grammar failed to instantiate — skip; files extract as file-only */
@@ -177,20 +191,17 @@ export async function loadWasmLanguage(wasm) {
     }
 }
 const PARSE_CHUNK = 16384; // <32KB slices — same tree-sitter limit workaround as extract.ts
-/** Parse with an already-loaded grammar. Returns the root node, or null if the
- * grammar was never warmed or the parse blew up. Companion to
- * `loadWasmLanguage` for callers outside this module. */
+/** Caller owns the returned tree and must delete it after walking its nodes. */
 export function parseWasm(language, source) {
     if (!tsMod)
         return null;
+    const parser = new tsMod.Parser();
     try {
-        const parser = new tsMod.Parser();
         parser.setLanguage(language);
-        const tree = parser.parse((i) => source.slice(i, i + PARSE_CHUNK));
-        return tree?.rootNode ?? null;
+        return parser.parse((i) => source.slice(i, i + PARSE_CHUNK));
     }
-    catch {
-        return null;
+    finally {
+        parser.delete();
     }
 }
 function fileNode(rel, source) {
@@ -213,11 +224,10 @@ export function extractGeneric(rel, source, langName) {
         return { nodes, rawEdges };
     let tree;
     try {
-        const parser = new tsMod.Parser();
-        parser.setLanguage(entry.language);
-        tree = parser.parse((i) => source.slice(i, i + PARSE_CHUNK));
+        tree = entry.parser.parse((i) => source.slice(i, i + PARSE_CHUNK));
     }
     catch (err) {
+        entry.parser.reset();
         // A grammar that throws (e.g. a WASM "memory access out of bounds" from an
         // external scanner) is not a per-file syntax problem: swallowing it here left
         // the file with only its file node and the build reporting success. Rethrow so
@@ -227,56 +237,61 @@ export function extractGeneric(rel, source, langName) {
     }
     if (!tree)
         return { nodes, rawEdges };
-    const minted = new Set([rel]);
-    const lines = source.split("\n");
-    const defs = [];
-    // One definition per source span: a grammar's tags.scm can capture the same node
-    // under two @definition kinds (Swift `func` is method AND function), and the
-    // walker can revisit a nested match — both would emit near-duplicate nodes.
-    const spanSeen = new Set();
-    // Mint one definition node from a whole-definition tree node. Shared by both
-    // the tags.scm path and the walker fallback so id/span/signature/body_text are
-    // built identically.
-    const mkDef = (name, kind, whole) => {
-        if (spanSeen.has(whole.startIndex))
-            return;
-        spanSeen.add(whole.startIndex);
-        const idBase = `${rel}#${name}`;
-        let id = idBase, n = 2;
-        while (minted.has(id))
-            id = `${idBase}~${n++}`;
-        minted.add(id);
-        const startRow = whole.startPosition.row, endRow = whole.endPosition.row;
-        const sigLine = (lines[startRow] ?? "").trim().replace(/\s*\{?\s*$/, "");
-        nodes.push({
-            id, name, kind, path: rel,
-            span: `L${startRow + 1}-L${endRow + 1}`,
-            signature: sigLine || null, exported: true, origin: "generic",
-            body_hash: contentHash(source.slice(whole.startIndex, whole.endIndex)),
-            body_text: source.slice(whole.startIndex, whole.endIndex).replace(/\s+/g, " ").trim(),
-            summary_state: "pending", summary: null, crux: null,
-        });
-        defs.push({ id, startIndex: whole.startIndex, endIndex: whole.endIndex });
-    };
-    const bound = GENERIC_BINDINGS[langName]?.(tree.rootNode) ?? null;
-    if (entry.query) {
-        tagsExtract(entry.query, tree.rootNode, rel, mkDef, defs, rawEdges, langName, bound?.bindings);
+    try {
+        const minted = new Set([rel]);
+        const lines = source.split("\n");
+        const defs = [];
+        // One definition per source span: a grammar's tags.scm can capture the same node
+        // under two @definition kinds (Swift `func` is method AND function), and the
+        // walker can revisit a nested match — both would emit near-duplicate nodes.
+        const spanSeen = new Set();
+        // Mint one definition node from a whole-definition tree node. Shared by both
+        // the tags.scm path and the walker fallback so id/span/signature/body_text are
+        // built identically.
+        const mkDef = (name, kind, whole) => {
+            if (spanSeen.has(whole.startIndex))
+                return;
+            spanSeen.add(whole.startIndex);
+            const idBase = `${rel}#${name}`;
+            let id = idBase, n = 2;
+            while (minted.has(id))
+                id = `${idBase}~${n++}`;
+            minted.add(id);
+            const startRow = whole.startPosition.row, endRow = whole.endPosition.row;
+            const sigLine = (lines[startRow] ?? "").trim().replace(/\s*\{?\s*$/, "");
+            nodes.push({
+                id, name, kind, path: rel,
+                span: `L${startRow + 1}-L${endRow + 1}`,
+                signature: sigLine || null, exported: true, origin: "generic",
+                body_hash: contentHash(source.slice(whole.startIndex, whole.endIndex)),
+                body_text: source.slice(whole.startIndex, whole.endIndex).replace(/\s+/g, " ").trim(),
+                summary_state: "pending", summary: null, crux: null,
+            });
+            defs.push({ id, startIndex: whole.startIndex, endIndex: whole.endIndex });
+        };
+        const bound = GENERIC_BINDINGS[langName]?.(tree.rootNode) ?? null;
+        if (entry.query) {
+            tagsExtract(entry.query, tree.rootNode, rel, mkDef, defs, rawEdges, langName, bound?.bindings);
+        }
+        else {
+            walkExtract(tree.rootNode, mkDef); // no tags.scm → symbols only
+        }
+        // The preprocessor is invisible to tags.scm, but in C/C++ a local `#include "x.h"`
+        // IS the dependency graph — capture it as a file→file import. Likewise a Rust
+        // `use crate::…` is an in-crate module dependency.
+        if (langName === "c" || langName === "cpp")
+            extractIncludes(tree.rootNode, rel, rawEdges);
+        else if (langName === "rust")
+            extractUses(tree.rootNode, rel, rawEdges);
+        else if (langName === "php")
+            extractPhpUses(tree.rootNode, rel, rawEdges);
+        for (const spec of bound?.specs ?? [])
+            rawEdges.push({ source: rel, relation: "imports", specifier: spec, file: rel });
+        return { nodes, rawEdges };
     }
-    else {
-        walkExtract(tree.rootNode, mkDef); // no tags.scm → symbols only
+    finally {
+        tree.delete();
     }
-    // The preprocessor is invisible to tags.scm, but in C/C++ a local `#include "x.h"`
-    // IS the dependency graph — capture it as a file→file import. Likewise a Rust
-    // `use crate::…` is an in-crate module dependency.
-    if (langName === "c" || langName === "cpp")
-        extractIncludes(tree.rootNode, rel, rawEdges);
-    else if (langName === "rust")
-        extractUses(tree.rootNode, rel, rawEdges);
-    else if (langName === "php")
-        extractPhpUses(tree.rootNode, rel, rawEdges);
-    for (const spec of bound?.specs ?? [])
-        rawEdges.push({ source: rel, relation: "imports", specifier: spec, file: rel });
-    return { nodes, rawEdges };
 }
 /** PHP `use App\Models\User;` → a file→class-file `imports` raw edge, one per imported
  * name (a `{ … }` group expands to several). `use function`/`use const` are skipped —

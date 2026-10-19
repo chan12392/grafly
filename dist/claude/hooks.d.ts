@@ -4,16 +4,11 @@ export declare function underGraft(dir: string, file: string): boolean;
  * *actually installed* in this repo's `.claude/settings.json`, not from what the
  * current version of `settings-merge.ts` would install.
  *
- * A query now brings the graph up to date first, so `graft init` raises the
- * UserPromptSubmit budget to 15s to cover the one cold rebuild after an upgrade. But
- * `mergeGraftSettings` only runs during `graft init` — upgrading the npm package does
- * not re-run it. So every repo wired before that change keeps `"timeout": 8000`, and
- * hard-coding a 13s child there means Claude Code kills the hook first: `emit()` and
- * `writeSession()` never run, the turn gets no retrieval pack at all, and the SIGKILLed
- * child can't even release the build lock. Reading the installed number keeps the child
- * strictly inside whatever budget this repo really has.
+ * Claude settings use seconds. Legacy millisecond-shaped values are interpreted
+ * conservatively, and the tightest matching hook budget leaves headroom for emit.
  */
 export declare function promptAskTimeout(dir: string): number;
+export declare function postEditCheckTimeout(dir: string): number;
 /**
  * The absolute path of the file a PostToolUse edit touched, across host edit-tool
  * shapes:

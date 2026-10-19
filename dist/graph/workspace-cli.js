@@ -15,6 +15,7 @@ import { federateAskAsync, federateCallers, federateCheck, federateGrep, federat
  * first when migrating away from a mega-graph. */
 export async function runWorkspaceBuild(root, opts) {
     const { Grafly } = await import("../engine.js");
+    let failed = false;
     const buildChild = async (childDir, childName) => {
         // Persisted BEFORE the child build itself runs, same as the single-repo
         // path in cli.ts, so this build and every later no-flag child build agree.
@@ -34,12 +35,26 @@ export async function runWorkspaceBuild(root, opts) {
         const engine = new Grafly({ ...opts.childConfig, contextDir: undefined });
         if (opts.deep)
             await engine.init(childDir, { extensions: opts.extensions });
-        const g = await engine.graph(childDir, { llm: opts.deep, concurrency: opts.concurrency });
-        console.log(`✓ ${childName}/: ${g.nodes} nodes, ${g.edges} edges, ${g.cards} cards [${g.languages.join(", ")}]`);
+        const g = await engine.graph(childDir, { llm: opts.deep, extensions: opts.extensions, concurrency: opts.concurrency });
+        if (g.structuralErrors > 0) {
+            failed = true;
+            console.error(`✗ ${childName}/: wiring incomplete (${g.structuralErrors} structural error(s)), ${g.nodes} nodes, ${g.edges} edges`);
+        }
+        else {
+            console.log(`✓ ${childName}/: ${g.nodes} nodes, ${g.edges} edges, ${g.cards} cards [${g.languages.join(", ")}]`);
+        }
+        if (g.nativeFallback)
+            console.error(`⚠ ${childName}/: ${g.nativeFallback.languages.join(", ")} using basic WASM parsing; reinstall with native build scripts enabled for ${g.nativeFallback.packages.join(", ")}.`);
         for (const e of g.errors)
             console.error(`✗ ${childName}/: ${e}`);
     };
-    const { children } = await splitWorkspace(root, opts.override, buildChild, ({ children, migrated }) => {
+    const { children } = await splitWorkspace(root, opts.override, async (dir, name) => {
+        try { await buildChild(dir, name); }
+        catch (err) {
+            failed = true;
+            console.error(`✗ ${name}/: ${err instanceof Error ? err.message : String(err)}`);
+        }
+    }, ({ children, migrated }) => {
         if (migrated)
             console.error(migrationNote(children));
         console.error(`building ${children.length} workspace repos: ${children.join(", ")}`);
@@ -47,6 +62,10 @@ export async function runWorkspaceBuild(root, opts) {
     // Each child self-ignored during its own build; the parent's federation
     // index (grafly/workspace.json) is written outside buildGraph, so ignore it here too.
     ensureGitignored(root, contextDirFor(root, opts.override));
+    if (failed) {
+        console.error(`✗ workspace build incomplete; available graphs retained for ${children.length} repos.`);
+        exitCommand(1);
+    }
     console.log(`✓ workspace: ${children.length} repos federated → grafly/workspace.json`);
     console.log(`  grafly/ is git-ignored — each teammate runs \`grafly build\` to regenerate it locally.`);
 }

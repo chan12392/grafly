@@ -1,8 +1,9 @@
-import { mkdirSync, writeFileSync, readFileSync, chmodSync } from 'node:fs';
+import { mkdirSync, writeFileSync, chmodSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { installClaudeGlobal } from '../hosts/claude-global.js';
+import { readJsonObject } from '../hosts/config-write.js';
 import { mergeGraftSettings } from './settings-merge.js';
 import { statuslineShim, hooksShim } from './shim-template.js';
 import { skillTemplate } from './skill-template.js';
@@ -45,14 +46,12 @@ export function buildGraphIfMissing(dir, opts) {
 export function runInit(dir, opts = {}) {
     // Same list `--dry-run` and the picker report, so the two can't drift apart.
     const [settings, statusline, hooks, skill] = claudeTargets(dir).map((t) => t.path);
-    mkdirSync(dirname(statusline), { recursive: true });
     const settingsPath = settings;
-    let existing = {};
-    try {
-        existing = JSON.parse(readFileSync(settingsPath, 'utf8'));
-    }
-    catch { /* none/invalid → start fresh */ }
-    const { merged, warnings } = mergeGraftSettings(existing, { statusline: opts.statusline });
+    const loaded = readJsonObject(settingsPath);
+    if (loaded === 'unparseable')
+        throw new Error(`Cannot initialize Grafly: ${settingsPath} is not a readable JSON object; existing settings left unchanged.`);
+    const { merged, warnings } = mergeGraftSettings(loaded.root, { statusline: opts.statusline });
+    mkdirSync(dirname(statusline), { recursive: true });
     writeFileSync(settingsPath, `${JSON.stringify(merged, null, 2)}\n`);
     const sl = statusline;
     const hk = hooks;

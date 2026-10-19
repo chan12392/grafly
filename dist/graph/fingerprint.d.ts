@@ -16,6 +16,7 @@ export interface Fingerprint {
      * — so the query-path freshness probe (which never sees a CLI flag) enumerates the
      * identical whitelisted set and excluded files are never phantom "added" drift. */
     onlyDirs?: string[];
+    extensions?: string[];
 }
 /** What moved since the last build. Empty in all three arrays = nothing to do. */
 export interface Drift {
@@ -35,7 +36,7 @@ export declare function readFingerprint(outDir: string): Fingerprint | null;
 /** Project the extraction cache's entries into the probe sidecar. Best-effort:
  * the graph is already on disk when this runs, so a failed write costs the next
  * probe its fast path and nothing more. */
-export declare function writeFingerprint(outDir: string, entries: Record<string, ExtractEntry>, onlyDirs?: string[]): boolean;
+export declare function writeFingerprint(outDir: string, entries: Record<string, ExtractEntry>, onlyDirs?: string[], extensions?: string[]): boolean;
 /** `GRAFT_REFRESH=hash` — never trust a stat, confirm every file by its bytes. */
 export declare function alwaysHash(): boolean;
 /**
