@@ -1,7 +1,7 @@
 /** Embedded XERJ candidate index, with explicit legacy loopback support.
  * Grafly owns files, graph and ranking; XERJ indexes complete ask token bags. */
 import { createHash } from "node:crypto";
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { CACHE_DIR } from "../context/node-file.js";
 import { askIndexPath, tokenize } from "../ask/index-file.js";
@@ -12,7 +12,8 @@ import { wiringPath } from "../graph/write.js";
 import { normalizePathPrefix } from "../util/paths.js";
 import { pathUnderPrefix } from "../graph/scopes.js";
 import { readJson, writeJsonAtomic } from "../util/state.js";
-import { buildEmbedded, openEmbedded } from "./embedded.js";
+import { lock } from "../util/retention.js";
+import { buildEmbedded, openEmbedded, pruneEmbedded } from "./embedded.js";
 
 const VERSION = 1;
 export const xerjStatePath = (outDir) => join(outDir, CACHE_DIR, "xerj.json");
@@ -92,17 +93,27 @@ export async function syncXerj(root, outDir, endpoint, { signal } = {}) {
     ]));
     const index = `grafly-${hash(identity)}-${generation}`;
     if (endpoint === "embedded") {
-        signal?.throwIfAborted();
-        const state = { version: VERSION, enabled: true, endpoint, index, generation, stamp, nodes: graph.nodes.length };
-        state.directory = buildEmbedded(outDir, state, graph.nodes.map((node) => {
-            const doc = docs.get(node.id);
-            return { id: node.id, name: bagText(doc.name), path: bagText(doc.path), body: bagText(doc.body),
-                source_path: node.path, is_test: isTestPath(node.path) };
-        }), previous);
-        signal?.throwIfAborted();
-        if (!sameStamp(stamp, sourceStamp(outDir))) throw new Error("Grafly graph changed during XERJ sync; run sync again");
-        writeJsonAtomic(xerjStatePath(outDir), state, true);
-        return state;
+        const cache = join(outDir, CACHE_DIR, "xerj");
+        mkdirSync(cache, { recursive: true });
+        const lease = lock(cache);
+        if (!lease) throw new Error("Embedded XERJ cache is busy; retry sync");
+        try {
+            const prior = readXerjState(outDir);
+            signal?.throwIfAborted();
+            const state = { version: VERSION, enabled: true, endpoint, index, generation, stamp, nodes: graph.nodes.length };
+            state.directory = buildEmbedded(outDir, state, graph.nodes.map((node) => {
+                const doc = docs.get(node.id);
+                return { id: node.id, name: bagText(doc.name), path: bagText(doc.path), body: bagText(doc.body),
+                    source_path: node.path, is_test: isTestPath(node.path) };
+            }), prior);
+            if (prior?.endpoint === "embedded")
+                state.previousDirectory = prior.directory === state.directory ? prior.previousDirectory : prior.directory;
+            signal?.throwIfAborted();
+            if (!sameStamp(stamp, sourceStamp(outDir))) throw new Error("Grafly graph changed during XERJ sync; run sync again");
+            writeJsonAtomic(xerjStatePath(outDir), state, true);
+            pruneEmbedded(outDir, state);
+            return state;
+        } finally { lease.release(); }
     }
     // Reuse a complete generation; repair it if the server lost its data.
     let present = false;

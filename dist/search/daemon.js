@@ -54,7 +54,9 @@ export async function serveSearch({ stdio = false } = {}) {
         const prior = Object.fromEntries(Object.entries(process.env).filter(([key]) => requestEnv.test(key)));
         try {
             activeCommand = request.command;
-            for (const key of Object.keys(prior)) delete process.env[key];
+            // Stdio clients may omit env; executable lookup still belongs to the service.
+            for (const key of Object.keys(prior))
+                if (!/^(PATH|PATHEXT)$/i.test(key)) delete process.env[key];
             for (const [key, value] of Object.entries(request.env || {}))
                 if (requestEnv.test(key) && key.toUpperCase() !== "GRAFLY_SEARCH_HOME" && typeof value === "string") process.env[key] = value;
             // The service owns its endpoint/config independently of client env.

@@ -97,6 +97,10 @@ test("shell read flags consume their values — tail/head/gc forms are serveable
         assert.equal(canServeReadCommand("cat", a) && a.length === 1, false);
     assert.equal(canServeReadCommand("cat", ["-n", file]), false, "cat -n is a real flag — run it");
     assert.equal(canServeReadCommand("tail", ["-n", file]), false, "-n without value");
+    for (const value of ["+3", "-3", "0x3", "3e1"]) {
+        assert.equal(canServeReadCommand("tail", ["-n", value, file]), false, value);
+        assert.equal(serveReadCommand("tail", ["-n", value, file], { cwd: dir }), null, value);
+    }
     const tail = serveReadCommand("tail", ["-n", "2", file], { cwd: dir });
     assert.ok(tail.includes("const v99"), "tail -n 2 returns the last lines");
     assert.ok(!tail.includes("const v0 = 0;"));
