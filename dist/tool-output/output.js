@@ -189,6 +189,7 @@ function readInvocation(command, args = []) {
             }
             if (!valueFlags[name]?.test(a)) return null;
             if (flagN !== undefined) return null; // one range flag only
+            if (!/^\d+$/.test(args[i + 1] ?? "")) return null;
             const n = Number(args[i + 1]);
             if (!Number.isSafeInteger(n) || n < 1 || args[i + 1] === undefined) return null;
             flagN = { flag: a, n }; i++;
