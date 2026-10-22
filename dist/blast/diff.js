@@ -137,7 +137,7 @@ function applyHunks(files, patch) {
             hunk = undefined;
             continue;
         }
-        if (line.startsWith("+++ ")) {
+        if (!hunk && line.startsWith("+++ ")) {
             const raw = line.slice(4);
             current = raw === "/dev/null" ? undefined : byPath.get(stripPrefix(raw));
             hunk = undefined;

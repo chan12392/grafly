@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, readdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { FILES_V3, sha256, syncRuntime, resolveRuntime, smokeTest } from '../dist/mc-runtime/runtime.js';
@@ -14,20 +14,33 @@ import { logCircuit } from '../dist/graph/traverse-cli.js';
 import { FEATURE_KEYS } from '../dist/circuit/mc-channel.js';
 import { executeCliRequest } from '../dist/search/cli-request.js';
 
-function configured(t, real = false) {
+function configured(t, real = false, mutate = () => {}) {
     const root = mkdtempSync(join(tmpdir(), 'grafly-mc-learning-'));
+    const source = real ? resolve(process.env.GRAFLY_TEST_MC_SOURCE) : null;
     t.after(() => rmSync(root, { recursive: true, force: true }));
     const keys = generateKeyPairSync('ed25519');
     const config = { url: 'https://release.invalid/mc-releases', token: 'x'.repeat(64), publicKey: keys.publicKey.export({ type: 'spki', format: 'pem' }),
         python: real ? process.env.GRAFLY_TEST_PYTHON : process.execPath, minimumVersion: '0.1.0' };
     writeFileSync(join(root, 'config.json'), JSON.stringify(config));
     const files = Object.fromEntries(FILES_V3.map(name => {
-        const bytes = real ? readFileSync(join(process.env.GRAFLY_TEST_MC_SOURCE, name)) : Buffer.from('# verified fixture\n');
+        const bytes = real ? readFileSync(join(source, name)) : Buffer.from('# verified fixture\n');
         return [name, { data: bytes.toString('base64'), sha256: sha256(bytes) }];
     }));
-    const channels = Object.fromEntries(['tool_output', 'symbol_disambiguation', 'patch_quality'].map(name => [name, { version: '0.2.0', tag: `channel/${name}/v0.2.0` }]));
+    const providedChannels = ['tool_output', 'symbol_disambiguation', 'patch_quality'];
+    let versions = Object.fromEntries(providedChannels.map(name => [name, '0.2.0']));
+    if (real) {
+        // Release expectations come from the trusted source catalog, independently of smoke output.
+        const catalog = spawnSync(config.python, ['-I', '-S', '-B', '-X', 'utf8', '-c',
+            'import sys,json; sys.path.insert(0,sys.argv[1]); from morecoffee.channels.registry import require; print(json.dumps({name: require(name).version for name in sys.argv[2:]}))',
+            source, ...providedChannels],
+            { encoding: 'utf8', timeout: 10000, windowsHide: true, cwd: source });
+        assert.equal(catalog.status, 0, catalog.stderr || catalog.error?.message);
+        versions = JSON.parse(catalog.stdout);
+    }
+    const channels = Object.fromEntries(providedChannels.map(name => [name, { version: versions[name], tag: `channel/${name}/v${versions[name]}` }]));
     const bundle = { schema: 'mc.runtime.bundle.v1', version: '0.3.1', source: 'a'.repeat(40), runtime_api: 3, python_min: '3.11',
-        provided_channels: ['tool_output', 'symbol_disambiguation', 'patch_quality'], channels, files };
+        provided_channels: providedChannels, channels, files };
+    mutate(bundle);
     const bytes = Buffer.from(JSON.stringify(bundle));
     const metadata = { schema: 'mc.runtime.release.v1', version: bundle.version, source: bundle.source, runtime_api: 3, python_min: '3.11',
         sequence: 4, provided_channels: bundle.provided_channels, channels, bytes: bytes.length, sha256: sha256(bytes) };
@@ -90,6 +103,16 @@ test('collection preserves observations, exports only explicit labels, and exclu
     });
     assert.equal(rows.length, 2); assert.equal(rows.filter(r => r.outcome === null).length, 1);
     assert.equal(rows.find(r => r.outcome)?.outcome.method, 'explicit_review');
+});
+
+test('actual signed API3 package rejects channel versions inconsistent with signed metadata',
+    { skip: !process.env.GRAFLY_TEST_MC_SOURCE || !process.env.GRAFLY_TEST_PYTHON }, async t => {
+    const f = configured(t, true, bundle => {
+        const version = bundle.channels.patch_quality.version === '0.0.0' ? '0.0.1' : '0.0.0';
+        bundle.channels.patch_quality = { version, tag: `channel/patch_quality/v${version}` };
+    });
+    await assert.rejects(syncRuntime(f.root, { transport: f.transport, smoke: smokeTest }), /mc_smoke_quality_contract/);
+    assert.equal(existsSync(join(f.root, 'active.json')), false);
 });
 
 test('actual signed API3 package connects Grafly feedback to the MC database and bounded trainer',

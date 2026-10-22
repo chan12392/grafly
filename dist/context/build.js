@@ -11,8 +11,8 @@
  *      source files so staleness stays exact.
  *   5. Write one markdown file per node (preserving human notes) + a manifest.
  */
-import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { readFileSync, writeFileSync, renameSync, mkdirSync, mkdtempSync, existsSync } from "node:fs";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { walkDir } from "../ingest/fs.js";
 import { filterByOnlyDirs } from "../graph/source-files.js";
 import { readFingerprint } from "../graph/fingerprint.js";
@@ -21,7 +21,7 @@ import { relPosix } from "../util/paths.js";
 import { readSourceFile } from "../util/source.js";
 import { readFollowNestedRepos, readFollowSubmodules, readIncludeDirs } from "../util/state.js";
 import { LlmFailureGate } from "../ai/failure.js";
-import { CACHE_DIR, MANIFEST_VERSION, contextDirFor, deleteNode, digestSources, existingNodeSlugs, slugify, writeManifest, writeNode, readNodes, readManifest } from "./node-file.js";
+import { CACHE_DIR, MANIFEST_VERSION, contextDirFor, digestSources, existingNodeSlugs, slugify, writeManifest, writeNode, readNodes, readManifest } from "./node-file.js";
 /** Extensions treated as source code. */
 export const CODE_EXTENSIONS = [
     ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
@@ -50,7 +50,10 @@ export function listContextFiles(root, outDir, exts, explicitOnlyDirs) {
         followNestedRepos: readFollowNestedRepos(root),
     })
         .filter((f) => exts.some((e) => f.toLowerCase().endsWith(e)))
-        .filter((f) => !f.startsWith(outDir));
+        .filter((f) => {
+            const rel = relative(outDir, f);
+            return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+        });
     return filterByOnlyDirs(walked, root, resolveOnlyDirs(outDir, explicitOnlyDirs));
 }
 export async function buildContext(dir, opts) {
@@ -63,7 +66,8 @@ export async function buildContext(dir, opts) {
     // the fingerprint) so out-of-scope files are never summarized or synthesized.
     const files = listContextFiles(root, outDir, exts, opts.onlyDirs);
     const cache = loadCache(outDir);
-    const previousNodes = opts.incremental ? readNodes(outDir) : [];
+    const existingNodes = readNodes(outDir);
+    const previousNodes = opts.incremental ? existingNodes : [];
     const previousManifest = opts.incremental ? readManifest(outDir) : null;
     // Flush the summary cache to disk during phase 1 so a build interrupted
     // partway (session/rate limit, crash, Ctrl-C) resumes without re-summarizing
@@ -293,13 +297,17 @@ export async function buildContext(dir, opts) {
             generatedSlugs.add(node.slug);
         }
     }
-    for (const slug of opts.incremental ? previousNodes.map(n => n.slug) : existingNodeSlugs(outDir)) {
+    const existingSlugs = existingNodeSlugs(outDir);
+    let archive;
+    for (const { slug } of existingNodes) {
         if (!liveSlugs.has(slug)) {
-            if (opts.incremental) {
-                const archive = join(outDir, CACHE_DIR, 'concept-history', `${Date.now()}-${process.pid}`);
-                mkdirSync(archive, { recursive: true });
-                renameSync(join(outDir, `${slug}.md`), join(archive, `${slug}.md`));
-            } else deleteNode(outDir, slug);
+            if (!existingSlugs.has(slug)) throw new Error(`concept slug has no matching file: ${slug}`);
+            if (!archive) {
+                const history = join(outDir, CACHE_DIR, 'concept-history');
+                mkdirSync(history, { recursive: true });
+                archive = mkdtempSync(join(history, `${Date.now()}-${process.pid}-`));
+            }
+            renameSync(join(outDir, `${slug}.md`), join(archive, `${slug}.md`));
         }
     }
     for (let i = 0; i < nodes.length; i++) {

@@ -24,6 +24,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import matter from "gray-matter";
+import { parseFrontmatter } from "./frontmatter.js";
 import { contentHash, normalizeName } from "../util/id.js";
 import { relPosix, stripTrailingSlashes } from "../util/paths.js";
 // Value-only import of a constant; `write.ts` pulls in nothing from here, so no cycle.
@@ -209,7 +210,7 @@ export function writeNode(dir, node) {
     mkdirSync(dir, { recursive: true });
     const path = join(dir, `${node.slug}.md`);
     if (existsSync(path)) {
-        const parsed = matter(readFileSync(path, "utf8"));
+        const parsed = parseFrontmatter(readFileSync(path, "utf8"));
         node = { ...node, human: preserveHuman(parsed.content) };
     }
     else {
@@ -280,7 +281,7 @@ export function readNodes(dir) {
     for (const entry of readdirSync(dir)) {
         if (!entry.endsWith(".md") || entry === "INDEX.md")
             continue;
-        const parsed = matter(readFileSync(join(dir, entry), "utf8"));
+        const parsed = parseFrontmatter(readFileSync(join(dir, entry), "utf8"));
         const fm = parsed.data;
         const fallbackSlug = entry.replace(/\.md$/, "");
         if (isRootFileCard(fallbackSlug, fm, parsed.content, fileCardStems))

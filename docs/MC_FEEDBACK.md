@@ -45,8 +45,11 @@ labels and legacy adopt/reject events do not count as verified reviews.
 Top-1 target agreement and verdict agreement are reported separately: abstaining
 when a unique target is known is not a confident correct selection.
 
-Existing unreviewed logs stay unreviewed. No background labeling, training,
-weight replacement, or external upload is introduced. Logs still rotate with
+Existing unreviewed logs stay unreviewed. When MC local learning is explicitly
+enabled, current judgments and explicit reviews also enter its local inbox.
+Unlabeled navigation does not become a training label. The verified MC runtime
+owns training and activation gates; see [local learning integration](MC_RUNTIME.md).
+Nothing is uploaded. Logs still rotate with
 one backup near 1.5 MiB, so export reviewed records before their retention ends
 if they will be used in a durable, separately validated dataset.
 

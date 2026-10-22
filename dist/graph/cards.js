@@ -18,6 +18,7 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync
 import { dirname, join } from "node:path";
 import { relPosix } from "../util/paths.js";
 import matter from "gray-matter";
+import { parseFrontmatter } from "../context/frontmatter.js";
 import { CACHE_DIR, readNodes } from "../context/node-file.js";
 import { GRAPH_DIR } from "./write.js";
 const INDEX_FILE = "INDEX.md";
@@ -29,7 +30,7 @@ function isConceptNodeFile(path) {
     if (!existsSync(path))
         return false;
     try {
-        const fm = matter(readFileSync(path, "utf8")).data;
+        const fm = parseFrontmatter(readFileSync(path, "utf8")).data;
         return fm.slug != null && String(fm.slug).length > 0;
     }
     catch {
@@ -247,7 +248,7 @@ export function writeCovers(graph, outDir) {
         if (!entry.endsWith(".md") || entry === INDEX_FILE)
             continue;
         const full = join(outDir, entry);
-        const parsed = matter(readFileSync(full, "utf8"));
+        const parsed = parseFrontmatter(readFileSync(full, "utf8"));
         // Root-level file cards have no concept slug; stamping `covers: []` onto
         // them made readNodes treat them as concept nodes (#261).
         if (parsed.data.slug == null || String(parsed.data.slug).length === 0)
@@ -263,7 +264,8 @@ export function writeCovers(graph, outDir) {
         }
         // Re-stringify with covers appended last, so re-runs produce a stable diff.
         const { covers: _prev, ...rest } = parsed.data;
-        writeFileSync(full, matter.stringify(parsed.content, { ...rest, covers }));
+        // String input would parse the body again, including an executable second header.
+        writeFileSync(full, matter.stringify({ content: parsed.content }, { ...rest, covers }));
         enriched++;
     }
     return enriched;

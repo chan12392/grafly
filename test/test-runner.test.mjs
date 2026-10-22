@@ -13,12 +13,17 @@ function fixture(t, failure = false) {
     writeFileSync(join(root, 'test', 'environment.test.mjs'), `
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 test('isolated child environment', () => {
     for (const key of ['GRAFLY_TOOL_OUTPUT', 'GRAFLY_NO_TOOL_ROUTE', 'GRAFLY_MC_HOME',
-        'GRAFLY_DIR', 'GRAFT_DIR', 'GRAFLY_TEST_STDIN', 'grafly_unrecognized_setting'])
+        'GRAFLY_DIR', 'GRAFT_DIR', 'GRAFLY_TEST_STDIN', 'grafly_unrecognized_setting', 'MC_ROOT', 'MC_PYTHON'])
         assert.equal(process.env[key], undefined, key);
     assert.equal(process.env.GRAFLY_TEST_CODEX, 'explicit-codex');
     assert.equal(process.env.GRAFLY_TEST_PYTHON, 'explicit-python');
+    assert.equal(process.env.GRAFLY_TEST_MC_SOURCE, 'explicit-mc-source');
+    assert.ok(process.env.MC_LEARNING_HOME.includes('grafly-test-learning-'));
+    assert.notEqual(process.env.MC_LEARNING_HOME, 'user-learning');
+    assert.equal(existsSync(process.env.MC_LEARNING_HOME + '/config.json'), false);
     assert.equal(process.env.TEST_RUNNER_SENTINEL_UNRELATED, 'preserved');
     assert.equal(process.env.GIT_CONFIG_COUNT, '2');
     assert.equal(process.env.GIT_CONFIG_VALUE_0, 'false');
@@ -29,7 +34,8 @@ ${failure ? "test('intentional failure', () => assert.fail('runner failure senti
     const env = { ...process.env, GRAFLY_TOOL_OUTPUT: '0', GRAFLY_NO_TOOL_ROUTE: '1',
             GRAFLY_MC_HOME: 'user-analyzer', GRAFLY_DIR: 'user-index', GRAFT_DIR: 'legacy-index',
             GRAFLY_TEST_STDIN: 'user-hook-input', grafly_unrecognized_setting: 'future-flag',
-            GRAFLY_TEST_CODEX: 'explicit-codex', GRAFLY_TEST_PYTHON: 'explicit-python',
+            GRAFLY_TEST_CODEX: 'explicit-codex', GRAFLY_TEST_PYTHON: 'explicit-python', GRAFLY_TEST_MC_SOURCE: 'explicit-mc-source',
+            MC_ROOT: 'user-runtime', MC_PYTHON: 'user-python', MC_LEARNING_HOME: 'user-learning',
             TEST_RUNNER_SENTINEL_UNRELATED: 'preserved', GIT_CONFIG_COUNT: '0' };
     // This fixture starts a separate test runner, outside node:test's worker context.
     delete env.NODE_TEST_CONTEXT;
