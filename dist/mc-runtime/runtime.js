@@ -196,7 +196,9 @@ export function smokeTest(root, python) {
       encoding: 'utf8', timeout: 10000, maxBuffer: MAX_BYTES, windowsHide: true, cwd: root });
     if (check.status !== 0) fail('mc_smoke_quality_process');
     const output = JSON.parse(check.stdout);
-    if (output.channel_id !== 'patch_quality' || output.channel_version !== '0.2.0' || output.status !== 'abstained') fail('mc_smoke_quality_contract');
+    const version = JSON.parse(boundedRead(join(root, 'bundle.json'))).channels?.patch_quality?.version;
+    if (!['0.2.0', '0.2.1'].includes(version) || output.channel_id !== 'patch_quality'
+        || output.channel_version !== version || output.status !== 'abstained') fail('mc_smoke_quality_contract');
   }
 }
 export async function syncRuntime(home = runtimeHome(), { transport = fetch, smoke = smokeTest } = {}) {
