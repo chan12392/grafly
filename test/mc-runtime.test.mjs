@@ -36,7 +36,7 @@ const transport = r => async (url, options) => {
 };
 const install = (h, r, smoke = () => {}) => syncRuntime(h, { transport: transport(r), smoke });
 const env = h => {
-  const result = { ...process.env, MC_ROOT: '', GRAFLY_MC_RUNTIME_HOME: h };
+  const result = { ...process.env, GRAFLY_TOOL_OUTPUT: '1', MC_ROOT: '', GRAFLY_MC_RUNTIME_HOME: h };
   delete result.NODE_TEST_CONTEXT;
   return result;
 };
@@ -55,7 +55,7 @@ test('v2 signed portable channel is loaded by the actual Grafly judge, with v1 s
   const h = home(); await install(h, release());
   const r = release('0.3.0', 2, b => {
     b.runtime_api = 2; b.provided_channels.push('symbol_disambiguation');
-    b.channels.symbol_disambiguation = { version: '0.1.0', tag: 'channel/symbol_disambiguation/v0.1.0' };
+    b.channels.symbol_disambiguation = { version: '0.2.0', tag: 'channel/symbol_disambiguation/v0.2.0' };
     for (const name of FILES_V2.filter(f => !FILES.includes(f))) {
       const data = name.endsWith('.py') ? Buffer.from('# fixture\n') : readFileSync(new URL('../dist/circuit/mc/' + name.split('/').at(-1), import.meta.url));
       b.files[name] = { data: data.toString('base64'), sha256: sha256(data) };
@@ -67,7 +67,7 @@ test('v2 signed portable channel is loaded by the actual Grafly judge, with v1 s
     { env: env(h), encoding: 'utf8', windowsHide: true, timeout: 10000 });
   assert.equal(proc.status, 0, proc.stderr);
   const output = JSON.parse(proc.stdout);
-  assert.equal(output.channel.source, 'signed-runtime'); assert.equal(output.channel.version, '0.1.0');
+  assert.equal(output.channel.source, 'signed-runtime'); assert.equal(output.channel.version, '0.2.0');
   assert.equal(output.result.verdict, 'abstain'); assert.equal(output.result.reason, 'no_candidates');
   const pinned = pinRuntime(env(h));
   writeFileSync(join(pinned.root, 'morecoffee/channels/portable/symbol_disambiguation.mjs'), 'throw new Error("tampered")');
@@ -129,5 +129,5 @@ test('a command started before activation judges with its starting runtime', asy
     judge: (_payload, _env, pinned) => { selected = pinned.metadata.version; return { decision: { verdict: 'passthrough' } }; } });
   await install(h, release('0.2.1', 2));
   const result = await running;
-  assert.equal(result.exit_code, 0); assert.equal(selected, '0.2.0'); assert.equal(runtimeStatus(h).version, '0.2.1');
+  assert.equal(result.exit_code, 0); assert.equal(selected, '0.2.0', JSON.stringify(result)); assert.equal(runtimeStatus(h).version, '0.2.1');
 });

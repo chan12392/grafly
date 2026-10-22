@@ -26,6 +26,7 @@ export interface CircuitReport {
     scoreUnit: "rank_score";
     confidence: null;
     top: string;
+    model_sha256?: string | null;
     scores: Array<{ id: string; score: number }>;
 }
 export declare function judgeAndRank(graph: GraphV1, query: string, matches: NodeV1[], ctx?: { cwdTokens?: Set<string> }): {

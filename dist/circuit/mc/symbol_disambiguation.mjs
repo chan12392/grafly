@@ -1,8 +1,36 @@
 // Canonical MoreCoffee portable channel. Consumers generate copies, never fork rules.
-import { readFileSync } from 'node:fs';
+import { readFileSync, lstatSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { homedir } from 'node:os';
+import { join, isAbsolute } from 'node:path';
 export const ARTIFACT = JSON.parse(readFileSync(new URL('./symbol_disambiguation.json', import.meta.url), 'utf8'));
 export const FEATURE_KEYS = Object.freeze(Object.keys(ARTIFACT.weights));
-export const DEFAULT_WEIGHTS = Object.freeze(ARTIFACT.weights);
+function localModel() {
+    try {
+        const home = process.env.MC_LEARNING_HOME || join(homedir(), '.morecoffee', 'learning');
+        if (!isAbsolute(home) || lstatSync(home).isSymbolicLink()) return null;
+        const read = (path, max) => {
+            const s = lstatSync(path);
+            if (!s.isFile() || s.isSymbolicLink() || s.size > max) throw new Error('invalid_model_file');
+            return readFileSync(path);
+        };
+        const config = JSON.parse(read(join(home, 'config.json'), 4096));
+        if (config.schema !== 'mc.learning.config.v1' || config.enabled !== true) return null;
+        const active = JSON.parse(read(join(home, 'active.json'), 4096));
+        const sha = active.models?.symbol_disambiguation;
+        if (active.schema !== 'mc.learning.active.v1' || !/^[a-f0-9]{64}$/.test(sha) || lstatSync(join(home, 'models')).isSymbolicLink()) return null;
+        const bytes = read(join(home, 'models', sha + '.json'), 16384);
+        if (createHash('sha256').update(bytes).digest('hex') !== sha) return null;
+        const model = JSON.parse(bytes);
+        if (model.schema !== 'mc.learned.v1' || model.policy !== 'mc.grouped-fresh-audit.v1' || model.task !== 'symbol_disambiguation' || model.approved !== true || model.abstain_gap !== 0.5
+            || Object.keys(model.weights || {}).length !== FEATURE_KEYS.length || FEATURE_KEYS.some(k => !Number.isFinite(model.weights[k]) || Math.abs(model.weights[k]) > 32)
+            || !Number.isFinite(model.bias) || Math.abs(model.bias) > 32) return null;
+        return { ...model, model_sha256: sha };
+    } catch { return null; }
+}
+const learned = localModel();
+export const MODEL_SHA256 = learned?.model_sha256 || null;
+export const DEFAULT_WEIGHTS = Object.freeze(learned?.weights || ARTIFACT.weights);
 export const ABSTAIN_GAP = ARTIFACT.abstain_gap;
 const evidenceKeys = FEATURE_KEYS.filter(k => k !== 'degree' && k !== 'bias');
 export function rankFeatures(candidates, { weights = DEFAULT_WEIGHTS, abstainGap = ABSTAIN_GAP } = {}) {

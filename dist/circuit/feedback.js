@@ -2,6 +2,7 @@
 import { appendFileSync, closeSync, openSync, readSync, renameSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
+import { collectJudgment } from '../mc-runtime/feedback.js';
 
 /** Associate navigation only with judgments this recent — same sitting,
  * not last week's unrelated query. */
@@ -142,5 +143,6 @@ export function recordLabel(logPath, root, jid, expected, evidence) {
         source: "explicit", jid, root: judgment.root, expected, evidence: evidence.trim() };
     if (!isExplicitLabel(label, judgment)) throw new Error("expected must be an exact candidate ID, or abstain");
     if (!appendCircuitRecord(logPath, label)) throw new Error("could not persist the explicit review");
+    collectJudgment(judgment, label);
     return label;
 }
