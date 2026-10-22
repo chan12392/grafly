@@ -9,6 +9,7 @@ function localModel() {
     try {
         const home = process.env.MC_LEARNING_HOME || join(homedir(), '.morecoffee', 'learning');
         if (!isAbsolute(home) || lstatSync(home).isSymbolicLink()) return null;
+        if (lstatSync(join(home, 'revoked-symbol_disambiguation.json'), { throwIfNoEntry: false })) return null;
         const read = (path, max) => {
             const s = lstatSync(path);
             if (!s.isFile() || s.isSymbolicLink() || s.size > max) throw new Error('invalid_model_file');

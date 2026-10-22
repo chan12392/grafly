@@ -52,10 +52,11 @@ test('signed install, atomic version switch, offline survival and command pinnin
   assert.equal(runtimeStatus(h).version, '0.2.1');
 });
 test('v2 signed portable channel is loaded by the actual Grafly judge, with v1 still supported', async () => {
+  const version = JSON.parse(readFileSync(new URL('../dist/circuit/mc/symbol_disambiguation.json', import.meta.url))).channel_version;
   const h = home(); await install(h, release());
   const r = release('0.3.0', 2, b => {
     b.runtime_api = 2; b.provided_channels.push('symbol_disambiguation');
-    b.channels.symbol_disambiguation = { version: '0.2.0', tag: 'channel/symbol_disambiguation/v0.2.0' };
+    b.channels.symbol_disambiguation = { version, tag: `channel/symbol_disambiguation/v${version}` };
     for (const name of FILES_V2.filter(f => !FILES.includes(f))) {
       const data = name.endsWith('.py') ? Buffer.from('# fixture\n') : readFileSync(new URL('../dist/circuit/mc/' + name.split('/').at(-1), import.meta.url));
       b.files[name] = { data: data.toString('base64'), sha256: sha256(data) };
@@ -67,7 +68,7 @@ test('v2 signed portable channel is loaded by the actual Grafly judge, with v1 s
     { env: env(h), encoding: 'utf8', windowsHide: true, timeout: 10000 });
   assert.equal(proc.status, 0, proc.stderr);
   const output = JSON.parse(proc.stdout);
-  assert.equal(output.channel.source, 'signed-runtime'); assert.equal(output.channel.version, '0.2.0');
+  assert.equal(output.channel.source, 'signed-runtime'); assert.equal(output.channel.version, version);
   assert.equal(output.result.verdict, 'abstain'); assert.equal(output.result.reason, 'no_candidates');
   const pinned = pinRuntime(env(h));
   writeFileSync(join(pinned.root, 'morecoffee/channels/portable/symbol_disambiguation.mjs'), 'throw new Error("tampered")');
