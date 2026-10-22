@@ -12,7 +12,7 @@
  */
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../context/frontmatter.js";
 import { materialViz } from "../materials/index.js";
 /**
  * Legacy vague verbs → the concrete verb they usually mean. Keeps old
@@ -57,7 +57,7 @@ export function assembleContextGraph(contextDir) {
                 continue;
             let parsed;
             try {
-                parsed = matter(readFileSync(join(contextDir, entry), "utf8"));
+                parsed = parseFrontmatter(readFileSync(join(contextDir, entry), "utf8"));
             }
             catch {
                 skippedFiles++;
@@ -72,7 +72,7 @@ export function assembleContextGraph(contextDir) {
                 name: String(fm.name ?? id),
                 type: String(fm.type ?? "concept"),
                 summary: extractSummary(parsed.content),
-                sources: sources.map((s) => s.path),
+                sources: sources.filter((s) => s && typeof s.path === "string").map((s) => s.path),
             });
             for (const link of links) {
                 if (!link || typeof link.to !== "string")

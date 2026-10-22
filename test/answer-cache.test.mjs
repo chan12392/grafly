@@ -13,7 +13,7 @@ import { loadAnswers, saveAnswers, cacheKey, stampFiles, indexDeps, lookup, veri
 const CLI = join(process.cwd(), "dist", "cli.js");
 const run = (d, args) => spawnSync(process.execPath, [CLI, ...args], { windowsHide: true, cwd: d, encoding: "utf8" });
 const tmp = () => mkdtempSync(join(tmpdir(), "grafly-anscache-"));
-const fresh = () => ({ version: 4, entries: {} });
+const fresh = () => ({ version: 5, entries: {} });
 
 test("cache keys preserve exact case, whitespace and surrounding quotes", () => {
     const queries = ['getUserName', 'getusername', '"getUserName"', "'getUserName'", 'a b', 'a  b'];

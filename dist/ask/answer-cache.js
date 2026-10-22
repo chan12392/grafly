@@ -31,7 +31,7 @@ import { materialsPath } from "../materials/index.js";
 /** Cap on stored answers per context dir — a session re-asks a handful of
  * questions; beyond this the oldest (`ts`) is evicted first. */
 const MAX_ANSWERS = 30;
-const CACHE_VERSION = 4;
+const CACHE_VERSION = 5;
 /** Cache file for a context dir: `<dir>/.cache/answers.json` — the same
  * uncommitted local-cache location the ask sidecar already uses. */
 function answersPath(ctxDir) {
@@ -87,7 +87,7 @@ export function stampFiles(dir, relPaths) {
     for (const p of relPaths) {
         try {
             const s = statSync(resolve(dir, p));
-            stamp[p] = s.isFile() ? { m: s.mtimeMs, c: s.ctimeMs, i: s.ino, s: s.size } : null;
+            stamp[p] = s.isFile() || s.isDirectory() ? { m: s.mtimeMs, c: s.ctimeMs, i: s.ino, s: s.size } : null;
         }
         catch (error) {
             if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
@@ -103,7 +103,8 @@ export function stampFiles(dir, relPaths) {
  * untouched (e.g. a "callers of X" answer after a NEW caller appeared in a
  * file the old answer never covered). */
 export function indexDeps(ctxDir, repoDir = dirname(ctxDir)) {
-    const deps = [wiringPath(ctxDir), askIndexPath(ctxDir), materialsPath(ctxDir), buildConfigPath(repoDir),
+    // The directory stamp detects newly added cards that no old answer could list.
+    const deps = [ctxDir, wiringPath(ctxDir), askIndexPath(ctxDir), materialsPath(ctxDir), buildConfigPath(repoDir),
         join(repoDir, LEGACY_BUILD_CONFIG_DIR, 'config.json'), rulesCachePath(repoDir), xerjStatePath(ctxDir)];
     try {
         for (const entry of readdirSync(ctxDir))
@@ -135,7 +136,7 @@ export function verify(dir, entry) {
             return false; // a covered file was deleted — the answer is stale
         }
         if (want === null) {
-            if (!s.isFile()) continue;
+            if (!s.isFile() && !s.isDirectory()) continue;
             return false;
         }
         if (s.mtimeMs !== want.m || s.ctimeMs !== want.c || s.ino !== want.i || s.size !== want.s)

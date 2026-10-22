@@ -1,10 +1,11 @@
 /** Signed, per-user MC runtime. No network or installation on the command path. */
 import { createHash, createPublicKey, verify, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, lstatSync, readFileSync, writeFileSync, renameSync, readdirSync, unlinkSync, rmdirSync } from 'node:fs';
+import { existsSync, mkdirSync, lstatSync, readFileSync, writeFileSync, renameSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve, isAbsolute } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { acquireProcessLock } from '../util/process-lock.js';
 
 export const MAX_BYTES = 512 * 1024;
 export const FILES = [
@@ -136,22 +137,7 @@ export function atomicWrite(path, data) {
   renameSync(temp, path);
 }
 export function acquireLock(home, name = 'update.lock') {
-  mkdirSync(home, { recursive: true, mode: 0o700 });
-  const path = join(home, name);
-  try { mkdirSync(path, { mode: 0o700 }); }
-  catch (error) {
-    if (error.code !== 'EEXIST') throw error;
-    // A crashed owner is recoverable. Missing/incomplete ownership is retried later.
-    let owner;
-    try { owner = JSON.parse(boundedRead(join(path, 'owner.json'), 1024)); } catch { return null; }
-    if (!Number.isInteger(owner.pid) || owner.pid < 1) return null;
-    try { process.kill(owner.pid, 0); return null; }
-    catch (e) { if (e.code !== 'ESRCH') return null; }
-    try { renameSync(path, path + '.stale-' + randomUUID()); mkdirSync(path, { mode: 0o700 }); }
-    catch { return null; }
-  }
-  writeFileSync(join(path, 'owner.json'), JSON.stringify({ pid: process.pid }), { flag: 'wx', mode: 0o600 });
-  return () => { unlinkSync(join(path, 'owner.json')); rmdirSync(path); };
+  return acquireProcessLock(join(home, name));
 }
 export async function download(config, path, max, transport = fetch) {
   const response = await transport(config.url + path, { headers: { Authorization: `Bearer ${config.token}` },
@@ -167,6 +153,7 @@ export async function download(config, path, max, transport = fetch) {
   return Buffer.concat(chunks);
 }
 export function smokeTest(root, python) {
+  const expectedVersion = JSON.parse(boundedRead(join(root, 'bundle.json'))).channels?.patch_quality?.version;
   const code = "import sys,runpy; assert sys.version_info >= (3,11); sys.path.insert(0,sys.argv[1]); runpy.run_module('morecoffee.channels.tool_output_stdio',run_name='__main__')";
   const input = { kind: 'search', complete: true, exit_code: 0,
     stdout: Array.from({ length: 250 }, (_, i) => `file${i}.py:${i + 1}:match\n`).join(''), stderr: '' };
@@ -196,9 +183,8 @@ export function smokeTest(root, python) {
       encoding: 'utf8', timeout: 10000, maxBuffer: MAX_BYTES, windowsHide: true, cwd: root });
     if (check.status !== 0) fail('mc_smoke_quality_process');
     const output = JSON.parse(check.stdout);
-    const version = JSON.parse(boundedRead(join(root, 'bundle.json'))).channels?.patch_quality?.version;
-    if (!['0.2.0', '0.2.1'].includes(version) || output.channel_id !== 'patch_quality'
-        || output.channel_version !== version || output.status !== 'abstained') fail('mc_smoke_quality_contract');
+    if (!['0.2.0', '0.2.1'].includes(expectedVersion) || output.channel_id !== 'patch_quality'
+        || output.channel_version !== expectedVersion || output.status !== 'abstained') fail('mc_smoke_quality_contract');
   }
 }
 export async function syncRuntime(home = runtimeHome(), { transport = fetch, smoke = smokeTest } = {}) {

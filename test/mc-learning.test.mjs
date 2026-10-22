@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, readdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { FILES_V3, sha256, syncRuntime, resolveRuntime, smokeTest } from '../dist/mc-runtime/runtime.js';
@@ -14,7 +14,7 @@ import { logCircuit } from '../dist/graph/traverse-cli.js';
 import { FEATURE_KEYS } from '../dist/circuit/mc-channel.js';
 import { executeCliRequest } from '../dist/search/cli-request.js';
 
-function configured(t, real = false) {
+function configured(t, real = false, mutate = () => {}) {
     const root = mkdtempSync(join(tmpdir(), 'grafly-mc-learning-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));
     const keys = generateKeyPairSync('ed25519');
@@ -30,11 +30,12 @@ function configured(t, real = false) {
         provided_channels: ['tool_output', 'symbol_disambiguation', 'patch_quality'], channels, files };
     if (real) {
         const script = "import json,sys;from pathlib import Path;sys.path[:0]=[sys.argv[1],str(Path(sys.argv[1])/'scripts')];from morecoffee import __version__;from build_channel_release import build;print(json.dumps(build(__version__,False)))";
-        const built = spawnSync(config.python, ['-I', '-B', '-c', script, process.env.GRAFLY_TEST_MC_SOURCE],
+        const built = spawnSync(config.python, ['-I', '-S', '-B', '-X', 'utf8', '-c', script, resolve(process.env.GRAFLY_TEST_MC_SOURCE)],
             { encoding: 'utf8', windowsHide: true, timeout: 10000, maxBuffer: 512 * 1024 });
-        assert.equal(built.status, 0, built.stderr);
+        assert.equal(built.status, 0, built.stderr || built.error?.message);
         bundle = JSON.parse(built.stdout);
     }
+    mutate(bundle);
     const bytes = Buffer.from(JSON.stringify(bundle));
     const metadata = { schema: 'mc.runtime.release.v1', version: bundle.version, source: bundle.source, runtime_api: 3, python_min: '3.11',
         sequence: 4, provided_channels: bundle.provided_channels, channels: bundle.channels, bytes: bytes.length, sha256: sha256(bytes) };
@@ -97,6 +98,16 @@ test('collection preserves observations, exports only explicit labels, and exclu
     });
     assert.equal(rows.length, 2); assert.equal(rows.filter(r => r.outcome === null).length, 1);
     assert.equal(rows.find(r => r.outcome)?.outcome.method, 'explicit_review');
+});
+
+test('actual signed API3 package rejects channel versions inconsistent with signed metadata',
+    { skip: !process.env.GRAFLY_TEST_MC_SOURCE || !process.env.GRAFLY_TEST_PYTHON }, async t => {
+    const f = configured(t, true, bundle => {
+        const version = bundle.channels.patch_quality.version === '0.2.0' ? '0.2.1' : '0.2.0';
+        bundle.channels.patch_quality = { version, tag: `channel/patch_quality/v${version}` };
+    });
+    await assert.rejects(syncRuntime(f.root, { transport: f.transport, smoke: smokeTest }), /mc_smoke_quality_contract/);
+    assert.equal(existsSync(join(f.root, 'active.json')), false);
 });
 
 test('actual signed API3 package connects Grafly feedback to the MC database and bounded trainer',

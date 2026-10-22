@@ -7,7 +7,7 @@
  * {@link listSourceFiles} so its existing importers are unaffected.
  */
 import { statSync } from "node:fs";
-import { extname, resolve } from "node:path";
+import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { walkDir } from "../ingest/fs.js";
 import { relPosix } from "../util/paths.js";
 import { readFollowNestedRepos, readFollowSubmodules, readIncludeDirs } from "../util/state.js";
@@ -64,9 +64,12 @@ export function listSourceFiles(root, outDir, repoFiles = walkDir(root, readIncl
     // A file is a source file if a depth-tier grammar (languageOf), a breadth-tier
     // grammar (genericLangOf) or a container (containerLangOf) claims its extension.
     // All three must agree here or `build` and `check` would enumerate different sets.
-    return filterByOnlyDirs(repoFiles.filter((f) => !f.startsWith(outDir) &&
-        (!selected || selected.includes(extname(f).toLowerCase())) &&
-        (languageOf(f) !== null || genericLangOf(f) !== null || containerLangOf(f) !== null)), root, onlyDirs);
+    return filterByOnlyDirs(repoFiles.filter((f) => {
+        const rel = relative(outDir, f);
+        return (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) &&
+            (!selected || selected.includes(extname(f).toLowerCase())) &&
+            (languageOf(f) !== null || genericLangOf(f) !== null || containerLangOf(f) !== null);
+    }), root, onlyDirs);
 }
 /**
  * {@link listSourceFiles} plus each file's `(size, mtimeMs)` — the currency of

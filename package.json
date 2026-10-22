@@ -44,6 +44,7 @@
     "native/src",
     "THIRD_PARTY_NOTICES",
     "scripts",
+    "!**/__pycache__/**",
     "!scripts/build-viewer.mjs",
     "!scripts/hermes-route.py",
     "service",
@@ -77,7 +78,6 @@
     "tree-sitter-wasm": "^1.1.6",
     "unpdf": "^1.9.1",
     "vscode-jsonrpc": "^8.2.1",
-    "vscode-languageserver-protocol": "^3.18.2",
     "web-tree-sitter": "^0.26.13"
   },
   "devDependencies": {

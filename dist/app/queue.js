@@ -44,10 +44,10 @@ export class WorkQueue {
     }
     pump() {
         while (this.running.size < this.concurrency) {
-            const next = this.pending.entries().next();
-            if (next.done)
+            const next = [...this.pending].find(([key]) => !this.running.has(key));
+            if (!next)
                 break;
-            const [key, item] = next.value;
+            const [key, item] = next;
             this.pending.delete(key);
             this.running.add(key);
             void this.run(item)

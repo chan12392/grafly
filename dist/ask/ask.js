@@ -15,7 +15,7 @@
  */
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import matter from "gray-matter";
+import { parseFrontmatter } from "../context/frontmatter.js";
 import { contextDirFor } from "../context/node-file.js";
 import { withSavings, savingsFor, savingsTurnNudge } from "../context/savings.js";
 import { loadGraphCached, loadAskIndexCached } from "../graph/load.js";
@@ -48,28 +48,6 @@ function firstProse(body) {
     }
     return "";
 }
-// Capture only data parsers; never mutate gray-matter's process-wide engines.
-const parseYaml = matter.engines.yaml.parse;
-const parseJson = JSON.parse;
-function parseConcept(content) {
-    // Match gray-matter's BOM/delimiter/language handling before it dispatches
-    // an engine. Options alone are NOT an allowlist: gray-matter merges defaults
-    // (including its eval-based JavaScript engine) into per-call engines.
-    const input = content.replace(/^\uFEFF/, "");
-    let language = "yaml";
-    if (input.startsWith("---") && !input.startsWith("----"))
-        language = matter.language(input.slice(3)).name || "yaml";
-    const normalized = language.toLowerCase();
-    if (!["yaml", "yml", "json"].includes(normalized))
-        throw new Error(`Unsupported concept frontmatter language: ${language}`);
-    // Explicit options also bypass gray-matter's shared content-only cache.
-    // Pass the original text: gray-matter strips one BOM itself. Passing input
-    // would strip twice and could expose an unvalidated frontmatter delimiter.
-    return matter(content, { engines: {
-        yaml: parseYaml,
-        [language]: normalized === "json" ? parseJson : parseYaml,
-    } });
-}
 const conceptCache = new Map();
 function loadCorpus(outDir) {
     const concepts = [];
@@ -83,7 +61,7 @@ function loadCorpus(outDir) {
             const stat = statSync(path);
             const stamp = `${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}:${stat.ino}`;
             const cached = previous?.get(entry);
-            const parsed = cached?.stamp === stamp ? cached.parsed : parseConcept(readFileSync(path, "utf8"));
+            const parsed = cached?.stamp === stamp ? cached.parsed : parseFrontmatter(readFileSync(path, "utf8"));
             current.set(entry, { stamp, parsed });
             const fm = parsed.data;
             const sources = Array.isArray(fm.sources)
