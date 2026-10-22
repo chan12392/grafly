@@ -127,7 +127,7 @@ export function applyRanges(text, stream) {
 
 export async function runCommand(command, args = [], options = {}) {
     const env = options.env ?? process.env;
-    void observeComparison({ task: 'tool_call_suitability', items: [{ id: 'proposed-call',
+    await observeComparison({ task: 'tool_call_suitability', items: [{ id: 'proposed-call',
         text: JSON.stringify({ command, args, purpose: 'The caller requested this command; no independent scope judgment is available.' }),
         protected: false, constraint_status: 'unknown' }] }, { cwd: options.cwd, sessionId: options.sessionId, env });
     const pinned = pinRuntime(env); // An in-flight command retains its starting version.
@@ -283,7 +283,7 @@ export async function runCommand(command, args = [], options = {}) {
             const input = ['stdout', 'stderr'].map(name => decoder.decode(Buffer.concat(buffers[name])));
             if (!input.some(text => text.includes('\0'))) {
                 const items = outputItems(...input, exitCode !== 0);
-                if (items.length) void observeComparison({ task: 'input_block_retention', items },
+                if (items.length) await observeComparison({ task: 'input_block_retention', items },
                     { cwd: options.cwd, sessionId: options.sessionId, env });
             }
         } catch { /* Keep the original output on any observation failure. */ }

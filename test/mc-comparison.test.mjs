@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { observeComparison, outputItems } from '../dist/mc-runtime/comparison.js';
 import { FILES_V3, FILES_V4, verifyBundle, sha256 } from '../dist/mc-runtime/runtime.js';
 
@@ -27,6 +29,30 @@ function configuration(t, port) {
     return { root, config, env: { GRAFLY_JUDGMENT_CONFIG: file, CODEX_THREAD_ID: 'fixture-thread' } };
 }
 const event = text => ({ task: 'input_block_retention', items: [{ id: 'last', text, protected: false, constraint_status: 'unknown' }] });
+
+test('short-lived command callers finish only after both local submission acknowledgments', async t => {
+    const packets = [];
+    const server = createServer((req, res) => {
+        let body = ''; req.on('data', chunk => { body += chunk; });
+        req.on('end', () => { packets.push(JSON.parse(JSON.parse(body).stdin));
+            res.end(JSON.stringify({ status: 'queued', job_id: 'b'.repeat(32) })); });
+    });
+    server.listen(0, '127.0.0.1'); await once(server, 'listening');
+    t.after(() => server.close());
+    const f = configuration(t, server.address().port);
+    const probe = join(f.root, 'probe.cjs'), caller = join(f.root, 'caller.mjs');
+    writeFileSync(probe, "process.stdout.write('preserved output\\n');\n");
+    writeFileSync(caller, `import { runCommand } from ${JSON.stringify(new URL('../dist/tool-output/runner.js', import.meta.url).href)};
+const result = await runCommand(process.execPath, [${JSON.stringify(probe)}]);
+process.exit(result.exit_code);\n`);
+    const result = await promisify(execFile)(process.execPath, [caller], { cwd: f.root, windowsHide: true,
+        env: { ...process.env, ...f.env, GRAFLY_TOOL_OUTPUT: '1', GRAFLY_TOOL_OUTPUT_DIR: join(f.root, 'output'),
+            GRAFLY_MC_RUNTIME_HOME: join(f.root, 'no-runtime'), MC_LEARNING_HOME: join(f.root, 'learning') } });
+    assert.equal(result.stdout, 'preserved output\n');
+    assert.deepEqual(packets.map(p => p.task), ['tool_call_suitability', 'input_block_retention']);
+    assert.equal(packets[1].items[0].text, result.stdout);
+    assert.equal(JSON.parse(readFileSync(join(f.root, 'comparison-status.json'), 'utf8')).status, 'queued');
+});
 
 test('no configuration means no background activity', async () => {
     assert.equal((await observeComparison(event('body'), { env: { GRAFLY_JUDGMENT_CONFIG: '0' } })).status, 'disabled');
