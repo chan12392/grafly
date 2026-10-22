@@ -1,6 +1,15 @@
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
 // Invoked only inside the daemon's serialized request queue.
-// Reuse the actual CLI actions and their error/output contracts in-process.
-export async function executeCliRequest({ argv, cwd }) {
+export async function executeCliRequest({ command, argv, cwd }) {
+    // MC pins its runtime/model at import; each judgment needs a fresh process.
+    if (command === 'callers') return new Promise(done => {
+        execFile(process.execPath, [fileURLToPath(new URL('../entry.js', import.meta.url)), ...argv],
+            { cwd, env: { ...process.env, GRAFLY_NO_DAEMON: '1' }, windowsHide: true, maxBuffer: 64 * 1024 * 1024 },
+            (error, stdout, stderr) => done({ stdout, stderr: stderr || (error && !Number.isInteger(error.code) ? error.message + '\n' : ''),
+                exitCode: error ? (Number.isInteger(error.code) ? error.code : 1) : 0 }));
+    });
     const { runCli } = await import("../cli.js");
     const prior = { cwd: process.cwd(), exitCode: process.exitCode,
         stdout: process.stdout.write, stderr: process.stderr.write };

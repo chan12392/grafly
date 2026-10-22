@@ -12,6 +12,7 @@ import { collectJudgment } from '../dist/mc-runtime/feedback.js';
 import { recordLabel } from '../dist/circuit/feedback.js';
 import { logCircuit } from '../dist/graph/traverse-cli.js';
 import { FEATURE_KEYS } from '../dist/circuit/mc-channel.js';
+import { executeCliRequest } from '../dist/search/cli-request.js';
 
 function configured(t, real = false) {
     const root = mkdtempSync(join(tmpdir(), 'grafly-mc-learning-'));
@@ -110,4 +111,38 @@ test('actual signed API3 package connects Grafly feedback to the MC database and
     assert.equal(second.observations, 1); assert.equal(second.tasks.symbol_disambiguation.labeled, 1);
     const status = await runLearning('status', f.root);
     assert.equal(status.enabled, true); assert.equal(status.models.symbol_disambiguation, null);
+});
+
+test('resident callers use the model activated since the previous request',
+    { skip: !process.env.GRAFLY_TEST_MC_SOURCE || !process.env.GRAFLY_TEST_PYTHON }, async t => {
+    const f = configured(t, true), home = join(f.root, 'learning'), repo = join(f.root, 'repo');
+    mkdirSync(home); mkdirSync(repo); mkdirSync(join(home, 'models'));
+    const keys = ['GRAFLY_MC_RUNTIME_HOME', 'MC_LEARNING_HOME', 'GRAFLY_WEIGHTS', 'MC_ROOT'];
+    const prior = Object.fromEntries(keys.map(k => [k, process.env[k]]));
+    t.after(() => { for (const k of keys) prior[k] === undefined ? delete process.env[k] : process.env[k] = prior[k]; });
+    process.env.GRAFLY_MC_RUNTIME_HOME = f.root; process.env.MC_LEARNING_HOME = home;
+    delete process.env.GRAFLY_WEIGHTS; delete process.env.MC_ROOT;
+    await syncRuntime(f.root, { transport: f.transport, smoke: smokeTest });
+    await runLearning('configure', f.root);
+    for (const name of ['a', 'b']) writeFileSync(join(repo, name + '.js'), 'export function choose() {}');
+    const build = await executeCliRequest({ command: 'build', argv: ['build', '.'], cwd: repo });
+    assert.equal(build.exitCode, 0, build.stderr);
+    const request = { command: 'callers', argv: ['callers', 'choose', '--json'], cwd: repo };
+    const first = await executeCliRequest(request);
+    assert.equal(first.exitCode, 0, first.stderr);
+    assert.equal(JSON.parse(first.stdout).circuit.model_sha256, null);
+    const weights = JSON.parse(readFileSync(new URL('../dist/circuit/mc/symbol_disambiguation.json', import.meta.url))).weights;
+    const activate = delta => {
+        const model = { schema: 'mc.learned.v1', policy: 'mc.grouped-fresh-audit.v1', task: 'symbol_disambiguation',
+            approved: true, abstain_gap: 0.5, bias: 0, weights: { ...weights, exact_name: weights.exact_name + delta } };
+        const bytes = Buffer.from(JSON.stringify(model)), digest = sha256(bytes);
+        writeFileSync(join(home, 'models', digest + '.json'), bytes);
+        writeFileSync(join(home, 'active.json'), JSON.stringify({ schema: 'mc.learning.active.v1', models: { symbol_disambiguation: digest } }));
+        return digest;
+    };
+    for (const delta of [0.01, 0.02]) {
+        const expected = activate(delta), result = await executeCliRequest(request);
+        assert.equal(result.exitCode, 0, result.stderr);
+        assert.equal(JSON.parse(result.stdout).circuit.model_sha256, expected);
+    }
 });
