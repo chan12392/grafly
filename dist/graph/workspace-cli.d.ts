@@ -2,6 +2,7 @@ import type { EngineConfig } from "../ai/providers.js";
 import type { Direction } from "./traverse.js";
 export interface WorkspaceBuildOptions {
     deep: boolean;
+    vision?: boolean;
     extensions?: string[];
     concurrency?: number;
     /** Provider/model/key config for child builds — WITHOUT any contextDir

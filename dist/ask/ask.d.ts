@@ -2,7 +2,9 @@ import { type Savings } from "../context/savings.js";
 import type { NodeV1, Relation } from "../graph/types.js";
 import { type AppliedRule } from "../brain/attach.js";
 export interface AskHit {
-    kind: "concept" | "symbol" | "caller" | "callee";
+    kind: "concept" | "symbol" | "caller" | "callee" | "document" | "image";
+    material?: import("../materials/index.js").MaterialProvenance;
+    references?: import("../materials/index.js").MaterialReference[];
     title: string;
     /** A `file` or `file:Lx-Ly` pointer the agent can open directly. */
     pointer: string;

@@ -8,6 +8,7 @@
 - [Hermes hook setup](HERMES_HOOK.md)
 - [Automatic deep indexing](AUTO_DEEP.md)
 - [Exact-symbol retrieval](EXACT_SYMBOL_RETRIEVAL.md)
+- [Documents, PDFs, images and code references](MATERIALS.md)
 
 ## Historical evaluations
 

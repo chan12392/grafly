@@ -26,7 +26,7 @@ export declare function shouldSkipDir(name: string, includes?: ReadonlySet<strin
 /**
  * Recursively list all files under a directory. Skips dot-directories,
  * dependency/build directories (node_modules, dist, …) not named in
- * `includes`, and files over 1 MB.
+ * `includes`, and files over 1 MB (supported materials: 20 MB).
  * In a Git worktree, tracked files plus untracked, non-ignored files come from
  * `git ls-files`; this gives indexing exactly Git's nested `.gitignore`,
  * negation, and global-exclude semantics. Non-Git directories retain the plain

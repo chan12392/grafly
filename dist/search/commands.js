@@ -34,15 +34,16 @@ export function searchCommands(program, action) {
 export function buildCommand(program) {
     return program
     .command("build")
-    .description("Build .grafly/ from your code — wiring graph + per-file cards ($0, no key). " +
+    .description("Build .grafly/ from code and materials — wiring graph, document/PDF text and image references ($0, no key). " +
     "Add --deep for the LLM concept map + per-symbol summaries/crux.")
     .argument("[dir]", "repository root", ".")
     .option("--deep", "run the LLM pass: concept nodes (.grafly/*.md) + per-symbol summary/crux")
+    .option("--vision", "read images and image-only PDF pages with the configured vision model (opt-in; may send image content to that provider)")
     .option("-e, --extensions <exts...>", 'code extensions to include (e.g. ".ts" ".py"); an extension with no parser is ignored with a warning that lists the supported set')
     .option("-j, --concurrency <n>", "files summarized in parallel during --deep (default 5)")
     .option("--no-reuse", "re-parse every file instead of replaying unchanged ones from the extraction cache")
     .option("--lsp", "add compiler-grade call edges via a language server if one is installed (opt-in, slower; e.g. rust-analyzer, clangd)")
-    .option("--allow-partial", "with --deep: exit 0 even when some files' summaries failed (default: a degraded meaning tier exits 1)")
+    .option("--allow-partial", "exit 0 even when document extraction or the deep/vision pass failed (successful evidence is retained)")
     .option("--follow-submodules", "include initialized Git submodules recursively; persisted for later builds and automatic refreshes")
     .option("--no-follow-submodules", "exclude Git submodules; persisted for later builds and automatic refreshes (default)")
     .option("--follow-nested-repos", "include nested Git clones the index does not track (a multi-repo manifest checkout, or any repo cloned into the tree) " +

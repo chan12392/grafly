@@ -27,6 +27,7 @@ import { normalizePathPrefix } from "../util/paths.js";
 import { readJson, writeJsonAtomic, buildConfigPath, LEGACY_BUILD_CONFIG_DIR } from "../util/state.js";
 import { rulesCachePath, readLink, brainIdentity } from "../brain/link.js";
 import { askIndexPath } from "./index-file.js";
+import { materialsPath } from "../materials/index.js";
 /** Cap on stored answers per context dir — a session re-asks a handful of
  * questions; beyond this the oldest (`ts`) is evicted first. */
 const MAX_ANSWERS = 30;
@@ -102,7 +103,7 @@ export function stampFiles(dir, relPaths) {
  * untouched (e.g. a "callers of X" answer after a NEW caller appeared in a
  * file the old answer never covered). */
 export function indexDeps(ctxDir, repoDir = dirname(ctxDir)) {
-    const deps = [wiringPath(ctxDir), askIndexPath(ctxDir), buildConfigPath(repoDir),
+    const deps = [wiringPath(ctxDir), askIndexPath(ctxDir), materialsPath(ctxDir), buildConfigPath(repoDir),
         join(repoDir, LEGACY_BUILD_CONFIG_DIR, 'config.json'), rulesCachePath(repoDir), xerjStatePath(ctxDir)];
     try {
         for (const entry of readdirSync(ctxDir))
