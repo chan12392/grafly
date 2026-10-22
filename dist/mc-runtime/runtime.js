@@ -18,8 +18,10 @@ export const FILES = [
 export const FILES_V2 = [...FILES, 'morecoffee/channels/builtin/symbol_disambiguation.py',
   'morecoffee/channels/portable/symbol_disambiguation.mjs', 'morecoffee/channels/portable/symbol_disambiguation.json'].sort();
 export const FILES_V3 = [...FILES_V2, 'morecoffee/channels/channel_host.py', 'morecoffee/channels/builtin/patch_quality.py', 'morecoffee/adaptive.py'].sort();
-const provided = api => api === 1 ? ['tool_output'] : api === 2 ? ['tool_output', 'symbol_disambiguation'] : ['tool_output', 'symbol_disambiguation', 'patch_quality'];
-const filesFor = api => api === 1 ? FILES : api === 2 ? FILES_V2 : FILES_V3;
+export const FILES_V4 = [...FILES_V3, 'morecoffee/judgment.py', 'morecoffee/channels/builtin/context_judgment.py'].sort();
+const provided = api => api === 1 ? ['tool_output'] : api === 2 ? ['tool_output', 'symbol_disambiguation']
+  : ['tool_output', 'symbol_disambiguation', 'patch_quality', ...(api === 4 ? ['context_judgment'] : [])];
+const filesFor = api => api === 1 ? FILES : api === 2 ? FILES_V2 : api === 3 ? FILES_V3 : FILES_V4;
 export const sha256 = data => createHash('sha256').update(data).digest('hex');
 export const runtimeHome = (env = process.env) => resolve(env.GRAFLY_MC_RUNTIME_HOME || join(homedir(), '.grafly', 'mc-runtime'));
 const fail = code => { throw new Error(code); };
@@ -63,7 +65,7 @@ export function verifyEnvelope(envelope, config) {
   if (!verify(null, bytes, config.publicKey, Buffer.from(envelope.signature, 'base64'))) fail('mc_signature');
   const m = JSON.parse(bytes);
   if (m.schema !== 'mc.runtime.release.v1' || !stableVersion(m.version)
-      || compareVersion(m.version, config.minimumVersion) < 0 || ![1, 2, 3].includes(m.runtime_api) || m.python_min !== '3.11'
+      || compareVersion(m.version, config.minimumVersion) < 0 || ![1, 2, 3, 4].includes(m.runtime_api) || m.python_min !== '3.11'
       || !/^[a-f0-9]{40}$/.test(m.source) || !/^[a-f0-9]{64}$/.test(m.sha256)
       || !Number.isSafeInteger(m.sequence) || m.sequence < 1
       || !Number.isSafeInteger(m.bytes) || m.bytes < 1 || m.bytes > MAX_BYTES
@@ -75,7 +77,7 @@ export function verifyBundle(bytes, metadata) {
   if (bytes.length !== metadata.bytes || bytes.length > MAX_BYTES || sha256(bytes) !== metadata.sha256) fail('mc_bundle_hash');
   const b = JSON.parse(bytes);
   if (b.schema !== 'mc.runtime.bundle.v1' || b.version !== metadata.version || b.source !== metadata.source
-      || ![1, 2, 3].includes(b.runtime_api) || b.runtime_api !== metadata.runtime_api || b.python_min !== metadata.python_min
+      || ![1, 2, 3, 4].includes(b.runtime_api) || b.runtime_api !== metadata.runtime_api || b.python_min !== metadata.python_min
       || JSON.stringify(b.channels) !== JSON.stringify(metadata.channels)
       || JSON.stringify(b.provided_channels) !== JSON.stringify(provided(b.runtime_api))
       || JSON.stringify(Object.keys(b.files ?? {}).sort()) !== JSON.stringify(filesFor(b.runtime_api))) fail('mc_bundle_contract');
@@ -159,7 +161,7 @@ export async function download(config, path, max, transport = fetch) {
 }
 export function smokeTest(root, python) {
   const bundle = JSON.parse(boundedRead(join(root, 'bundle.json')));
-  if (![1, 2, 3].includes(bundle.runtime_api) || !validChannels(bundle.channels, bundle.runtime_api)) fail('mc_smoke_contract');
+  if (![1, 2, 3, 4].includes(bundle.runtime_api) || !validChannels(bundle.channels, bundle.runtime_api)) fail('mc_smoke_contract');
   // Probe seed contracts, independently of this user's active learned models.
   // This nonexistent, private stage path is only read; no learning state is created.
   const env = { ...process.env, MC_LEARNING_HOME: join(root, '.smoke-learning-disabled') };
@@ -275,6 +277,43 @@ export function smokeTest(root, python) {
           || output.decision.baseline_id !== positive.baseline_id || output.decision.candidate_id !== positive.candidate_id
           || !Array.isArray(output.decision.improvements) || (i === 1 && !output.decision.improvements.length)
           || !output.decision.improvements.every(v => typeof v === 'string') || !output.evidence.length) fail('mc_smoke_quality_contract');
+    }
+  }
+  if (bundle.runtime_api === 4) {
+    const payloads = ['document_suitability', 'tool_call_suitability', 'input_block_retention'].map(task => ({
+      source: 'grafly', task, group_id: 'a'.repeat(64), case_origin: 'synthetic', goal: 'Preserve required evidence.',
+      constraints: [], items: task === 'tool_call_suitability'
+        ? [{ id: 'guard', text: 'A tool call violating an independently checked constraint.', protected: false, constraint_status: 'violated' },
+           { id: 'unknown', text: 'A proposed tool call.', protected: false, constraint_status: 'unknown' }]
+        : [{ id: 'required', text: 'Required current instructions.', protected: true, constraint_status: 'unknown' },
+           { id: 'unknown', text: 'Unreviewed material.', protected: false, constraint_status: 'unknown' }],
+    }));
+    const requests = payloads.map((payload, i) => ({ schema_version: 'mc.channel.v1', request_id: `smoke-context-${i}`,
+      channel_id: 'context_judgment', operation: 'judge', payload }));
+    const check = spawnSync(python, ['-I', '-S', '-B', '-X', 'utf8', '-c',
+      "import sys,runpy; sys.path.insert(0,sys.argv[1]); runpy.run_module('morecoffee.channels.channel_host',run_name='__main__')", root], {
+      input: requests.map(r => JSON.stringify(r) + '\n').join(''), encoding: 'utf8', timeout: 10000,
+      maxBuffer: MAX_BYTES, windowsHide: true, cwd: root, env });
+    if (check.status !== 0) fail('mc_smoke_context_process');
+    const rows = check.stdout.trim().split('\n');
+    if (rows.length !== requests.length) fail('mc_smoke_context_contract');
+    for (let i = 0; i < rows.length; i++) {
+      const output = JSON.parse(rows[i]), payload = payloads[i];
+      envelope(output, 'context_judgment', requests[i].request_id, payload, 'ok');
+      const decision = output.decision;
+      const common = Object.fromEntries(['task', 'goal', 'constraints', 'items'].map(k => [k, payload[k]]));
+      if (decision?.task !== payload.task || decision.input_sha256 !== sha256(canonical(common))
+          || decision.model_version !== 'seed-v1' || decision.model_sha256 !== null || decision.dataset_sha256 !== null
+          || decision.judgments?.length !== 2) fail('mc_smoke_context_contract');
+      for (let j = 0; j < 2; j++) {
+        const row = decision.judgments[j], item = payload.items[j], feedback = row?.feedback;
+        if (row?.id !== item.id || row.decision !== (j ? 'abstain' : i === 1 ? 'reject' : 'keep')
+            || row.abstained !== Boolean(j) || feedback?.schema !== 'mc.feedback.v2'
+            || feedback.task !== payload.task || feedback.input_sha256 !== decision.input_sha256
+            || feedback.evidence_sha256 !== sha256(item.text) || feedback.item_id !== sha256(item.id)
+            || feedback.teacher !== null || feedback.outcome !== null || row.collection_status !== 'disabled')
+          fail('mc_smoke_context_contract');
+      }
     }
   }
 }

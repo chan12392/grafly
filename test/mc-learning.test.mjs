@@ -37,7 +37,7 @@ function configured(t, real = false, mutate = () => {}) {
     }
     mutate(bundle);
     const bytes = Buffer.from(JSON.stringify(bundle));
-    const metadata = { schema: 'mc.runtime.release.v1', version: bundle.version, source: bundle.source, runtime_api: 3, python_min: '3.11',
+    const metadata = { schema: 'mc.runtime.release.v1', version: bundle.version, source: bundle.source, runtime_api: bundle.runtime_api, python_min: '3.11',
         sequence: 4, provided_channels: bundle.provided_channels, channels: bundle.channels, bytes: bytes.length, sha256: sha256(bytes) };
     const payload = Buffer.from(JSON.stringify(metadata));
     const envelope = { payload: payload.toString('base64'), signature: sign(null, payload, keys.privateKey).toString('base64') };

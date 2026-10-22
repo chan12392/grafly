@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { constants } from "node:os";
 import { fileURLToPath } from "node:url";
 import { pinRuntime, validatePinned } from "../mc-runtime/runtime.js";
+import { observeComparison, outputItems } from "../mc-runtime/comparison.js";
 import { archiveRoot, startArchive, finishArchive, pruneArchives } from "./retention.js";
 export { archiveRoot } from "./retention.js";
 
@@ -126,6 +127,9 @@ export function applyRanges(text, stream) {
 
 export async function runCommand(command, args = [], options = {}) {
     const env = options.env ?? process.env;
+    void observeComparison({ task: 'tool_call_suitability', items: [{ id: 'proposed-call',
+        text: JSON.stringify({ command, args, purpose: 'The caller requested this command; no independent scope judgment is available.' }),
+        protected: false, constraint_status: 'unknown' }] }, { cwd: options.cwd, sessionId: options.sessionId, env });
     const pinned = pinRuntime(env); // An in-flight command retains its starting version.
     // Shell wrappers stay raw. Serve only simple, directly invoked file reads.
     if (env.GRAFLY_TOOL_OUTPUT !== "0") {
@@ -272,6 +276,17 @@ export async function runCommand(command, args = [], options = {}) {
                 }
             }
         } catch (error) { manifest.reason = error.message; }
+    }
+    if (archived && manifest.complete && !live && size <= 60000) {
+        try {
+            const decoder = new TextDecoder('utf-8', { fatal: true });
+            const input = ['stdout', 'stderr'].map(name => decoder.decode(Buffer.concat(buffers[name])));
+            if (!input.some(text => text.includes('\0'))) {
+                const items = outputItems(...input, exitCode !== 0);
+                if (items.length) void observeComparison({ task: 'input_block_retention', items },
+                    { cwd: options.cwd, sessionId: options.sessionId, env });
+            }
+        } catch { /* Keep the original output on any observation failure. */ }
     }
     if (archived) {
         try { writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n", { flag: "wx", mode: 0o600 }); }

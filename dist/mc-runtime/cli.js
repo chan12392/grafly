@@ -10,7 +10,7 @@ import { startArchiveMaintenance } from '../tool-output/retention.js';
 export async function runLearning(action = 'cycle', home = runtimeHome()) {
   if (!['cycle', 'status', 'configure'].includes(action)) throw new Error('mc_learning_action');
   const resolved = resolveRuntime(home);
-  if (resolved.status !== 'ok' || resolved.metadata.runtime_api !== 3) return { status: 'unavailable', reason: 'mc_learning_runtime_unavailable' };
+  if (resolved.status !== 'ok' || ![3, 4].includes(resolved.metadata.runtime_api)) return { status: 'unavailable', reason: 'mc_learning_runtime_unavailable' };
   const code = "import sys,runpy; root=sys.argv.pop(1); sys.path.insert(0,root); runpy.run_module('morecoffee.adaptive',run_name='__main__')";
   const { stdout } = await promisify(execFile)(resolved.python, ['-I', '-S', '-B', '-X', 'utf8', '-c', code, resolved.root, action],
     { windowsHide: true, timeout: 20000, maxBuffer: 65536, cwd: resolved.root });

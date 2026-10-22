@@ -124,7 +124,7 @@ test('incompatible signed candidates preserve the active consumer, status, learn
   assert.equal(before.result.model_sha256, symbolSha); // The real consumer still uses the operator's model.
   const cases = [
     ['release schema', () => {}, m => { m.schema = 'mc.runtime.release.v2'; }],
-    ['runtime API', b => { b.runtime_api = 4; }],
+    ['runtime API', b => { b.runtime_api = 5; }],
     ['bundle schema', b => { b.schema = 'mc.runtime.bundle.v2'; }],
     ['invalid channel semver', b => { b.channels.patch_quality.version = '0.3.x'; b.channels.patch_quality.tag = 'channel/patch_quality/v0.3.x'; }],
     ['channel tag', b => { b.channels.patch_quality.tag = `channel/patch_quality/v${bump(b.channels.patch_quality.version)}`; }],

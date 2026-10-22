@@ -1,6 +1,7 @@
 /** Bounded, literal archive lookup. Raw reads remain available for explicit retrieval. */
 import { lines, readOutput } from "./runner.js";
 import { conditionalRead, commitRead } from "./conditional.js";
+import { observeComparison } from "../mc-runtime/comparison.js";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -126,12 +127,19 @@ export function readPath(pathArg, options = {}) {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(data);
     if (text.includes("\0")) throw new Error("binary file (NUL byte); use a binary-aware tool");
     const source = lines(text);
+    const observed = result => {
+        if (!/(?:^|[\\/])(?:\.env(?:\..*)?|auth\.json|credentials(?:\.[^\\/]+)?|\.npmrc|\.pypirc|\.ssh|\.aws|model-access)(?:[\\/]|$)/i.test(full))
+            void observeComparison({ task: 'document_suitability', items: [{ id: full.length <= 128 ? full : 'read-document',
+                text: result, protected: false, constraint_status: 'unknown' }] },
+                { sessionId: options.sessionId, cwd: options.cwd, env: options.comparisonEnv });
+        return result;
+    };
     if (options.find !== undefined) {
         const search = searchOptions(options);
         const hits = [];
         for (let i = search.start - 1; i < source.length; i++) if (source[i].includes(options.find)) hits.push(i);
-        return boundedSearch([{ name: full, source, hits }],
-            { ...search, header: `[grafly read ${full}; literal search; start=${search.start}; context=${search.context}]\n` });
+        return observed(boundedSearch([{ name: full, source, hits }],
+            { ...search, header: `[grafly read ${full}; literal search; start=${search.start}; context=${search.context}]\n` }));
     }
     // Complete lines only — a single line over budget is an explicit refusal,
     // never a silent truncation. The header counts toward maxBytes, same as
@@ -164,7 +172,7 @@ export function readPath(pathArg, options = {}) {
     const result = header(shown.length, bytes) + shown.join("");
     if (Buffer.byteLength(result) > maxBytes) throw new Error("file metadata exceeds the byte budget; raise --max-bytes");
     commitRead(cond);
-    return result;
+    return observed(result);
 }
 
 /** Parse a shell read invocation into {path, opts} for readPath, or null when
