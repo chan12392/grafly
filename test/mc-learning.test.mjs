@@ -1,0 +1,113 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { FILES_V3, sha256, syncRuntime, resolveRuntime, smokeTest } from '../dist/mc-runtime/runtime.js';
+import { runLearning } from '../dist/mc-runtime/cli.js';
+import { collectJudgment } from '../dist/mc-runtime/feedback.js';
+import { recordLabel } from '../dist/circuit/feedback.js';
+import { logCircuit } from '../dist/graph/traverse-cli.js';
+import { FEATURE_KEYS } from '../dist/circuit/mc-channel.js';
+
+function configured(t, real = false) {
+    const root = mkdtempSync(join(tmpdir(), 'grafly-mc-learning-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const keys = generateKeyPairSync('ed25519');
+    const config = { url: 'https://release.invalid/mc-releases', token: 'x'.repeat(64), publicKey: keys.publicKey.export({ type: 'spki', format: 'pem' }),
+        python: real ? process.env.GRAFLY_TEST_PYTHON : process.execPath, minimumVersion: '0.1.0' };
+    writeFileSync(join(root, 'config.json'), JSON.stringify(config));
+    const files = Object.fromEntries(FILES_V3.map(name => {
+        const bytes = real ? readFileSync(join(process.env.GRAFLY_TEST_MC_SOURCE, name)) : Buffer.from('# verified fixture\n');
+        return [name, { data: bytes.toString('base64'), sha256: sha256(bytes) }];
+    }));
+    const channels = Object.fromEntries(['tool_output', 'symbol_disambiguation', 'patch_quality'].map(name => [name, { version: '0.2.0', tag: `channel/${name}/v0.2.0` }]));
+    const bundle = { schema: 'mc.runtime.bundle.v1', version: '0.3.1', source: 'a'.repeat(40), runtime_api: 3, python_min: '3.11',
+        provided_channels: ['tool_output', 'symbol_disambiguation', 'patch_quality'], channels, files };
+    const bytes = Buffer.from(JSON.stringify(bundle));
+    const metadata = { schema: 'mc.runtime.release.v1', version: bundle.version, source: bundle.source, runtime_api: 3, python_min: '3.11',
+        sequence: 4, provided_channels: bundle.provided_channels, channels, bytes: bytes.length, sha256: sha256(bytes) };
+    const payload = Buffer.from(JSON.stringify(metadata));
+    const envelope = { payload: payload.toString('base64'), signature: sign(null, payload, keys.privateKey).toString('base64') };
+    const transport = async url => new Response(url.endsWith('/v1/stable') ? JSON.stringify(envelope) : bytes);
+    return { root, config, transport };
+}
+
+function observation(root) {
+    return { type: 'judge', ts: new Date().toISOString(), root, query: 'private query never exported',
+        verdict: 'confident', top1: 'private/a.js#run', scores: [{ id: 'private/a.js#run', score: 2 }, { id: 'private/b.js#run', score: 1 }],
+        features: ['private/a.js#run', 'private/b.js#run'].map((id, i) => ({ id, ...Object.fromEntries(FEATURE_KEYS.map(k => [k, k === 'exact_name' ? 1 - i : 0])) })) };
+}
+
+test('API3 resolver verifies bytes, ignores MC_ROOT, exposes no credentials, and writes no state', async t => {
+    const f = configured(t);
+    await syncRuntime(f.root, { transport: f.transport, smoke() {} });
+    const before = readdirSync(f.root).sort();
+    const active = readFileSync(join(f.root, 'active.json'), 'utf8');
+    const result = resolveRuntime(f.root);
+    assert.equal(result.status, 'ok'); assert.equal(result.metadata.runtime_api, 3);
+    assert.equal(result.metadata.channels.patch_quality.version, '0.2.0');
+    assert.ok(!JSON.stringify(result).includes(f.config.token));
+    assert.ok(!JSON.stringify(result).includes('PUBLIC KEY'));
+    assert.deepEqual(readdirSync(f.root).sort(), before);
+    assert.equal(readFileSync(join(f.root, 'active.json'), 'utf8'), active);
+    const cli = new URL('../dist/mc-runtime/cli.js', import.meta.url);
+    const child = spawnSync(process.execPath, [fileURLToPath(cli), 'resolve'],
+        { env: { ...process.env, GRAFLY_MC_RUNTIME_HOME: f.root, MC_ROOT: '/untrusted/development' }, encoding: 'utf8', windowsHide: true });
+    assert.equal(child.status, 0, child.stderr);
+    assert.equal(JSON.parse(child.stdout).root, result.root);
+    writeFileSync(join(result.root, 'morecoffee/adaptive.py'), 'tampered');
+    assert.deepEqual(resolveRuntime(f.root), { schema: 'grafly.mc-runtime.resolution.v1', status: 'error', error: 'mc_managed_unavailable' });
+});
+
+test('unconfigured resolver gives a stable error without creating files', t => {
+    const root = mkdtempSync(join(tmpdir(), 'grafly-mc-none-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    assert.equal(resolveRuntime(root).error, 'mc_unconfigured');
+    assert.deepEqual(readdirSync(root), []);
+});
+
+test('collection preserves observations, exports only explicit labels, and excludes raw private text', t => {
+    const home = mkdtempSync(join(tmpdir(), 'grafly-feedback-'));
+    t.after(() => rmSync(home, { recursive: true, force: true }));
+    const env = { MC_LEARNING_HOME: home }, judgment = observation(home);
+    assert.equal(collectJudgment(judgment, null, env), false);
+    writeFileSync(join(home, 'config.json'), JSON.stringify({ schema: 'mc.learning.config.v1', enabled: true }));
+    assert.equal(collectJudgment(judgment, null, env), true);
+    assert.equal(collectJudgment(judgment, { source: 'navigation', expected: judgment.top1, evidence: 'not a label' }, env), false);
+    const explicit = { source: 'explicit', expected: judgment.top1, evidence: 'verified private source receipt' };
+    assert.equal(collectJudgment(judgment, explicit, env), true);
+    const rows = readdirSync(join(home, 'inbox')).map(file => {
+        const bytes = readFileSync(join(home, 'inbox', file));
+        assert.equal(sha256(bytes) + '.json', file);
+        assert.ok(!bytes.includes(Buffer.from('private')));
+        assert.ok(!bytes.includes(Buffer.from(home)));
+        return JSON.parse(bytes);
+    });
+    assert.equal(rows.length, 2); assert.equal(rows.filter(r => r.outcome === null).length, 1);
+    assert.equal(rows.find(r => r.outcome)?.outcome.method, 'explicit_review');
+});
+
+test('actual signed API3 package connects Grafly feedback to the MC database and bounded trainer',
+    { skip: !process.env.GRAFLY_TEST_MC_SOURCE || !process.env.GRAFLY_TEST_PYTHON }, async t => {
+    const f = configured(t, true);
+    const home = join(f.root, 'learning'); mkdirSync(home);
+    const previous = process.env.MC_LEARNING_HOME;
+    process.env.MC_LEARNING_HOME = home;
+    t.after(() => { if (previous === undefined) delete process.env.MC_LEARNING_HOME; else process.env.MC_LEARNING_HOME = previous; });
+    await syncRuntime(f.root, { transport: f.transport, smoke: smokeTest });
+    await runLearning('configure', f.root);
+    const judgment = observation(f.root), log = join(f.root, 'circuit.jsonl');
+    const jid = logCircuit(log, judgment);
+    const first = await runLearning('cycle', f.root);
+    assert.equal(first.accepted, 1); assert.equal(first.observations, 1);
+    assert.equal(first.tasks.symbol_disambiguation.labeled, 0);
+    recordLabel(log, f.root, jid, judgment.top1, 'checked the exact declaration and caller');
+    const second = await runLearning('cycle', f.root);
+    assert.equal(second.observations, 1); assert.equal(second.tasks.symbol_disambiguation.labeled, 1);
+    const status = await runLearning('status', f.root);
+    assert.equal(status.enabled, true); assert.equal(status.models.symbol_disambiguation, null);
+});

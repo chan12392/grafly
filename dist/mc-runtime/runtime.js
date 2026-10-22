@@ -16,8 +16,9 @@ export const FILES = [
 ].sort();
 export const FILES_V2 = [...FILES, 'morecoffee/channels/builtin/symbol_disambiguation.py',
   'morecoffee/channels/portable/symbol_disambiguation.mjs', 'morecoffee/channels/portable/symbol_disambiguation.json'].sort();
-const provided = api => api === 1 ? ['tool_output'] : ['tool_output', 'symbol_disambiguation'];
-const filesFor = api => api === 1 ? FILES : FILES_V2;
+export const FILES_V3 = [...FILES_V2, 'morecoffee/channels/channel_host.py', 'morecoffee/channels/builtin/patch_quality.py', 'morecoffee/adaptive.py'].sort();
+const provided = api => api === 1 ? ['tool_output'] : api === 2 ? ['tool_output', 'symbol_disambiguation'] : ['tool_output', 'symbol_disambiguation', 'patch_quality'];
+const filesFor = api => api === 1 ? FILES : api === 2 ? FILES_V2 : FILES_V3;
 export const sha256 = data => createHash('sha256').update(data).digest('hex');
 export const runtimeHome = (env = process.env) => resolve(env.GRAFLY_MC_RUNTIME_HOME || join(homedir(), '.grafly', 'mc-runtime'));
 const fail = code => { throw new Error(code); };
@@ -57,7 +58,7 @@ export function verifyEnvelope(envelope, config) {
   if (!verify(null, bytes, config.publicKey, Buffer.from(envelope.signature, 'base64'))) fail('mc_signature');
   const m = JSON.parse(bytes);
   if (m.schema !== 'mc.runtime.release.v1' || !stableVersion(m.version)
-      || compareVersion(m.version, config.minimumVersion) < 0 || ![1, 2].includes(m.runtime_api) || m.python_min !== '3.11'
+      || compareVersion(m.version, config.minimumVersion) < 0 || ![1, 2, 3].includes(m.runtime_api) || m.python_min !== '3.11'
       || !/^[a-f0-9]{40}$/.test(m.source) || !/^[a-f0-9]{64}$/.test(m.sha256)
       || !Number.isSafeInteger(m.sequence) || m.sequence < 1
       || !Number.isSafeInteger(m.bytes) || m.bytes < 1 || m.bytes > MAX_BYTES
@@ -68,7 +69,7 @@ export function verifyBundle(bytes, metadata) {
   if (bytes.length !== metadata.bytes || bytes.length > MAX_BYTES || sha256(bytes) !== metadata.sha256) fail('mc_bundle_hash');
   const b = JSON.parse(bytes);
   if (b.schema !== 'mc.runtime.bundle.v1' || b.version !== metadata.version || b.source !== metadata.source
-      || ![1, 2].includes(b.runtime_api) || b.runtime_api !== metadata.runtime_api || b.python_min !== metadata.python_min
+      || ![1, 2, 3].includes(b.runtime_api) || b.runtime_api !== metadata.runtime_api || b.python_min !== metadata.python_min
       || JSON.stringify(b.channels) !== JSON.stringify(metadata.channels)
       || JSON.stringify(b.provided_channels) !== JSON.stringify(provided(b.runtime_api))
       || JSON.stringify(Object.keys(b.files ?? {}).sort()) !== JSON.stringify(filesFor(b.runtime_api))) fail('mc_bundle_contract');
@@ -82,7 +83,7 @@ export function verifyBundle(bytes, metadata) {
 }
 function verifyTree(root, bundle) {
   const expected = new Set([...filesFor(bundle.runtime_api), 'bundle.json']);
-  const directories = new Set(['morecoffee', 'morecoffee/channels', 'morecoffee/channels/builtin', ...(bundle.runtime_api === 2 ? ['morecoffee/channels/portable'] : [])]);
+  const directories = new Set(['morecoffee', 'morecoffee/channels', 'morecoffee/channels/builtin', ...(bundle.runtime_api >= 2 ? ['morecoffee/channels/portable'] : [])]);
   const walk = (dir, prefix = '') => {
     if (lstatSync(dir).isSymbolicLink()) fail('mc_symlink');
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -120,6 +121,14 @@ export function pinRuntime(env = process.env) {
     validatePinned(pinned);
     return pinned;
   } catch { return { error: 'mc_managed_unavailable' }; }
+}
+/** Managed-only read, ignoring development overrides and never contacting the server. */
+export function resolveRuntime(home = runtimeHome()) {
+  const pinned = pinRuntime({ GRAFLY_MC_RUNTIME_HOME: home });
+  const schema = 'grafly.mc-runtime.resolution.v1';
+  if (!pinned || pinned.error) return { schema, status: 'error', error: pinned ? 'mc_managed_unavailable' : 'mc_unconfigured' };
+  const metadata = Object.fromEntries(['version', 'source', 'sequence', 'sha256', 'runtime_api', 'provided_channels', 'channels'].map(k => [k, pinned.metadata[k]]));
+  return { schema, status: 'ok', root: pinned.root, python: pinned.python, metadata };
 }
 export function atomicWrite(path, data) {
   const temp = path + '.' + randomUUID() + '.tmp';
@@ -178,6 +187,16 @@ export function smokeTest(root, python) {
       "import sys; sys.path.insert(0,sys.argv[1]); from morecoffee.channels.builtin.symbol_disambiguation import rank_features; assert rank_features([])['verdict']=='abstain'", root],
       { encoding: 'utf8', timeout: 10000, windowsHide: true, cwd: root });
     if (pyCheck.status !== 0) fail('mc_smoke_symbol_python');
+  }
+  if (existsSync(join(root, 'morecoffee/channels/builtin/patch_quality.py'))) {
+    const check = spawnSync(python, ['-I', '-S', '-B', '-X', 'utf8', '-c',
+      "import sys,runpy; sys.path.insert(0,sys.argv[1]); runpy.run_module('morecoffee.channels.channel_host',run_name='__main__')", root], {
+      input: JSON.stringify({ schema_version: 'mc.channel.v1', request_id: 'smoke', channel_id: 'patch_quality', operation: 'judge',
+        payload: { goal: 'correctness', baseline_id: 'before', candidate_id: 'after', checks: [] } }) + '\n',
+      encoding: 'utf8', timeout: 10000, maxBuffer: MAX_BYTES, windowsHide: true, cwd: root });
+    if (check.status !== 0) fail('mc_smoke_quality_process');
+    const output = JSON.parse(check.stdout);
+    if (output.channel_id !== 'patch_quality' || output.channel_version !== '0.2.0' || output.status !== 'abstained') fail('mc_smoke_quality_contract');
   }
 }
 export async function syncRuntime(home = runtimeHome(), { transport = fetch, smoke = smokeTest } = {}) {

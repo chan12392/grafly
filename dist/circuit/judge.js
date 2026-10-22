@@ -10,15 +10,15 @@
  * Weights are SEED weights: magnitudes follow the measured feature
  * importances from the morecoffee relation_pair channel (same_file ~1.9,
  * structural-rank ~1.6, typed-path ~1.8), re-mapped onto graft's node
- * fields. They are not yet retrained on graft usage — collect real
- * disambiguation outcomes before trusting absolute values. Pure JS, no
- * model files, no network.
+ * fields. A locally evaluated feedback model may replace them on the next
+ * invocation. Scores remain uncalibrated; model metadata carries its hash.
+ * Pure JS, no network or external inference.
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, sep } from "node:path";
 import { stripOrdinals } from "../graph/traverse.js";
-import { rankFeatures, DEFAULT_WEIGHTS, FEATURE_KEYS as MC_FEATURE_KEYS, ARTIFACT } from "./mc-channel.js";
+import { rankFeatures, DEFAULT_WEIGHTS, FEATURE_KEYS as MC_FEATURE_KEYS, ARTIFACT, MODEL_SHA256 } from "./mc-channel.js";
 export { SYMBOL_CHANNEL } from './mc-channel.js';
 
 /** Feature keys the circuit produces — the converter (scripts/npz-to-weights.mjs)
@@ -194,6 +194,6 @@ export function judgeSymbols(graph, query, matches, ctx) {
         features: matchFeatures(graph, query, node, deg, ctx?.cwdTokens) }));
     const result = rankFeatures(candidates, { weights: W, abstainGap: ABSTAIN_GAP });
     // Retain Grafly's in-process Infinity convention; channel JSON uses null.
-    return { ...result, gap: result.gap ?? Number.POSITIVE_INFINITY,
+    return { ...result, model_sha256: process.env.GRAFLY_WEIGHTS ? null : MODEL_SHA256, gap: result.gap ?? Number.POSITIVE_INFINITY,
         ranked: result.ranked.map(({ id, ...candidate }) => candidate) };
 }

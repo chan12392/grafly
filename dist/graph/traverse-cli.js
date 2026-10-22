@@ -21,6 +21,7 @@ import { resolveSymbol } from "./traverse.js";
 import { WALK_RELATIONS } from "./relations.js";
 import { judgeSymbols, cwdContextTokens } from "../circuit/judge.js";
 import { appendCircuitRecord, jidFor, recordFollowup } from "../circuit/feedback.js";
+import { collectJudgment } from '../mc-runtime/feedback.js';
 import { escalateAmbiguous, escalationLines } from "../circuit/escalate.js";
 const ARROW = { in: "←", out: "→" };
 const DEFAULT_DEPTH = 1;
@@ -338,6 +339,7 @@ export function runCallersCommand(query, dir, opts) {
             top: opts.top ?? null, root,
             matchCount: matches.length, verdict: circuit.verdict, gap: circuit.gap,
             reason: circuit.reason, top1: circuit.top,
+            model_sha256: circuit.model_sha256,
             cwd: [...cwdTokens].join("/") || null,
             scores: circuit.scores,
             features: circuitFeatures,
@@ -469,6 +471,7 @@ export function judgeAndRank(graph, query, matches, ctx) {
             scoreUnit: "rank_score",
             confidence: null,
             top: judged.ranked[0].node.id,
+            model_sha256: judged.model_sha256,
             scores: judged.ranked.map((r) => ({ id: r.node.id, score: Number(r.score.toFixed(3)) })),
         },
         features: judged.ranked.slice(0, 50).map((r) => ({ id: r.node.id, ...r.features })),
@@ -526,5 +529,7 @@ export function logCircuit(logPath, record) {
     if (!logPath)
         return null;
     record.jid = jidFor(record);
-    return appendCircuitRecord(logPath, record) ? record.jid : null;
+    if (!appendCircuitRecord(logPath, record)) return null;
+    collectJudgment(record);
+    return record.jid;
 }

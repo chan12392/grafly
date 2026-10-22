@@ -1,9 +1,21 @@
 #!/usr/bin/env node
-import { readConfig, runtimeHome, syncRuntime, runtimeStatus, atomicWrite, acquireLock } from './runtime.js';
+import { readConfig, runtimeHome, syncRuntime, runtimeStatus, atomicWrite, acquireLock, resolveRuntime } from './runtime.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { startArchiveMaintenance } from '../tool-output/retention.js';
+
+export async function runLearning(action = 'cycle', home = runtimeHome()) {
+  if (!['cycle', 'status', 'configure'].includes(action)) throw new Error('mc_learning_action');
+  const resolved = resolveRuntime(home);
+  if (resolved.status !== 'ok' || resolved.metadata.runtime_api !== 3) return { status: 'unavailable', reason: 'mc_learning_runtime_unavailable' };
+  const code = "import sys,runpy; root=sys.argv.pop(1); sys.path.insert(0,root); runpy.run_module('morecoffee.adaptive',run_name='__main__')";
+  const { stdout } = await promisify(execFile)(resolved.python, ['-I', '-S', '-B', '-X', 'utf8', '-c', code, resolved.root, action],
+    { windowsHide: true, timeout: 20000, maxBuffer: 65536, cwd: resolved.root });
+  return JSON.parse(stdout);
+}
 
 export async function watchRuntime(home = runtimeHome()) {
   const unlock = acquireLock(home, 'watch.lock');
@@ -12,6 +24,18 @@ export async function watchRuntime(home = runtimeHome()) {
   if (!config) { unlock(); throw new Error('mc_not_configured'); }
   // Independent of the network connection; reap crashed/finished writers while idle.
   const stopMaintenance = startArchiveMaintenance();
+  let learningRunning = false;
+  const learning = async () => {
+    if (learningRunning) return;
+    learningRunning = true;
+    try {
+      const result = await runLearning('cycle', home);
+      atomicWrite(join(home, 'learning-watch-status.json'), JSON.stringify({ ...result, watcher_checked_at: new Date().toISOString() }));
+    } catch { atomicWrite(join(home, 'learning-watch-status.json'), JSON.stringify({ status: 'retrying', reason: 'mc_learning_cycle_failed', watcher_checked_at: new Date().toISOString() })); }
+    finally { learningRunning = false; }
+  };
+  const learningTimer = setInterval(() => void learning(), 60000);
+  void learning();
   const stop = new AbortController();
   const shutdown = () => stop.abort();
   process.once('SIGINT', shutdown); process.once('SIGTERM', shutdown);
@@ -53,6 +77,7 @@ export async function watchRuntime(home = runtimeHome()) {
       if (!stop.signal.aborted) await delay(5000 + Math.random() * 5000, undefined, { signal: stop.signal }).catch(() => {});
     }
   } finally {
+    clearInterval(learningTimer);
     stopMaintenance();
     process.off('SIGINT', shutdown); process.off('SIGTERM', shutdown); unlock();
   }
@@ -60,6 +85,16 @@ export async function watchRuntime(home = runtimeHome()) {
 
 export async function runtimeCLI(action = 'status') {
   if (action === 'watch') return watchRuntime();
+  if (action === 'resolve') {
+    const result = resolveRuntime();
+    console.log(JSON.stringify(result));
+    if (result.status !== 'ok') process.exitCode = 1;
+    return;
+  }
+  if (action.startsWith('learning-')) {
+    console.log(JSON.stringify(await runLearning(action.slice('learning-'.length))));
+    return;
+  }
   if (!['status', 'sync'].includes(action)) throw new Error('Use mc-runtime status|sync|watch');
   console.log(JSON.stringify(action === 'sync' ? await syncRuntime() : runtimeStatus(), null, 2));
 }
