@@ -24,6 +24,10 @@ export const sha256 = data => createHash('sha256').update(data).digest('hex');
 export const runtimeHome = (env = process.env) => resolve(env.GRAFLY_MC_RUNTIME_HOME || join(homedir(), '.grafly', 'mc-runtime'));
 const fail = code => { throw new Error(code); };
 const stableVersion = value => typeof value === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value) && value.length < 40;
+const validChannels = (channels, api) => channels && typeof channels === 'object' && !Array.isArray(channels)
+  && provided(api).every(id => Object.hasOwn(channels, id))
+  && Object.entries(channels).every(([id, channel]) => /^[a-z][a-z0-9_]{0,63}$/.test(id)
+    && stableVersion(channel?.version) && channel.tag === `channel/${id}/v${channel.version}`);
 export function compareVersion(a, b) {
   for (let i = 0; i < 3; i++) {
     const x = BigInt(a.split('.')[i]), y = BigInt(b.split('.')[i]);
@@ -63,7 +67,8 @@ export function verifyEnvelope(envelope, config) {
       || !/^[a-f0-9]{40}$/.test(m.source) || !/^[a-f0-9]{64}$/.test(m.sha256)
       || !Number.isSafeInteger(m.sequence) || m.sequence < 1
       || !Number.isSafeInteger(m.bytes) || m.bytes < 1 || m.bytes > MAX_BYTES
-      || JSON.stringify(m.provided_channels) !== JSON.stringify(provided(m.runtime_api))) fail('mc_release_contract');
+       || JSON.stringify(m.provided_channels) !== JSON.stringify(provided(m.runtime_api))
+       || !validChannels(m.channels, m.runtime_api)) fail('mc_release_contract');
   return m;
 }
 export function verifyBundle(bytes, metadata) {
@@ -153,38 +158,124 @@ export async function download(config, path, max, transport = fetch) {
   return Buffer.concat(chunks);
 }
 export function smokeTest(root, python) {
-  const expectedVersion = JSON.parse(boundedRead(join(root, 'bundle.json'))).channels?.patch_quality?.version;
+  const bundle = JSON.parse(boundedRead(join(root, 'bundle.json')));
+  if (![1, 2, 3].includes(bundle.runtime_api) || !validChannels(bundle.channels, bundle.runtime_api)) fail('mc_smoke_contract');
+  // Probe seed contracts, independently of this user's active learned models.
+  // This nonexistent, private stage path is only read; no learning state is created.
+  const env = { ...process.env, MC_LEARNING_HOME: join(root, '.smoke-learning-disabled') };
+  const canonical = value => value && typeof value === 'object'
+    ? Array.isArray(value) ? '[' + value.map(canonical).join(',') + ']'
+      : '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + canonical(value[k])).join(',') + '}'
+    : JSON.stringify(value);
+  const envelope = (output, id, requestId, payload, status) => {
+    if (output?.schema_version !== 'mc.channel.v1' || output.request_id !== requestId
+        || output.channel_id !== id || output.channel_version !== bundle.channels[id].version
+        || output.operation !== 'judge' || output.status !== status
+        || !['deterministic', 'experimental_learned'].includes(output.engine_mode)
+        || output.confidence !== null || output.learned_parameter_count !== 0
+        || !Array.isArray(output.scores) || !Array.isArray(output.evidence)
+        || !['reason_codes', 'limitations'].every(k => Array.isArray(output[k]) && output[k].every(v => typeof v === 'string'))
+        || output.provenance?.channel_version !== output.channel_version
+        || output.provenance.evidence_sha !== sha256(canonical(payload))
+        || output.safety?.safety_verdict !== 'unknown' || output.safety.safe_to_remove_claims !== false)
+      fail(id === 'patch_quality' ? 'mc_smoke_quality_contract' : 'mc_smoke_contract');
+  };
   const code = "import sys,runpy; assert sys.version_info >= (3,11); sys.path.insert(0,sys.argv[1]); runpy.run_module('morecoffee.channels.tool_output_stdio',run_name='__main__')";
   const input = { kind: 'search', complete: true, exit_code: 0,
     stdout: Array.from({ length: 250 }, (_, i) => `file${i}.py:${i + 1}:match\n`).join(''), stderr: '' };
   const result = spawnSync(python, ['-I', '-S', '-B', '-X', 'utf8', '-c', code, root], {
-    input: JSON.stringify(input), encoding: 'utf8', timeout: 10000, maxBuffer: MAX_BYTES, windowsHide: true, cwd: root,
+    input: JSON.stringify(input), encoding: 'utf8', timeout: 10000, maxBuffer: MAX_BYTES, windowsHide: true, cwd: root, env,
   });
   if (result.status !== 0) fail('mc_smoke_process');
   const output = JSON.parse(result.stdout);
-  if (output.status !== 'ok' || output.channel_id !== 'tool_output' || output.decision?.verdict !== 'reduced'
-      || JSON.stringify(output.decision.streams?.stdout?.keep) !== '[[0,200]]') fail('mc_smoke_contract');
+  envelope(output, 'tool_output', 'grafly-tool-output', input, 'ok');
+  const decision = output.decision;
+  if (decision?.verdict !== 'reduced' || decision.input_bytes !== Buffer.byteLength(input.stdout)) fail('mc_smoke_contract');
+  let outputBytes = 0;
+  for (const name of ['stdout', 'stderr']) {
+    const stream = decision.streams?.[name], source = input[name].match(/[^\n]*\n|[^\n]+$/g) ?? [];
+    let text = '', end = 0;
+    if (typeof stream?.text === 'string') text = stream.text;
+    else {
+      if (!Array.isArray(stream?.keep)) fail('mc_smoke_contract');
+      for (const range of stream.keep) {
+        if (!Array.isArray(range) || range.length !== 2) fail('mc_smoke_contract');
+        const [a, b] = range;
+        if (!Number.isInteger(a) || !Number.isInteger(b) || a < end || b <= a || b > source.length) fail('mc_smoke_contract');
+        text += source.slice(a, b).join(''); end = b;
+      }
+    }
+    if (Buffer.byteLength(text) !== stream.output_bytes) fail('mc_smoke_contract');
+    outputBytes += stream.output_bytes;
+  }
+  if (outputBytes !== decision.output_bytes || outputBytes >= decision.input_bytes || outputBytes <= 0) fail('mc_smoke_contract');
   const portable = join(root, 'morecoffee/channels/portable/symbol_disambiguation.mjs');
   if (existsSync(portable)) {
-    const check = spawnSync(process.execPath, ['--input-type=module', '-e',
-      'const m=await import(process.argv[1]); if(m.ARTIFACT.channel_id!=="symbol_disambiguation" || m.rankFeatures([]).verdict!=="abstain") process.exit(1);', pathToFileURL(portable).href],
-      { encoding: 'utf8', timeout: 10000, windowsHide: true, cwd: root });
+    const check = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      import assert from 'node:assert/strict';
+      const m = await import(process.argv[1]);
+      assert.equal(m.ARTIFACT?.schema, 'mc.symbol_disambiguation.v1');
+      assert.equal(m.ARTIFACT.channel_id, 'symbol_disambiguation');
+      assert.equal(m.ARTIFACT.channel_version, process.argv[2]);
+      assert.equal(m.MODEL_SHA256 ?? null, null);
+      const keys = ['qualified_tail','exact_name','path_overlap','degree','kind_hint','vendored','test_path','cwd_affinity','bias'];
+      assert.deepEqual([...m.FEATURE_KEYS].sort(), [...keys].sort());
+      assert.ok(keys.every(k => Number.isFinite(m.DEFAULT_WEIGHTS[k])));
+      const features = Object.fromEntries(keys.map(k => [k, k === 'bias' || k === 'exact_name' ? 1 : 0]));
+      const candidate = { id: 'smoke-symbol', node: { id: 'smoke-symbol' }, features };
+      for (const candidates of [[], [candidate]]) {
+        const result = m.rankFeatures(candidates);
+        assert.equal(result.verdict, candidates.length ? 'confident' : 'abstain');
+        assert.equal(result.gap, null);
+        assert.equal(typeof result.reason, 'string');
+        assert.equal(result.ranked.length, candidates.length);
+        if (candidates.length) {
+          assert.equal(result.ranked[0].id, candidate.id);
+          assert.equal(result.ranked[0].node.id, candidate.id);
+          assert.deepEqual(result.ranked[0].features, features);
+          assert.ok(Number.isFinite(result.ranked[0].score));
+        }
+      }`, pathToFileURL(portable).href, bundle.channels.symbol_disambiguation.version],
+       { encoding: 'utf8', timeout: 10000, windowsHide: true, cwd: root, env });
     if (check.status !== 0) fail('mc_smoke_symbol_js');
     const pyCheck = spawnSync(python, ['-I', '-S', '-B', '-c',
       "import sys; sys.path.insert(0,sys.argv[1]); from morecoffee.channels.builtin.symbol_disambiguation import rank_features; assert rank_features([])['verdict']=='abstain'", root],
-      { encoding: 'utf8', timeout: 10000, windowsHide: true, cwd: root });
+       { encoding: 'utf8', timeout: 10000, windowsHide: true, cwd: root, env });
     if (pyCheck.status !== 0) fail('mc_smoke_symbol_python');
   }
   if (existsSync(join(root, 'morecoffee/channels/builtin/patch_quality.py'))) {
+    const summary = (suite, failures = 0) => ({ complete: true, exit_code: failures ? 1 : 0,
+      tests: 1, failures, errors: 0, skipped: 0, suite_id: suite.repeat(64) });
+    const positive = { goal: 'correctness', baseline_id: 'smoke-before', candidate_id: 'smoke-after', checks: [
+      { id: 'regression', purpose: 'regression', baseline: summary('a', 1), candidate: summary('a') },
+      { id: 'preservation', purpose: 'preservation', baseline: summary('b'), candidate: summary('b') }],
+      review: { baseline_id: 'smoke-before', candidate_id: 'smoke-after', verdict: 'approved', requirements_preserved: true, scope_preserved: true } };
+    const incomplete = structuredClone(positive);
+    incomplete.checks[1].candidate.complete = false;
+    const stale = structuredClone(positive), rejected = structuredClone(positive), missingReview = structuredClone(positive);
+    stale.review.baseline_id = 'different-snapshot'; rejected.review.verdict = 'rejected';
+    delete missingReview.review;
+    const payloads = [{ goal: 'correctness', baseline_id: 'smoke-before', candidate_id: 'smoke-after', checks: [] }, positive, incomplete, stale, rejected, missingReview];
+    const verdicts = [null, 'improved', null, null, 'not_improved', null];
+    const requests = payloads.map((payload, i) => ({ schema_version: 'mc.channel.v1', request_id: `smoke-quality-${i}`,
+      channel_id: 'patch_quality', operation: 'judge', payload }));
     const check = spawnSync(python, ['-I', '-S', '-B', '-X', 'utf8', '-c',
       "import sys,runpy; sys.path.insert(0,sys.argv[1]); runpy.run_module('morecoffee.channels.channel_host',run_name='__main__')", root], {
-      input: JSON.stringify({ schema_version: 'mc.channel.v1', request_id: 'smoke', channel_id: 'patch_quality', operation: 'judge',
-        payload: { goal: 'correctness', baseline_id: 'before', candidate_id: 'after', checks: [] } }) + '\n',
-      encoding: 'utf8', timeout: 10000, maxBuffer: MAX_BYTES, windowsHide: true, cwd: root });
+       input: requests.map(r => JSON.stringify(r) + '\n').join(''),
+       encoding: 'utf8', timeout: 10000, maxBuffer: MAX_BYTES, windowsHide: true, cwd: root, env });
     if (check.status !== 0) fail('mc_smoke_quality_process');
-    const output = JSON.parse(check.stdout);
-    if (!['0.2.0', '0.2.1'].includes(expectedVersion) || output.channel_id !== 'patch_quality'
-        || output.channel_version !== expectedVersion || output.status !== 'abstained') fail('mc_smoke_quality_contract');
+    const lines = check.stdout.trim().split('\n');
+    if (lines.length !== requests.length) fail('mc_smoke_quality_contract');
+    for (let i = 0; i < requests.length; i++) {
+      const output = JSON.parse(lines[i]);
+      envelope(output, 'patch_quality', requests[i].request_id, payloads[i], verdicts[i] ? 'ok' : 'abstained');
+      if (!verdicts[i]) {
+        if (output.decision !== null) fail('mc_smoke_quality_contract');
+      } else if (output.decision?.verdict !== verdicts[i] || output.decision.goal !== positive.goal
+          || output.decision.baseline_id !== positive.baseline_id || output.decision.candidate_id !== positive.candidate_id
+          || !Array.isArray(output.decision.improvements) || (i === 1 && !output.decision.improvements.length)
+          || !output.decision.improvements.every(v => typeof v === 'string') || !output.evidence.length) fail('mc_smoke_quality_contract');
+    }
   }
 }
 export async function syncRuntime(home = runtimeHome(), { transport = fetch, smoke = smokeTest } = {}) {

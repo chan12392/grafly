@@ -132,6 +132,7 @@ test('actual signed API3 package connects Grafly feedback to the MC database and
     const selected = resolveRuntime(f.root);
     const path = join(selected.root, 'bundle.json'), bundle = JSON.parse(readFileSync(path));
     bundle.channels.patch_quality.version = bundle.channels.patch_quality.version === '0.2.0' ? '0.2.1' : '0.2.0';
+     bundle.channels.patch_quality.tag = `channel/patch_quality/v${bundle.channels.patch_quality.version}`;
     writeFileSync(path, JSON.stringify(bundle));
     assert.throws(() => smokeTest(selected.root, f.config.python), /mc_smoke_quality_contract/);
 });
