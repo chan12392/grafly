@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { contextDirFor } from '../dist/context/node-file.js';
+import { isExplicitLabel, jidFor } from '../dist/circuit/feedback.js';
 /**
  * circuit-log.jsonl analyzer — mine the judgment log for ranking problems
  * and feedback labels. Usage:
@@ -13,7 +14,7 @@ import { contextDirFor } from '../dist/context/node-file.js';
  *   - confident top-1 quality flags (vendored/test top-1s = suspect wins)
  *   - abstain gap histogram (near-threshold calls = weight-sensitive)
  *   - feature usage (cwd_affinity dead when every call runs from repo root)
- *   - adopt/reject feedback events — the measured top-1 accuracy
+ *   - explicit evidence-backed reviews; legacy adoption is not correctness
  */
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -25,9 +26,9 @@ for (let i = 0; i < args.length; i++) {
     if (args[i] === "--dir") {
         const repo = args[++i];
         const log = join(contextDirFor(repo), "circuit-log.jsonl");
-        paths.push(log);
         if (existsSync(log + ".1"))
             paths.push(log + ".1"); // rotated generation — history is data too
+        paths.push(log);
     }
     else if (args[i] === "--query") queryFilter = args[++i];
     else paths.push(args[i]);
@@ -48,6 +49,7 @@ for (const p of paths) {
             continue;
         try {
             const r = JSON.parse(line);
+            if (!r || typeof r !== "object" || Array.isArray(r)) continue;
             r._src = p;
             records.push(r);
         }
@@ -58,6 +60,15 @@ const judges = records.filter((r) => r.type === "judge" || (!r.type && Array.isA
 const adopts = records.filter((r) => r.type === "adopt");
 const rejects = records.filter((r) => r.type === "reject");
 const scoped = queryFilter ? judges.filter((r) => r.query === queryFilter) : judges;
+const reviewed = new Map();
+let invalidLabels = 0;
+for (const label of records.filter(r => r.type === "label")) {
+    const judgment = judges.find(j => isExplicitLabel(label, j));
+    if (!judgment) { invalidLabels++; continue; }
+    const key = `${judgment.root}|${judgment.jid ?? jidFor(judgment)}`;
+    if (scoped.includes(judgment) && (!reviewed.has(key) || Date.parse(label.ts) >= Date.parse(reviewed.get(key).label.ts)))
+        reviewed.set(key, { label, judgment });
+}
 
 const pct = (n, d) => d ? `${(100 * n / d).toFixed(0)}%` : "—";
 const bucket = (g, edges) => edges.findIndex((e) => g < e);
@@ -108,14 +119,16 @@ if (separations.size)
 console.log(`abstain gaps: [0,.1)=${gaps[0]}  [.1,.3)=${gaps[1]}  [.3,.45)=${gaps[2]}  [.45,.5)=${gaps[3]}   (near-threshold [.3,.5) = ${gaps[2] + gaps[3]} — weight-sensitive)`);
 console.log(`top-1 flags: vendored=${top1Vendored} (${top1VendoredConf} confident)  test=${top1Test} (${top1TestConf} confident)   ctx: cwd set=${cwdUsed}/${scoped.length}  --top used=${topUsed}`);
 
-if (adopts.length || rejects.length) {
-    console.log(`\nfeedback: adopt=${adopts.length} reject=${rejects.length} → measured top-1 adoption ${pct(adopts.length, adopts.length + rejects.length)}`);
-    for (const r of rejects)
-        console.log(`  reject ${r.jid} query="${r.query}" picked=${r.picked ?? r.matched?.join(",")}`);
-}
-else {
-    console.log(`\nfeedback: none yet — adopt/reject events appear when a follow-up callers/trace narrows a judged candidate set`);
-}
+const reviews = [...reviewed.values()];
+const targets = reviews.filter(({ label }) => label.expected !== "abstain");
+const topMatches = targets.filter(({ label, judgment }) => label.expected === (judgment.top1 ?? judgment.scores?.[0]?.id)).length;
+const correctVerdicts = reviews.filter(({ label, judgment }) => label.expected === "abstain"
+    ? judgment.verdict === "abstain" : judgment.verdict === "confident" && label.expected === (judgment.top1 ?? judgment.scores?.[0]?.id)).length;
+console.log(`\nexplicit reviews: ${reviews.length} (latest per judgment; invalid/unmatched labels: ${invalidLabels})`);
+console.log(`reviewed verdict agreement: ${correctVerdicts}/${reviews.length} (${pct(correctVerdicts, reviews.length)})`);
+console.log(`reviewed top-1 target matches: ${topMatches}/${targets.length} (${pct(topMatches, targets.length)})`);
+console.log(`neutral navigation: ${records.filter(r => r.type === "narrow").length}; legacy adopt=${adopts.length} reject=${rejects.length} (not correctness labels)`);
+if (!reviews.length) console.log("No verified labels: use grafly feedback <jid> <candidate-id|abstain> --evidence <verification>.");
 
 console.log(`\nper query (n=${perQuery.size}):`);
 for (const [q, s] of [...perQuery.entries()].sort((a, b) => b[1].n - a[1].n)) {

@@ -34,7 +34,7 @@ export declare function judgeAndRank(graph: GraphV1, query: string, matches: Nod
 } | null;
 export declare function circuitVerdictLine(circuit: Pick<CircuitReport, "verdict" | "gap" | "reason" | "top">, matchCount: number): string;
 export declare function circuitLogPath(contextDir: string): string | null;
-export declare function logCircuit(logPath: string | null, record: Record<string, unknown>): void;
+export declare function logCircuit(logPath: string | null, record: Record<string, unknown>): string | null;
 /** Human report header for callers results from the shared traversal core. */
 export declare function headerOf(n: NodeV1): string;
 /** `showDepth` is set for multi-hop walks (depth > 1), matching the old
