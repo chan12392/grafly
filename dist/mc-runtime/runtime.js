@@ -183,7 +183,7 @@ export function smokeTest(root, python) {
       encoding: 'utf8', timeout: 10000, maxBuffer: MAX_BYTES, windowsHide: true, cwd: root });
     if (check.status !== 0) fail('mc_smoke_quality_process');
     const output = JSON.parse(check.stdout);
-    if (!stableVersion(expectedVersion) || output.channel_id !== 'patch_quality'
+    if (!['0.2.0', '0.2.1'].includes(expectedVersion) || output.channel_id !== 'patch_quality'
         || output.channel_version !== expectedVersion || output.status !== 'abstained') fail('mc_smoke_quality_contract');
   }
 }

@@ -16,34 +16,29 @@ import { executeCliRequest } from '../dist/search/cli-request.js';
 
 function configured(t, real = false, mutate = () => {}) {
     const root = mkdtempSync(join(tmpdir(), 'grafly-mc-learning-'));
-    const source = real ? resolve(process.env.GRAFLY_TEST_MC_SOURCE) : null;
     t.after(() => rmSync(root, { recursive: true, force: true }));
     const keys = generateKeyPairSync('ed25519');
     const config = { url: 'https://release.invalid/mc-releases', token: 'x'.repeat(64), publicKey: keys.publicKey.export({ type: 'spki', format: 'pem' }),
         python: real ? process.env.GRAFLY_TEST_PYTHON : process.execPath, minimumVersion: '0.1.0' };
     writeFileSync(join(root, 'config.json'), JSON.stringify(config));
     const files = Object.fromEntries(FILES_V3.map(name => {
-        const bytes = real ? readFileSync(join(source, name)) : Buffer.from('# verified fixture\n');
+        const bytes = Buffer.from('# verified fixture\n');
         return [name, { data: bytes.toString('base64'), sha256: sha256(bytes) }];
     }));
-    const providedChannels = ['tool_output', 'symbol_disambiguation', 'patch_quality'];
-    let versions = Object.fromEntries(providedChannels.map(name => [name, '0.2.0']));
+    const channels = Object.fromEntries(['tool_output', 'symbol_disambiguation', 'patch_quality'].map(name => [name, { version: '0.2.0', tag: `channel/${name}/v0.2.0` }]));
+    let bundle = { schema: 'mc.runtime.bundle.v1', version: '0.3.1', source: 'a'.repeat(40), runtime_api: 3, python_min: '3.11',
+        provided_channels: ['tool_output', 'symbol_disambiguation', 'patch_quality'], channels, files };
     if (real) {
-        // Release expectations come from the trusted source catalog, independently of smoke output.
-        const catalog = spawnSync(config.python, ['-I', '-S', '-B', '-X', 'utf8', '-c',
-            'import sys,json; sys.path.insert(0,sys.argv[1]); from morecoffee.channels.registry import require; print(json.dumps({name: require(name).version for name in sys.argv[2:]}))',
-            source, ...providedChannels],
-            { encoding: 'utf8', timeout: 10000, windowsHide: true, cwd: source });
-        assert.equal(catalog.status, 0, catalog.stderr || catalog.error?.message);
-        versions = JSON.parse(catalog.stdout);
+        const script = "import json,sys;from pathlib import Path;sys.path[:0]=[sys.argv[1],str(Path(sys.argv[1])/'scripts')];from morecoffee import __version__;from build_channel_release import build;print(json.dumps(build(__version__,False)))";
+        const built = spawnSync(config.python, ['-I', '-S', '-B', '-X', 'utf8', '-c', script, resolve(process.env.GRAFLY_TEST_MC_SOURCE)],
+            { encoding: 'utf8', windowsHide: true, timeout: 10000, maxBuffer: 512 * 1024 });
+        assert.equal(built.status, 0, built.stderr || built.error?.message);
+        bundle = JSON.parse(built.stdout);
     }
-    const channels = Object.fromEntries(providedChannels.map(name => [name, { version: versions[name], tag: `channel/${name}/v${versions[name]}` }]));
-    const bundle = { schema: 'mc.runtime.bundle.v1', version: '0.3.1', source: 'a'.repeat(40), runtime_api: 3, python_min: '3.11',
-        provided_channels: providedChannels, channels, files };
     mutate(bundle);
     const bytes = Buffer.from(JSON.stringify(bundle));
     const metadata = { schema: 'mc.runtime.release.v1', version: bundle.version, source: bundle.source, runtime_api: 3, python_min: '3.11',
-        sequence: 4, provided_channels: bundle.provided_channels, channels, bytes: bytes.length, sha256: sha256(bytes) };
+        sequence: 4, provided_channels: bundle.provided_channels, channels: bundle.channels, bytes: bytes.length, sha256: sha256(bytes) };
     const payload = Buffer.from(JSON.stringify(metadata));
     const envelope = { payload: payload.toString('base64'), signature: sign(null, payload, keys.privateKey).toString('base64') };
     const transport = async url => new Response(url.endsWith('/v1/stable') ? JSON.stringify(envelope) : bytes);
@@ -108,7 +103,7 @@ test('collection preserves observations, exports only explicit labels, and exclu
 test('actual signed API3 package rejects channel versions inconsistent with signed metadata',
     { skip: !process.env.GRAFLY_TEST_MC_SOURCE || !process.env.GRAFLY_TEST_PYTHON }, async t => {
     const f = configured(t, true, bundle => {
-        const version = bundle.channels.patch_quality.version === '0.0.0' ? '0.0.1' : '0.0.0';
+        const version = bundle.channels.patch_quality.version === '0.2.0' ? '0.2.1' : '0.2.0';
         bundle.channels.patch_quality = { version, tag: `channel/patch_quality/v${version}` };
     });
     await assert.rejects(syncRuntime(f.root, { transport: f.transport, smoke: smokeTest }), /mc_smoke_quality_contract/);
@@ -134,6 +129,11 @@ test('actual signed API3 package connects Grafly feedback to the MC database and
     assert.equal(second.observations, 1); assert.equal(second.tasks.symbol_disambiguation.labeled, 1);
     const status = await runLearning('status', f.root);
     assert.equal(status.enabled, true); assert.equal(status.models.symbol_disambiguation, null);
+    const selected = resolveRuntime(f.root);
+    const path = join(selected.root, 'bundle.json'), bundle = JSON.parse(readFileSync(path));
+    bundle.channels.patch_quality.version = bundle.channels.patch_quality.version === '0.2.0' ? '0.2.1' : '0.2.0';
+    writeFileSync(path, JSON.stringify(bundle));
+    assert.throws(() => smokeTest(selected.root, f.config.python), /mc_smoke_quality_contract/);
 });
 
 test('resident callers use the model activated since the previous request',
