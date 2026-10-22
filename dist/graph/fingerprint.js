@@ -25,6 +25,7 @@ import { readSourceFile } from "../util/source.js";
 import { readJson, writeJsonAtomic } from "../util/state.js";
 import { extractorStamp, pruneSidecars } from "./extract-cache.js";
 import { listSourceStats } from "./source-files.js";
+import { probeMaterialDrift } from "../materials/index.js";
 export const FINGERPRINT_PREFIX = "fingerprint";
 const FINGERPRINT_VERSION = 1;
 /** The identity this graft's prints are filed under. Unlike the extract memo, a
@@ -117,6 +118,9 @@ export function probeDrift(root, outDir) {
     const drift = { changed: [], added: [], removed: [] };
     const seen = new Set();
     const onlyDirs = fp.onlyDirs && fp.onlyDirs.length > 0 ? new Set(fp.onlyDirs) : undefined;
+    const materials = probeMaterialDrift(root, outDir, onlyDirs, alwaysHash());
+    if (!materials) return null;
+    for (const key of ["added", "changed", "removed"]) drift[key].push(...materials[key]);
     for (const f of listSourceStats(root, outDir, undefined, onlyDirs, fp.extensions)) {
         seen.add(f.rel);
         const print = fp.files[f.rel];

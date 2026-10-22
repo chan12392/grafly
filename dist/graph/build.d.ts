@@ -14,6 +14,8 @@ export declare function tierOf(path: string): {
 };
 export declare function warmGrammarsFor(paths: string[]): Promise<void>;
 export interface GraphBuildOptions {
+    /** Explicit vision pass for images and image-only PDF pages. Never used by refresh. */
+    vision?: import("../ai/llm/types.js").ChatModel;
     /** Explicit extensions; omitted or empty indexes every supported extension. */
     extensions?: string[];
     /** Override the output dir (default: `<root>/.context`). */
@@ -47,6 +49,7 @@ export interface GraphBuildOptions {
     }) => void;
 }
 export interface GraphBuildResult {
+    materials: import("../materials/index.js").MaterialStats;
     contextDir: string;
     graphPath: string;
     /** Per-file wiring cards written (Tier-2 passive surface). */

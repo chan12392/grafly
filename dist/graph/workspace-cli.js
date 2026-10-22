@@ -35,7 +35,8 @@ export async function runWorkspaceBuild(root, opts) {
         const engine = new Grafly({ ...opts.childConfig, contextDir: undefined });
         if (opts.deep)
             await engine.init(childDir, { extensions: opts.extensions });
-        const g = await engine.graph(childDir, { llm: opts.deep, extensions: opts.extensions, concurrency: opts.concurrency });
+        const g = await engine.graph(childDir, { llm: opts.deep, vision: opts.vision, extensions: opts.extensions, concurrency: opts.concurrency });
+        if (g.materials.errors.length) failed = true;
         if (g.structuralErrors > 0) {
             failed = true;
             console.error(`✗ ${childName}/: wiring incomplete (${g.structuralErrors} structural error(s)), ${g.nodes} nodes, ${g.edges} edges`);

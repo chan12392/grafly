@@ -33,6 +33,7 @@ import { writeCards, writeIndex, writeCovers } from "./cards.js";
 import { writeAskIndex } from "../ask/index-file.js";
 import { discoverScopes, scopeOf } from "./scopes.js";
 import { syncXerj } from "../search/xerj.js";
+import { buildMaterials } from "../materials/index.js";
 export { listSourceFiles } from "./source-files.js";
 /** One dispatch table for build and check, including unavailable native bindings. */
 export function tierOf(path) {
@@ -267,6 +268,9 @@ export async function buildGraph(dir, opts = {}) {
         opts.onProgress?.({ phase: "enrich", index: r.added, total: r.queried, file: `lsp:${r.server ?? "none"}` });
     }
     const graphPath = writeGraph(graph, outDir);
+    // Materials retain their own provenance; mentions never enter the AST call graph.
+    const materials = await buildMaterials(root, outDir, repoFiles, graph, { vision: opts.vision });
+    errors.push(...materials.errors.map(error => `materials: ${error}`));
     // `ask`'s token/IDF sidecar — moves per-query corpus tokenization to build
     // time (~45% of query time on a 32k-node graph, profiled). Lives in the
     // cache dir; `ask` falls back to live tokenization when it's absent/stale.
@@ -343,7 +347,8 @@ export async function buildGraph(dir, opts = {}) {
         languages: [...langs].sort(),
         meaning,
         ...(nativeFallback.size ? { nativeFallback: { languages: [...nativeFallback].sort(), packages: missingNativePackages(nativeFallback) } } : {}),
-        structuralErrors: errors.length - meaning.errors.length,
+        materials,
+        structuralErrors: errors.length - meaning.errors.length - materials.errors.length,
         errors,
     };
 }

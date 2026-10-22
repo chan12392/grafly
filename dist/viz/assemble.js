@@ -13,6 +13,7 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import matter from "gray-matter";
+import { materialViz } from "../materials/index.js";
 /**
  * Legacy vague verbs → the concrete verb they usually mean. Keeps old
  * `.context/` folders readable without regeneration; the synthesizer itself
@@ -85,6 +86,9 @@ export function assembleContextGraph(contextDir) {
             }
         }
     }
+    const materials = materialViz(contextDir);
+    nodes.push(...materials.nodes);
+    rawEdges.push(...materials.edges);
     const known = new Set(nodes.map((n) => n.id));
     const edges = rawEdges.filter((e) => known.has(e.source) && known.has(e.target));
     return {

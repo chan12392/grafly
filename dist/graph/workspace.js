@@ -142,6 +142,13 @@ function prefixPointer(child, pointer) {
     })
         .join(", ");
 }
+function prefixEvidence(child, hit) {
+    return {
+        ...(hit.related ? { related: hit.related.map(p => `${child}/${p}`) } : {}),
+        ...(hit.material ? { pointer: `${child}/${hit.pointer}`, material: { ...hit.material, path: `${child}/${hit.material.path}` } } : {}),
+        ...(hit.references ? { references: hit.references.map(r => ({ ...r, pointer: `${child}/${r.pointer}` })) } : {}),
+    };
+}
 /** The exact child-relative file owning a lexical symbol hit. File nodes use a
  * bare path; definition hits append `:Lx-Ly`. */
 function hitFile(pointer) {
@@ -258,7 +265,7 @@ export function federateAsk(root, override, query, opts = {}) {
         .map((hit) => ({
             group: `file:${child}/${hitFile(hit.pointer)}`,
             value: { ...hit, scope: hit.scope ? `${child}/${hit.scope}` : child,
-                pointer: prefixPointer(child, hit.pointer) },
+                pointer: prefixPointer(child, hit.pointer), ...prefixEvidence(child, hit) },
         }))));
     const withExactScopes = (scopes) => {
         if (!exactHits.length)
@@ -312,8 +319,9 @@ export function federateAsk(root, override, query, opts = {}) {
             score,
             scope,
             pointer: prefixPointer(child, hit.pointer),
+            ...prefixEvidence(child, hit),
         });
-        const sameHit = (a, b) => a.kind === b.kind && a.pointer === b.pointer && a.title === b.title;
+        const sameHit = (a, b) => a.kind === b.kind && a.pointer === b.pointer && a.title === b.title && a.material?.id === b.material?.id;
         // Baseline workspace stream: reproduce the all-span RRF exactly so the
         // final lock owns the same concrete pointer and fused score as the baseline.
         const baselineDocs = [];
@@ -465,6 +473,7 @@ export function federateAsk(root, override, query, opts = {}) {
             score: rd.score,
             scope: rd.scope,
             pointer: prefixPointer(child, hit.pointer),
+            ...prefixEvidence(child, hit),
         };
         return {
             // Lexical symbols share a file queue. Concepts and structural neighbours

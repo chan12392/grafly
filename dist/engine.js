@@ -50,6 +50,7 @@ export class Grafly {
         return buildGraph(dir, {
             contextDir: this.cfg.contextDir,
             summarizer: opts.llm ? this.cruxSummarizer() : undefined,
+            vision: opts.vision ? this.chatModel() : undefined,
             extensions: opts.extensions,
             concurrency: opts.concurrency,
             reuse: opts.reuse,

@@ -33,6 +33,7 @@ import { rulesForPointers, formatRules } from "../brain/attach.js";
 import { readLink, readRulesCache } from "../brain/link.js";
 import { xerjCandidates } from "../search/xerj.js";
 import { isTestPath, queryWantsTests } from "./query.js";
+import { materialConcepts } from "../materials/index.js";
 export { isTestPath };
 /** Max source lines to inline per hit — a definition longer than this is
  * truncated with a marker, so one giant function can't blow up the pack. */
@@ -105,6 +106,7 @@ function loadCorpus(outDir) {
     // Re-list on every query: additions, deletions and renames invalidate naturally.
     if (current.size) conceptCache.set(outDir, current);
     else conceptCache.delete(outDir);
+    concepts.push(...materialConcepts(outDir));
     return { concepts, graph: loadGraphCached(outDir), askIndex: loadAskIndexCached(outDir) };
 }
 /** Score a document's token counts against the query counts (name field
@@ -466,11 +468,12 @@ function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fi
         if (total > 0) {
             maxConcept = Math.max(maxConcept, total);
             const hit = {
-                kind: "concept",
+                kind: c.kind ?? "concept",
                 title: c.name || c.slug,
-                pointer: c.sources.join(", ") || c.slug,
+                pointer: c.pointer ?? (c.sources.join(", ") || c.slug),
                 snippet: c.snippet,
                 related: c.related,
+                ...(c.material ? { material: c.material, references: c.references } : {}),
                 score: total,
             };
             matchedOf.set(hit, matchedIdfShare(q, [name, body], idf, dfltIdf));
@@ -838,7 +841,7 @@ function lexical(query, corpus, limit, graphRank, inPrefix, fileFirst = true, fi
     }));
     const unlockedGroups = [...conceptGroups, ...fileGroups].sort((a, b) => b.hits[0].score - a.hits[0].score ||
         a.hits[0].title.localeCompare(b.hits[0].title));
-    const sameHit = (a, b) => a.kind === b.kind && a.pointer === b.pointer && a.title === b.title;
+    const sameHit = (a, b) => a.kind === b.kind && a.pointer === b.pointer && a.title === b.title && a.material?.id === b.material?.id;
     let projectedGroups = unlockedGroups;
     let lockedGroupKey;
     if (fileTopLock && fileFirst && baselineScored[0]) {
@@ -1011,6 +1014,7 @@ function inlineSource(root, hits, graph, full) {
                 cruxByPointer.set(`${n.path}:${n.span}`, n.crux.code);
     }
     for (const h of hits) {
+        if (h.material) continue; // Binary/page evidence comes from the extraction cache.
         const s = parseSpan(h.pointer);
         if (!s)
             continue;
@@ -1031,6 +1035,7 @@ function inlineSource(root, hits, graph, full) {
 export function hitFiles(hits) {
     const files = new Set();
     for (const h of hits) {
+        if (h.material) { files.add(h.material.path); continue; }
         const span = parseSpan(h.pointer);
         if (span) {
             files.add(span.path);
@@ -1066,7 +1071,7 @@ export async function askAsync(dir, query, opts = {}) {
     const outDir = contextDirFor(root, opts.contextDir);
     const corpus = loadCorpus(outDir);
     const prefix = opts.in ? normalizePathPrefix(opts.in) : undefined;
-    if (prefix && corpus.graph) assertPrefixIndexed(corpus.graph, prefix);
+    if (prefix && corpus.graph && !corpus.concepts.some(c => c.material && c.sources.some(p => pathUnderPrefix(p, prefix)))) assertPrefixIndexed(corpus.graph, prefix);
     const structuralOutcome = corpus.graph ? structural(query, corpus.graph, opts.limit ?? 8, prefix) : null;
     if (structuralOutcome?.result)
         return askFromCorpus(root, query, opts, corpus, undefined, structuralOutcome);
@@ -1099,7 +1104,7 @@ function askFromCorpus(root, query, opts, corpus, candidateIds, structuralOutcom
     // because that is what a Windows shell's tab-completion produces.
     const inPrefix = opts.in ? normalizePathPrefix(opts.in) : undefined;
     // `--in` validated up front, before any mode runs.
-    if (inPrefix && corpus.graph)
+    if (inPrefix && corpus.graph && !corpus.concepts.some(c => c.material && c.sources.some(p => pathUnderPrefix(p, inPrefix))))
         assertPrefixIndexed(corpus.graph, inPrefix);
     let result;
     if (corpus.graph) {
@@ -1118,6 +1123,18 @@ function askFromCorpus(root, query, opts, corpus, candidateIds, structuralOutcom
     }
     else {
         result = lexical(query, corpus, limit, graphRank, inPrefix, fileFirst, fileComplement, fileTopLock, opts.includeRankingMetadata ?? false, candidateIds);
+    }
+    const materialDocs = corpus.concepts.filter(c => c.material);
+    const materialById = new Map(materialDocs.map(c => [c.slug, c]));
+    const backlinks = new Map();
+    for (const c of materialDocs) for (const ref of c.references) {
+        const links = backlinks.get(ref.pointer) ?? new Set();
+        links.add(c.pointer); backlinks.set(ref.pointer, links);
+    }
+    const materialHits = [...result.hits, ...(result.ranking?.groups.flatMap(g => g.hits) ?? [])];
+    for (const hit of materialHits) {
+        if (hit.material && opts.source) hit.code = materialById.get(hit.material.id)?.extractedText;
+        if (backlinks.has(hit.pointer)) hit.related = [...new Set([...(hit.related ?? []), ...backlinks.get(hit.pointer)])];
     }
     if (opts.source) {
         inlineSource(root, result.hits, corpus.graph, opts.full ?? false);

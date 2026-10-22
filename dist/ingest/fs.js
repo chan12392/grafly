@@ -4,6 +4,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { materialKind, MAX_MATERIAL_BYTES } from "./material-types.js";
 /** Directories that are dependency/build output, never source. */
 export const SKIP_DIRS = new Set([
     "node_modules",
@@ -24,6 +25,7 @@ export const SKIP_DIRS = new Set([
 ]);
 /** Files above this size are generated/vendored in practice, not hand-written code. */
 export const MAX_FILE_BYTES = 1_000_000;
+const fileLimit = path => materialKind(path) ? MAX_MATERIAL_BYTES : MAX_FILE_BYTES;
 /**
  * Whether a directory named `name` should be skipped when walking a repo tree:
  * any dot-prefixed directory (`.git`, `.github`, `.vscode`, ...) or one of
@@ -230,7 +232,7 @@ function gitVisibleFiles(dir, includes, opts = {}, traversal) {
         }
         try {
             const stat = lstatSync(abs);
-            if (!stat.isFile() || stat.size > MAX_FILE_BYTES)
+            if (!stat.isFile() || stat.size > fileLimit(abs))
                 continue;
         }
         catch {
@@ -262,7 +264,7 @@ function gitVisibleFilesShallow(root, includes) {
         const abs = resolve(root, rel);
         try {
             const stat = lstatSync(abs);
-            if (!stat.isFile() || stat.size > MAX_FILE_BYTES)
+            if (!stat.isFile() || stat.size > fileLimit(abs))
                 continue;
         }
         catch {
@@ -293,7 +295,7 @@ function walkFilesystem(dir, includes) {
             if (entry.name.startsWith("."))
                 continue; // dot-files are not source either
             try {
-                if (statSync(full).size > MAX_FILE_BYTES)
+                if (statSync(full).size > fileLimit(full))
                     continue;
             }
             catch {

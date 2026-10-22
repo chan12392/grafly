@@ -196,7 +196,8 @@ export async function ensureFreshGraph(root, opts = {}) {
             const extensions = loadGraphCached(outDir)?.meta?.extensions;
             const built = await buildGraph(dir, { contextDir: opts.contextDir, graphOnly: true, onlyDirs, extensions });
             invalidateGraphCaches(outDir);
-            const note = built.structuralErrors ? `graph refresh incomplete: ${built.structuralErrors} structural error(s)` : seedNote;
+            const note = built.structuralErrors ? `graph refresh incomplete: ${built.structuralErrors} structural error(s)`
+                : built.materials.errors.length ? `material refresh incomplete: ${built.materials.errors.length} extraction error(s)` : seedNote;
             return { refreshed: true, drift: drift ?? undefined, note };
         }
         finally {

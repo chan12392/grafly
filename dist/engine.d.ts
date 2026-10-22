@@ -24,6 +24,8 @@ export interface CheckRunOptions {
     extensions?: string[];
 }
 export interface GraphRunOptions {
+    /** Read images and image-only PDF pages using the configured vision-capable model. */
+    vision?: boolean;
     extensions?: string[];
     /** Run the Tier-2 LLM meaning pass (summary + crux). Absent → Tier-1 only. */
     llm?: boolean;
