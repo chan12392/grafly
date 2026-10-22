@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, readdirSync, rmSyn
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { FILES, FILES_V2, sha256, syncRuntime, resolveRuntime, pinRuntime, validatePinned } from '../dist/mc-runtime/runtime.js';
+import { FILES, FILES_V2, sha256, compareVersion, syncRuntime, resolveRuntime, pinRuntime, validatePinned } from '../dist/mc-runtime/runtime.js';
 import { executeCliRequest } from '../dist/search/cli-request.js';
 
 const python = process.env.GRAFLY_TEST_PYTHON;
@@ -30,8 +30,18 @@ function edit(bundle, path, change) {
   const bytes = Buffer.from(next);
   bundle.files[path] = { data: bytes.toString('base64'), sha256: sha256(bytes) };
 }
-function future(version, runtime = '0.3.3') {
-  const bundle = packageFixture(); bundle.version = runtime;
+function bump(version, index = 2) {
+  const parts = version.split('.').map(BigInt);
+  parts[index] += 1n;
+  return parts.map((part, i) => i > index ? 0n : part).join('.');
+}
+function channelVersion(bundle) {
+  return ['symbol_disambiguation', 'patch_quality'].map(id => bundle.channels[id].version).sort(compareVersion).at(-1);
+}
+function future(version, runtime) {
+  const bundle = packageFixture();
+  version ??= bump(channelVersion(bundle));
+  bundle.version = runtime ?? bump(bundle.version);
   for (const id of ['symbol_disambiguation', 'patch_quality']) {
     const previous = bundle.channels[id].version;
     edit(bundle, 'morecoffee/channels/builtin/catalog.py', text =>
@@ -80,7 +90,9 @@ test('signed future implementation versions activate and the real next consumer 
   const root = home(t);
   await syncRuntime(root, { transport: signed(packageFixture(), 5) });
   const initial = pinRuntime({ GRAFLY_MC_RUNTIME_HOME: root });
-  for (const [version, runtime, sequence] of [['0.2.2', '0.3.3', 6], ['0.3.7', '0.3.4', 7], ['2.0.0', '0.3.5', 8]]) {
+  const baseline = packageFixture();
+  for (const [index, sequence] of [[2, 6], [1, 7], [0, 8]]) {
+    const version = bump(channelVersion(baseline), index), runtime = bump(baseline.version, index);
     const result = await syncRuntime(root, { transport: signed(future(version, runtime), sequence) });
     assert.equal(result.status, 'updated'); assert.equal(result.version, runtime);
     const actual = consumer(root);
@@ -115,8 +127,11 @@ test('incompatible signed candidates preserve the active consumer, status, learn
     ['runtime API', b => { b.runtime_api = 4; }],
     ['bundle schema', b => { b.schema = 'mc.runtime.bundle.v2'; }],
     ['invalid channel semver', b => { b.channels.patch_quality.version = '0.3.x'; b.channels.patch_quality.tag = 'channel/patch_quality/v0.3.x'; }],
-    ['channel tag', b => { b.channels.patch_quality.tag = 'channel/patch_quality/v0.2.1'; }],
-    ['quality version mismatch', b => { b.channels.patch_quality = { version: '0.3.8', tag: 'channel/patch_quality/v0.3.8' }; }],
+    ['channel tag', b => { b.channels.patch_quality.tag = `channel/patch_quality/v${bump(b.channels.patch_quality.version)}`; }],
+    ['quality version mismatch', b => {
+      const version = bump(b.channels.patch_quality.version);
+      b.channels.patch_quality = { version, tag: `channel/patch_quality/v${version}` };
+    }],
     ['quality schema', b => qualityOutput(b, "result['schema_version'] = 'mc.channel.v2'")],
     ['quality required identity', b => qualityOutput(b, "result.pop('request_id')")],
     ['quality provenance', b => qualityOutput(b, "result['provenance']['evidence_sha'] = '0' * 64")],
@@ -130,7 +145,7 @@ test('incompatible signed candidates preserve the active consumer, status, learn
       const artifact = JSON.parse(text); artifact.schema = 'mc.symbol_disambiguation.v2'; return JSON.stringify(artifact);
     })],
     ['symbol version mismatch', b => edit(b, 'morecoffee/channels/portable/symbol_disambiguation.json', text => {
-      const artifact = JSON.parse(text); artifact.channel_version = '0.3.8'; return JSON.stringify(artifact);
+      const artifact = JSON.parse(text); artifact.channel_version = bump(artifact.channel_version); return JSON.stringify(artifact);
     })],
     ['symbol required feature missing', b => edit(b, 'morecoffee/channels/portable/symbol_disambiguation.json', text => {
       const artifact = JSON.parse(text); delete artifact.weights.exact_name; return JSON.stringify(artifact);
@@ -148,7 +163,7 @@ test('incompatible signed candidates preserve the active consumer, status, learn
     ['tool output discards every hit', b => toolOutput(b, "result['decision']['streams']['stdout']['keep'] = []\nresult['decision']['streams']['stdout']['output_bytes'] = 0\nresult['decision']['output_bytes'] = 0")],
   ];
   for (const [name, mutate, metadata] of cases) await t.test(name, async () => {
-    const bundle = future('0.3.7'); mutate(bundle);
+    const bundle = future(); mutate(bundle);
     await assert.rejects(syncRuntime(root, { transport: signed(bundle, 6, metadata) }));
     assert.equal(readFileSync(join(root, 'active.json'), 'utf8'), active);
     assert.equal(readFileSync(join(root, 'status.json'), 'utf8'), status);
@@ -185,10 +200,10 @@ test('real historical API1 and API2 packages retain their supported wire contrac
 });
 
 test('compatible tool-output selection changes keep bounded extraction semantics', real, async t => {
-  const root = home(t), bundle = future('0.3.7');
+  const root = home(t), bundle = future();
   toolOutput(bundle, "stream = result['decision']['streams']['stdout']\nstream['keep'] = [[0, 100], [225, 250]]\nstream['shown_lines'] = 125\nstream['removed_lines'] = 125\nlines = json.loads(raw)['stdout'].splitlines(keepends=True)\nstream['output_bytes'] = len((''.join(lines[:100]) + ''.join(lines[225:250])).encode('utf-8'))\nresult['decision']['output_bytes'] = stream['output_bytes']");
   assert.equal((await syncRuntime(root, { transport: signed(bundle) })).status, 'updated');
-  assert.equal(consumer(root).channel.version, '0.3.7');
+  assert.equal(consumer(root).channel.version, bundle.channels.symbol_disambiguation.version);
 });
 
 test('resident callers use a compatible signed rule update on the next request', real, async t => {
@@ -205,7 +220,7 @@ test('resident callers use a compatible signed rule update on the next request',
   const request = { command: 'callers', argv: ['callers', 'choose', '--json'], cwd: repo };
   const first = await executeCliRequest(request); assert.equal(first.exitCode, 0, first.stderr);
   const before = JSON.parse(first.stdout).circuit.scores;
-  const bundle = future('0.3.7');
+  const bundle = future();
   edit(bundle, 'morecoffee/channels/portable/symbol_disambiguation.json', text => {
     const artifact = JSON.parse(text); artifact.weights.exact_name += 0.25; return JSON.stringify(artifact);
   });
