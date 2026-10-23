@@ -42,16 +42,33 @@ test('short-lived command callers finish only after both local submission acknow
     const f = configuration(t, server.address().port);
     const probe = join(f.root, 'probe.cjs'), caller = join(f.root, 'caller.mjs');
     writeFileSync(probe, "process.stdout.write('preserved output\\n');\n");
-    writeFileSync(caller, `import { runCommand } from ${JSON.stringify(new URL('../dist/tool-output/runner.js', import.meta.url).href)};
-const result = await runCommand(process.execPath, [${JSON.stringify(probe)}]);
+    const run = async (command, args) => {
+        writeFileSync(caller, `import { runCommand } from ${JSON.stringify(new URL('../dist/tool-output/runner.js', import.meta.url).href)};
+const result = await runCommand(${JSON.stringify(command)}, ${JSON.stringify(args)});
 process.exit(result.exit_code);\n`);
-    const result = await promisify(execFile)(process.execPath, [caller], { cwd: f.root, windowsHide: true,
+        return promisify(execFile)(process.execPath, [caller], { cwd: f.root, windowsHide: true,
         env: { ...process.env, ...f.env, GRAFLY_TOOL_OUTPUT: '1', GRAFLY_TOOL_OUTPUT_DIR: join(f.root, 'output'),
             GRAFLY_MC_RUNTIME_HOME: join(f.root, 'no-runtime'), MC_LEARNING_HOME: join(f.root, 'learning') } });
+    };
+    const result = await run(process.execPath, [probe]);
     assert.equal(result.stdout, 'preserved output\n');
     assert.deepEqual(packets.map(p => p.task), ['tool_call_suitability', 'input_block_retention']);
+    assert.deepEqual(packets[0].items[0].tool, { name: process.execPath, arguments: { argv: [probe] },
+        scope: f.root, effects: ['execute'],
+        purpose: 'The caller requested this command; no independent scope judgment is available.' });
+    assert.equal(packets[0].items[0].constraint_status, 'unknown');
+    assert.equal(packets[0].items[0].protected, false);
     assert.equal(packets[1].items[0].text, result.stdout);
     assert.equal(JSON.parse(readFileSync(join(f.root, 'comparison-status.json'), 'utf8')).status, 'queued');
+    const largeArgv = [probe, ...Array(65).fill('argument')];
+    await run(process.execPath, largeArgv);
+    assert.equal(packets[2].items[0].tool, undefined);
+    assert.deepEqual(JSON.parse(packets[2].items[0].text).args, largeArgv);
+    writeFileSync(join(f.root, 'left'), 'before\n'); writeFileSync(join(f.root, 'right'), 'after\n');
+    await assert.rejects(run('git', ['-c', 'core.autocrlf=false', 'diff', '--no-index', '--exit-code', 'left', 'right']),
+        error => error.code === 1 && error.stderr === '');
+    assert.equal(packets.at(-1).task, 'input_block_retention');
+    assert.ok(packets.at(-1).items.every(item => item.protected && item.role === undefined));
 });
 
 test('no configuration means no background activity', async () => {
@@ -69,10 +86,15 @@ test('producer submits the complete original to the existing broker and persists
     server.listen(0, '127.0.0.1'); await once(server, 'listening');
     t.after(() => server.close());
     const f = configuration(t, server.address().port), original = '첫 줄\r\n끝의 필수 조건\n';
-    const result = await observeComparison(event(original), { cwd: f.root, env: f.env });
+    const input = event(original);
+    input.items[0].role = 'explanation'; input.items[0].requires = ['guard'];
+    input.items.push({ id: 'guard', text: 'Known constraint.', protected: false, constraint_status: 'unknown', role: 'constraint' });
+    const result = await observeComparison(input, { cwd: f.root, env: f.env });
     assert.equal(result.status, 'queued');
     assert.equal(JSON.parse(packet.stdin).items[0].text, original);
     assert.equal(JSON.parse(packet.stdin).source, 'grafly');
+    // The harness prepares once after adding the goal and constraints; this producer forwards actual facts unchanged.
+    assert.deepEqual(JSON.parse(packet.stdin).items, input.items);
     assert.ok(packet.argv.includes('observe') && packet.argv.includes('fixture-thread'));
     const saved = readFileSync(join(f.root, 'comparison-status.json'), 'utf8');
     assert.ok(!saved.includes('fixture-private-token') && !saved.includes(original));
@@ -84,7 +106,19 @@ test('private material, oversized blocks and absent sessions are skipped without
         const result = await observeComparison(event(text), { env: f.env });
         assert.equal(result.reason, 'input_size_or_private_material');
     }
+    const metadata = event('No secret in this text.');
+    metadata.items[0].tool = { name: 'request', arguments: { authorization: 'Bearer private-credential-value' },
+        scope: 'local', effects: ['network'], purpose: 'request' };
+    assert.equal((await observeComparison(metadata, { env: f.env })).reason, 'input_size_or_private_material');
     assert.equal((await observeComparison(event('body'), { env: { ...f.env, CODEX_THREAD_ID: '' } })).reason, 'active_session_unavailable');
+});
+
+test('only an actual failed command supplies failure roles; stderr alone remains a guard', () => {
+    const failed = outputItems('partial result\n', 'failed\n', true);
+    assert.ok(failed.every(item => item.role === 'failure' && item.protected));
+    const warning = outputItems('result\n', 'warning\n');
+    assert.ok(warning.every(item => item.role === undefined));
+    assert.equal(warning[1].protected, true);
 });
 
 test('broker outage does not reject the caller or lose original text', async t => {

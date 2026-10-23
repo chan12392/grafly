@@ -27,7 +27,7 @@ export async function observeComparison(event, { cwd = process.cwd(), sessionId,
         const identity = sessionId ?? env.CODEX_THREAD_ID ?? env.GRAFLY_SESSION_ID;
         if (typeof identity !== 'string' || !identity.trim()) return save({ status: 'skipped', reason: 'active_session_unavailable' });
         const text = JSON.stringify(event);
-        if (Buffer.byteLength(text) > 64000 || !Array.isArray(event.items)
+        if (Buffer.byteLength(text) > 64000 || privateText(text) || !Array.isArray(event.items)
             || event.items.some(item => typeof item.text !== 'string' || privateText(item.text)))
             return save({ status: 'skipped', reason: 'input_size_or_private_material' });
         const config = read(file);
@@ -80,7 +80,8 @@ export function outputItems(stdout, stderr, failed = false) {
         const width = Math.max(1, Math.ceil(lines.length / 16));
         for (let start = 0; start < lines.length; start += width)
             items.push({ id: `${name}:${start + 1}`, text: lines.slice(start, start + width).join(''),
-                protected: failed || name === 'stderr', constraint_status: 'unknown' });
+                protected: failed || name === 'stderr', constraint_status: 'unknown',
+                ...(failed ? { role: 'failure' } : {}) });
     }
     return items;
 }

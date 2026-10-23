@@ -105,14 +105,19 @@ export function judge(payload, env, pinned = pinRuntime(env)) {
     return parsed;
 }
 
-export function applyRanges(text, stream) {
+export function applyRanges(text, stream, required = [], focus = []) {
+    const source = lines(text);
+    if (!Array.isArray(required) || required.length > 64 || required.some(range => !Array.isArray(range)
+        || range.length !== 2 || !range.every(Number.isInteger) || range[0] < 0 || range[1] <= range[0] || range[1] > source.length)
+        || !Array.isArray(focus) || focus.length > 16 || focus.some(term => typeof term !== 'string' || !term.length || Buffer.byteLength(term) > 256))
+        throw new Error("invalid_output_hints");
     // Rewritten-text streams (e.g. lossless search path dedup) carry their
     // compressed payload directly instead of keep ranges — verified by bytes.
     if (stream && typeof stream.text === "string") {
+        if (required.length || focus.length) throw new Error("original_ranges_required");
         if (Buffer.byteLength(stream.text) !== stream.output_bytes) throw new Error("invalid_output_bytes");
         return stream.text;
     }
-    const source = lines(text);
     if (!stream || !Array.isArray(stream.keep)) throw new Error("invalid_ranges");
     let end = 0, result = "";
     for (const range of stream.keep) {
@@ -122,15 +127,54 @@ export function applyRanges(text, stream) {
         result += source.slice(a, b).join(""); end = b;
     }
     if (Buffer.byteLength(result) !== stream.output_bytes) throw new Error("invalid_output_bytes");
+    for (const [a, b] of required) {
+        let cursor = a;
+        for (const [start, stop] of stream.keep) {
+            if (start > cursor || cursor >= b) break;
+            cursor = Math.max(cursor, stop);
+        }
+        if (cursor < b) throw new Error("required_output_omitted");
+    }
+    let kept = 0;
+    if (focus.length) for (let i = 0; i < source.length; i++) {
+        while (kept < stream.keep.length && stream.keep[kept][1] <= i) kept++;
+        if (focus.some(term => source[i].includes(term)) && (!stream.keep[kept] || stream.keep[kept][0] > i))
+            throw new Error("focused_output_omitted");
+    }
     return result;
+}
+
+function outputHints(command, args, options) {
+    const hints = Object.fromEntries(['required_stdout_ranges', 'required_stderr_ranges', 'focus_terms']
+        .filter(key => options[key] !== undefined).map(key => [key, options[key]]));
+    // shortcut: infer only simple literal searches; other forms need explicit caller hints.
+    const name = commandName(command), rest = [...args];
+    if (hints.focus_terms === undefined && ['rg', 'grep', 'fgrep'].includes(name)) {
+        while (['-n', '--line-number'].includes(rest[0])) rest.shift();
+        if (['-F', '--fixed-strings'].includes(rest[0])) rest.shift();
+        else if (name !== 'fgrep') return hints;
+        while (['-n', '--line-number'].includes(rest[0])) rest.shift();
+        const terminated = rest[0] === '--';
+        if (terminated) rest.shift();
+        if (rest[0] && (terminated || rest.every(arg => !arg.startsWith('-')))) hints.focus_terms = [rest[0]];
+    }
+    return hints;
 }
 
 export async function runCommand(command, args = [], options = {}) {
     const env = options.env ?? process.env;
     const pinned = pinRuntime(env); // An in-flight command retains its starting version.
+    const tool = { name: command, arguments: { argv: args }, scope: resolve(options.cwd ?? process.cwd()),
+        effects: ['execute'], purpose: 'The caller requested this command; no independent scope judgment is available.' };
+    // Optional metadata must fit the MC contract without truncating the caller's actual command.
+    const typed = typeof command === 'string' && command.trim() && Buffer.byteLength(command) <= 256
+        && Buffer.byteLength(tool.scope) <= 4096 && args.length <= 64
+        && args.every(arg => typeof arg === 'string' && Buffer.byteLength(arg) <= 8192)
+        && Buffer.byteLength(JSON.stringify(tool)) <= 16384;
     await observeComparison({ task: 'tool_call_suitability', items: [{ id: 'proposed-call',
         text: JSON.stringify({ command, args, purpose: 'The caller requested this command; no independent scope judgment is available.' }),
-        protected: false, constraint_status: 'unknown' }] }, { cwd: options.cwd, sessionId: options.sessionId, env });
+        protected: false, constraint_status: 'unknown', ...(typed ? { tool } : {}) }] },
+        { cwd: options.cwd, sessionId: options.sessionId, env });
     // Shell wrappers stay raw. Serve only simple, directly invoked file reads.
     if (env.GRAFLY_TOOL_OUTPUT !== "0") {
         try {
@@ -250,13 +294,15 @@ export async function runCommand(command, args = [], options = {}) {
             // NUL/binary output is never interpreted as a text transcript.
             if (input.stdout.includes("\0") || input.stderr.includes("\0")) throw new Error("binary_output");
             manifest.mc_attempted = true;
+            const hints = outputHints(command, args, options);
             const result = (options.judge ?? judge)({ ...input, kind, exit_code: exitCode, complete: true,
-                exit_one_is_result: Boolean(exitMeaning) }, env, pinned);
+                exit_one_is_result: Boolean(exitMeaning), ...hints }, env, pinned);
             const decision = result.decision;
             manifest.mc_reason_codes = result.reason_codes ?? [];
             manifest.reason = result.reason_codes?.[0] ?? "mc_passthrough";
             if (decision.verdict === "reduced") {
-                const candidate = Object.fromEntries(["stdout", "stderr"].map(s => [s, applyRanges(input[s], decision.streams?.[s])]));
+                const candidate = Object.fromEntries(["stdout", "stderr"].map(s => [s,
+                    applyRanges(input[s], decision.streams?.[s], hints[`required_${s}_ranges`], hints.focus_terms)]));
                 const bytes = Buffer.byteLength(candidate.stdout) + Buffer.byteLength(candidate.stderr);
                 if (bytes + 512 < size && bytes < size * 0.9) {
                     reduced = candidate;
@@ -283,6 +329,8 @@ export async function runCommand(command, args = [], options = {}) {
             const input = ['stdout', 'stderr'].map(name => decoder.decode(Buffer.concat(buffers[name])));
             if (!input.some(text => text.includes('\0'))) {
                 const items = outputItems(...input, exitCode !== 0);
+                // Search/diff exit 1 can be a result: retain existing guards without claiming failure.
+                if (exitMeaning) for (const item of items) delete item.role;
                 if (items.length) await observeComparison({ task: 'input_block_retention', items },
                     { cwd: options.cwd, sessionId: options.sessionId, env });
             }

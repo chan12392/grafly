@@ -6,10 +6,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { FILES_V5, sha256, syncRuntime, acquireLock, smokeTest } from '../dist/mc-runtime/runtime.js';
+import { FILES_V5, sha256, syncRuntime, acquireLock, smokeTest, pinRuntime } from '../dist/mc-runtime/runtime.js';
 import { MODEL_TASKS, modelHome, modelStatus, syncModels, verifyModelEnvelope } from '../dist/mc-runtime/models.js';
 import { runLearning, syncUpdates } from '../dist/mc-runtime/cli.js';
-import { symbolModel } from './fixtures/mc-model.mjs';
+import { symbolModel, contextModel } from './fixtures/mc-model.mjs';
 
 async function fixture(t, real = false) {
   const root = mkdtempSync(join(tmpdir(), 'grafly-model-delivery-'));
@@ -66,6 +66,65 @@ async function fixture(t, real = false) {
   const install = (r, options = {}) => syncModels(runtime, { home, transport: transport(r), validate() {}, ...options });
   return { root, runtime, home, config, release, transport, install, envelope, keys, codeBytes, codeMeta };
 }
+
+test('signed MC validates context v1/v2 models, prepared inputs and 0/9/73 parameter counts', {
+  skip: !process.env.GRAFLY_TEST_MC_SOURCE || !process.env.GRAFLY_TEST_PYTHON,
+}, async t => {
+  const f = await fixture(t, true), pinned = pinRuntime({ GRAFLY_MC_RUNTIME_HOME: f.runtime });
+  const learning = join(f.root, 'disabled-learning');
+  const invoke = (operation, payload) => {
+    const child = spawnSync(pinned.python, ['-I', '-S', '-B', '-X', 'utf8', '-c',
+      "import sys,runpy;sys.path.insert(0,sys.argv[1]);runpy.run_module('morecoffee.channels.channel_host',run_name='__main__')", pinned.root],
+    { input: JSON.stringify({ schema_version: 'mc.channel.v1', channel_id: 'context_judgment', request_id: 'consumer-check', operation, payload }) + '\n',
+      encoding: 'utf8', timeout: 10000, windowsHide: true, env: { ...process.env, MC_MODEL_HOME: f.home, MC_LEARNING_HOME: learning } });
+    assert.equal(child.status, 0, child.stderr);
+    const response = JSON.parse(child.stdout); assert.equal(response.status, 'ok', child.stdout); return response;
+  };
+  const payload = { source: 'grafly', task: 'document_suitability', group_id: 'a'.repeat(64), case_origin: 'synthetic',
+    goal: 'Retain the instruction and its definition.', constraints: ['Keep source facts.'], items: [
+      { id: 'instruction', text: 'Use the definition.', protected: false, constraint_status: 'unknown', role: 'instruction', requires: ['definition'] },
+      { id: 'definition', text: 'A supplied definition.', protected: false, constraint_status: 'unknown', role: 'definition' },
+    ] };
+  const preparation = invoke('prepare', payload);
+  assert.equal(preparation.learned_parameter_count, 0);
+  const prepared = preparation.decision.prepared_payload;
+  assert.deepEqual(prepared, { ...payload, items: payload.items.map(item => ({ ...item, protected: true })) });
+  assert.equal(invoke('judge', prepared).learned_parameter_count, 0);
+  let sequence = 0;
+  const release = (model, mutate = () => {}) => f.release(++sequence, bundle => {
+    const bytes = Buffer.from(JSON.stringify(model));
+    bundle.models = Object.fromEntries(MODEL_TASKS.map(task => [task, task === model.task
+      ? { sha256: sha256(bytes), content: bytes.toString('base64') } : null]));
+    mutate(bundle);
+  });
+  const install = r => syncModels(f.runtime, { home: f.home, transport: f.transport(r) });
+  for (const [version, count] of [['mc.context-judgment.v1', 9], ['mc.context-judgment.v2', 73]]) {
+    const r = release(contextModel(version));
+    assert.equal(r.bundle.scorer_version, 'mc.context-judgment.v1');
+    assert.equal((await install(r)).status, 'updated');
+    const judged = invoke('judge', prepared);
+    assert.equal(judged.learned_parameter_count, count);
+    assert.equal(judged.decision.input_sha256, preparation.decision.input_sha256);
+    assert.equal(judged.decision.model_sha256, r.metadata.models.document_suitability.model_sha256);
+    assert.ok(judged.decision.judgments.every(row => row.feedback.schema === 'mc.feedback.v2'
+      && Object.keys(row.feedback.features).length === 8 && row.feedback.input_sha256 === preparation.decision.input_sha256));
+  }
+  const before = readFileSync(join(f.home, 'current.json'));
+  for (const mutate of [
+    model => { model.scorer_version = 'mc.context-judgment.future'; },
+    model => { delete model.weights.ordered_63; },
+    model => { model.weights.ordered_64 = 0; },
+    model => { delete model.fit.class_weight; },
+    model => { model.fit.class_weight = 'unbalanced'; },
+  ]) {
+    const model = contextModel(); mutate(model);
+    await assert.rejects(install(release(model)));
+    assert.deepEqual(readFileSync(join(f.home, 'current.json')), before);
+  }
+  await assert.rejects(install(release(contextModel(), bundle => { bundle.scorer_version = 'mc.context-judgment.v2'; })), /mc_model_incompatible/);
+  assert.deepEqual(readFileSync(join(f.home, 'current.json')), before);
+  assert.equal(existsSync(join(learning, 'feedback.sqlite3')), false);
+});
 
 test('separate signed model cache activates atomically, reports model/data hashes and remains usable offline', async t => {
   const f = await fixture(t), a = f.release();

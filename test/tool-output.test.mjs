@@ -213,6 +213,58 @@ test("range consumer rejects missing, reordered, duplicate and out-of-bounds evi
         assert.throws(() => applyRanges("a\nb\n", { keep, output_bytes: 0 }), /invalid/);
 });
 
+test("original required and literal focus lines survive, including adjacent retained ranges and CRLF", () => {
+    const original = "first\r\nrequired\nfocused 문맥\nlast";
+    const stream = keep => ({ keep, output_bytes: Buffer.byteLength(keep.flatMap(([a, b]) => lines(original).slice(a, b)).join('')) });
+    const retained = [[1, 2], [2, 4]];
+    assert.equal(applyRanges(original, stream(retained), [[1, 4]], ['문맥']), 'required\nfocused 문맥\nlast');
+    assert.throws(() => applyRanges(original, stream([[0, 1], [2, 4]]), [[1, 3]]), /required_output_omitted/);
+    assert.throws(() => applyRanges(original, stream([[0, 2]]), [], ['문맥']), /focused_output_omitted/);
+    assert.throws(() => applyRanges(original, { text: original, output_bytes: Buffer.byteLength(original) }, [], ['문맥']), /original_ranges_required/);
+    for (const required of [[[0, 5]], [[-1, 1]], [[1.5, 2]], [[2, 2]], Array(65).fill([0, 1])])
+        assert.throws(() => applyRanges(original, stream(retained), required), /invalid_output_hints/);
+    assert.throws(() => applyRanges(original, stream(retained), [], ['']), /invalid_output_hints/);
+    assert.throws(() => applyRanges(original, stream(retained), [], ['문'.repeat(86)]), /invalid_output_hints/);
+});
+
+test("caller ranges and focus reach MC unchanged; an older reduction losing them stays raw and retrievable", async () => {
+    const f = fixture(), args = suite(f.dir);
+    let payload;
+    const result = await runCommand(python, args, { ...f.options, required_stdout_ranges: [],
+        required_stderr_ranges: [[100, 101]], focus_terms: ['test_detail_159'],
+        judge(input) { payload = input; return stubJudge(input); } });
+    assert.deepEqual(payload.required_stdout_ranges, []);
+    assert.deepEqual(payload.required_stderr_ranges, [[100, 101]]);
+    assert.deepEqual(payload.focus_terms, ['test_detail_159']);
+    assert.equal(result.verdict, 'passthrough'); assert.equal(result.reason, 'required_output_omitted');
+    assert.equal(f.text('stderr'), payload.stderr);
+    assert.equal(readOutput(result.id, { archiveDir: f.options.archiveDir, stream: 'stderr' }).toString(), payload.stderr);
+});
+
+test("literal search arguments supply focus only when unambiguous and never rewrite requested coordinates", async t => {
+    if (spawnSync('rg', ['--version'], { encoding: 'utf8', windowsHide: true }).status !== 0) return t.skip('rg unavailable');
+    const f = fixture();
+    writeFileSync(join(f.dir, 'hits.txt'), 'hit -n text repeated\n'.repeat(400));
+    for (const [args, expected] of [
+        [['-n', '-F', 'hit', 'hits.txt'], ['hit']],
+        [['-F', '--', '-n', 'hits.txt'], ['-n']],
+        [['-n', 'hit', 'hits.txt'], undefined],
+        [['-F', '-i', 'HIT', 'hits.txt'], undefined],
+    ]) {
+        let actual;
+        const result = await runCommand('rg', args, { ...f.options, judge(payload) {
+            actual = payload.focus_terms;
+            return { decision: { verdict: 'reduced', streams: { stdout: { text: 'changed\n', output_bytes: 8 },
+                stderr: { keep: [], output_bytes: 0 } } } };
+        } });
+        assert.deepEqual(actual, expected);
+        if (expected) {
+            assert.equal(result.verdict, 'passthrough'); assert.equal(result.reason, 'original_ranges_required');
+            assert.match(readOutput(result.id, { archiveDir: f.options.archiveDir }).toString(), /hit -n/);
+        }
+    }
+});
+
 test("source readers and interpreted scripts are not inferred to be tests from output", () => {
     assert.equal(isTestCommand("cat", ["test-results.txt"]), false);
     assert.equal(isTestCommand("node", ["-e", "print('--test')", "--test"]), false);

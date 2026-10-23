@@ -13,6 +13,17 @@ export function symbolModel(delta = 0) {
     incumbent_model_sha256: null, fit: { epochs: 32, learning_rate: 0.5, l2: 0.001, seed: null },
     validation: { candidate: metrics(3), incumbent: metrics(2) }, audit: { candidate: metrics(3), incumbent: metrics(2) } };
 }
+export function contextModel(scorer = 'mc.context-judgment.v2') {
+  const model = symbolModel(), rich = scorer === 'mc.context-judgment.v2';
+  delete model.abstain_gap;
+  const keys = ['goal_overlap', 'constraint_overlap', 'length', 'unique_ratio', 'error_signal', 'protected', 'guard_satisfied', 'guard_violated'];
+  if (rich) keys.push(...Array.from({ length: 64 }, (_, i) => `ordered_${String(i).padStart(2, '0')}`));
+  const metrics = correct => ({ count: 4, correct, wrong_confident: 0, confident: 3, critical_errors: 0,
+    critical_denominator: 2, positive: 2, negative: 2, abstain: 0 });
+  return { ...model, task: 'document_suitability', scorer_version: scorer, grouping_sha256: 'a'.repeat(64),
+    weights: Object.fromEntries(keys.map(key => [key, 0])), fit: { ...model.fit, ...(rich ? { class_weight: 'balanced' } : {}) },
+    validation: { candidate: metrics(3), incumbent: metrics(2) }, audit: { candidate: metrics(3), incumbent: metrics(2) } };
+}
 export function installConsumerModel(home, model, sequence = 1) {
   mkdirSync(join(home, 'models'), { recursive: true });
   const bytes = Buffer.from(JSON.stringify(model)), digest = sha256(bytes);
