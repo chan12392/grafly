@@ -14,6 +14,7 @@ function fixture(t, failure = false) {
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 test('isolated child environment', () => {
     for (const key of ['GRAFLY_TOOL_OUTPUT', 'GRAFLY_NO_TOOL_ROUTE', 'GRAFLY_MC_HOME',
         'GRAFLY_DIR', 'GRAFT_DIR', 'GRAFLY_TEST_STDIN', 'grafly_unrecognized_setting', 'MC_ROOT', 'MC_PYTHON'])
@@ -23,6 +24,7 @@ test('isolated child environment', () => {
     assert.equal(process.env.GRAFLY_TEST_MC_SOURCE, 'explicit-mc-source');
     assert.ok(process.env.MC_LEARNING_HOME.includes('grafly-test-learning-'));
     assert.notEqual(process.env.MC_LEARNING_HOME, 'user-learning');
+    assert.equal(process.env.MC_MODEL_HOME, join(process.env.MC_LEARNING_HOME, 'consumer-models'));
     assert.equal(existsSync(process.env.MC_LEARNING_HOME + '/config.json'), false);
     assert.equal(process.env.TEST_RUNNER_SENTINEL_UNRELATED, 'preserved');
     assert.equal(process.env.GIT_CONFIG_COUNT, '2');

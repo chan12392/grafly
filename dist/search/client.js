@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { residentCommands, cliOptions, searchCommands, buildCommand, callersCommand } from "./commands.js";
 
-export const requestEnv = /^(GRAFLY_|GRAFT_|OPENROUTER_|ORCAROUTER_|MC_(?:LEARNING_HOME|ROOT|PYTHON)$|DO_NOT_TRACK$|PATH$|PATHEXT$)/i;
+export const requestEnv = /^(GRAFLY_|GRAFT_|OPENROUTER_|ORCAROUTER_|MC_(?:LEARNING_HOME|MODEL_HOME|MODEL_DISABLED|ROOT|PYTHON)$|DO_NOT_TRACK$|PATH$|PATHEXT$)/i;
 
 export const searchHome = () => resolve(process.env.GRAFLY_SEARCH_HOME || join(homedir(), ".grafly", "search-service"));
 export const searchEndpoint = () => process.platform === "win32"

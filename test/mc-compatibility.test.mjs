@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { FILES, FILES_V2, sha256, compareVersion, syncRuntime, resolveRuntime, pinRuntime, validatePinned } from '../dist/mc-runtime/runtime.js';
 import { executeCliRequest } from '../dist/search/cli-request.js';
+import { installConsumerModel } from './fixtures/mc-model.mjs';
 
 const python = process.env.GRAFLY_TEST_PYTHON;
 const source = process.env.GRAFLY_TEST_MC_SOURCE;
@@ -116,15 +117,18 @@ test('incompatible signed candidates preserve the active consumer, status, learn
     'inbox.json': { outcome: 'operator evidence' } };
   for (const [path, value] of Object.entries(state)) writeFileSync(join(learning, path), JSON.stringify(value));
   const learningBefore = Object.fromEntries(Object.keys(state).map(path => [path, readFileSync(join(learning, path), 'utf8')]));
-  const previous = process.env.MC_LEARNING_HOME; process.env.MC_LEARNING_HOME = learning;
+  const previous = process.env.MC_LEARNING_HOME, previousModels = process.env.MC_MODEL_HOME; process.env.MC_LEARNING_HOME = learning;
+  process.env.MC_MODEL_HOME = join(root, 'consumer');
+  installConsumerModel(process.env.MC_MODEL_HOME, symbolModel);
   t.after(() => { if (previous === undefined) delete process.env.MC_LEARNING_HOME; else process.env.MC_LEARNING_HOME = previous; });
+  t.after(() => { if (previousModels === undefined) delete process.env.MC_MODEL_HOME; else process.env.MC_MODEL_HOME = previousModels; });
   await syncRuntime(root, { transport: signed(packageFixture(), 5) });
   const active = readFileSync(join(root, 'active.json'), 'utf8'), status = readFileSync(join(root, 'status.json'), 'utf8');
   const before = consumer(root);
   assert.equal(before.result.model_sha256, symbolSha); // The real consumer still uses the operator's model.
   const cases = [
     ['release schema', () => {}, m => { m.schema = 'mc.runtime.release.v2'; }],
-    ['runtime API', b => { b.runtime_api = 5; }],
+    ['runtime API', b => { b.runtime_api = 6; }],
     ['bundle schema', b => { b.schema = 'mc.runtime.bundle.v2'; }],
     ['invalid channel semver', b => { b.channels.patch_quality.version = '0.3.x'; b.channels.patch_quality.tag = 'channel/patch_quality/v0.3.x'; }],
     ['channel tag', b => { b.channels.patch_quality.tag = `channel/patch_quality/v${bump(b.channels.patch_quality.version)}`; }],

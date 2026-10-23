@@ -19,9 +19,10 @@ export const FILES_V2 = [...FILES, 'morecoffee/channels/builtin/symbol_disambigu
   'morecoffee/channels/portable/symbol_disambiguation.mjs', 'morecoffee/channels/portable/symbol_disambiguation.json'].sort();
 export const FILES_V3 = [...FILES_V2, 'morecoffee/channels/channel_host.py', 'morecoffee/channels/builtin/patch_quality.py', 'morecoffee/adaptive.py'].sort();
 export const FILES_V4 = [...FILES_V3, 'morecoffee/judgment.py', 'morecoffee/channels/builtin/context_judgment.py'].sort();
+export const FILES_V5 = [...FILES_V4, 'morecoffee/model_delivery.py', 'morecoffee/learning_service.py'].sort();
 const provided = api => api === 1 ? ['tool_output'] : api === 2 ? ['tool_output', 'symbol_disambiguation']
-  : ['tool_output', 'symbol_disambiguation', 'patch_quality', ...(api === 4 ? ['context_judgment'] : [])];
-const filesFor = api => api === 1 ? FILES : api === 2 ? FILES_V2 : api === 3 ? FILES_V3 : FILES_V4;
+  : ['tool_output', 'symbol_disambiguation', 'patch_quality', ...(api >= 4 ? ['context_judgment'] : [])];
+const filesFor = api => api === 1 ? FILES : api === 2 ? FILES_V2 : api === 3 ? FILES_V3 : api === 4 ? FILES_V4 : FILES_V5;
 export const sha256 = data => createHash('sha256').update(data).digest('hex');
 export const runtimeHome = (env = process.env) => resolve(env.GRAFLY_MC_RUNTIME_HOME || join(homedir(), '.grafly', 'mc-runtime'));
 const fail = code => { throw new Error(code); };
@@ -65,7 +66,7 @@ export function verifyEnvelope(envelope, config) {
   if (!verify(null, bytes, config.publicKey, Buffer.from(envelope.signature, 'base64'))) fail('mc_signature');
   const m = JSON.parse(bytes);
   if (m.schema !== 'mc.runtime.release.v1' || !stableVersion(m.version)
-      || compareVersion(m.version, config.minimumVersion) < 0 || ![1, 2, 3, 4].includes(m.runtime_api) || m.python_min !== '3.11'
+      || compareVersion(m.version, config.minimumVersion) < 0 || ![1, 2, 3, 4, 5].includes(m.runtime_api) || m.python_min !== '3.11'
       || !/^[a-f0-9]{40}$/.test(m.source) || !/^[a-f0-9]{64}$/.test(m.sha256)
       || !Number.isSafeInteger(m.sequence) || m.sequence < 1
       || !Number.isSafeInteger(m.bytes) || m.bytes < 1 || m.bytes > MAX_BYTES
@@ -77,7 +78,7 @@ export function verifyBundle(bytes, metadata) {
   if (bytes.length !== metadata.bytes || bytes.length > MAX_BYTES || sha256(bytes) !== metadata.sha256) fail('mc_bundle_hash');
   const b = JSON.parse(bytes);
   if (b.schema !== 'mc.runtime.bundle.v1' || b.version !== metadata.version || b.source !== metadata.source
-      || ![1, 2, 3, 4].includes(b.runtime_api) || b.runtime_api !== metadata.runtime_api || b.python_min !== metadata.python_min
+      || ![1, 2, 3, 4, 5].includes(b.runtime_api) || b.runtime_api !== metadata.runtime_api || b.python_min !== metadata.python_min
       || JSON.stringify(b.channels) !== JSON.stringify(metadata.channels)
       || JSON.stringify(b.provided_channels) !== JSON.stringify(provided(b.runtime_api))
       || JSON.stringify(Object.keys(b.files ?? {}).sort()) !== JSON.stringify(filesFor(b.runtime_api))) fail('mc_bundle_contract');
@@ -161,10 +162,10 @@ export async function download(config, path, max, transport = fetch) {
 }
 export function smokeTest(root, python) {
   const bundle = JSON.parse(boundedRead(join(root, 'bundle.json')));
-  if (![1, 2, 3, 4].includes(bundle.runtime_api) || !validChannels(bundle.channels, bundle.runtime_api)) fail('mc_smoke_contract');
+  if (![1, 2, 3, 4, 5].includes(bundle.runtime_api) || !validChannels(bundle.channels, bundle.runtime_api)) fail('mc_smoke_contract');
   // Probe seed contracts, independently of this user's active learned models.
   // This nonexistent, private stage path is only read; no learning state is created.
-  const env = { ...process.env, MC_LEARNING_HOME: join(root, '.smoke-learning-disabled') };
+  const env = { ...process.env, MC_LEARNING_HOME: join(root, '.smoke-learning-disabled'), MC_MODEL_HOME: join(root, '.smoke-models-disabled') };
   const canonical = value => value && typeof value === 'object'
     ? Array.isArray(value) ? '[' + value.map(canonical).join(',') + ']'
       : '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + canonical(value[k])).join(',') + '}'
@@ -279,7 +280,7 @@ export function smokeTest(root, python) {
           || !output.decision.improvements.every(v => typeof v === 'string') || !output.evidence.length) fail('mc_smoke_quality_contract');
     }
   }
-  if (bundle.runtime_api === 4) {
+  if (bundle.runtime_api >= 4) {
     const payloads = ['document_suitability', 'tool_call_suitability', 'input_block_retention'].map(task => ({
       source: 'grafly', task, group_id: 'a'.repeat(64), case_origin: 'synthetic', goal: 'Preserve required evidence.',
       constraints: [], items: task === 'tool_call_suitability'

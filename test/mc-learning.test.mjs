@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash, generateKeyPairSync, sign } from 'node:crypto';
+import { generateKeyPairSync, sign } from 'node:crypto';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, readdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -13,6 +13,7 @@ import { recordLabel } from '../dist/circuit/feedback.js';
 import { logCircuit } from '../dist/graph/traverse-cli.js';
 import { FEATURE_KEYS } from '../dist/circuit/mc-channel.js';
 import { executeCliRequest } from '../dist/search/cli-request.js';
+import { symbolModel, installConsumerModel } from './fixtures/mc-model.mjs';
 
 function configured(t, real = false, mutate = () => {}) {
     const root = mkdtempSync(join(tmpdir(), 'grafly-mc-learning-'));
@@ -110,25 +111,25 @@ test('actual signed API3 package rejects channel versions inconsistent with sign
     assert.equal(existsSync(join(f.root, 'active.json')), false);
 });
 
-test('actual signed API3 package connects Grafly feedback to the MC database and bounded trainer',
+test('actual signed API5 forwards feedback and service status without training',
     { skip: !process.env.GRAFLY_TEST_MC_SOURCE || !process.env.GRAFLY_TEST_PYTHON }, async t => {
     const f = configured(t, true);
     const home = join(f.root, 'learning'); mkdirSync(home);
-    const previous = process.env.MC_LEARNING_HOME;
+    const previous = process.env.MC_LEARNING_HOME, priorService = process.env.MC_SERVICE_HOME;
     process.env.MC_LEARNING_HOME = home;
+    process.env.MC_SERVICE_HOME = join(f.root, 'service');
     t.after(() => { if (previous === undefined) delete process.env.MC_LEARNING_HOME; else process.env.MC_LEARNING_HOME = previous; });
+    t.after(() => { if (priorService === undefined) delete process.env.MC_SERVICE_HOME; else process.env.MC_SERVICE_HOME = priorService; });
     await syncRuntime(f.root, { transport: f.transport, smoke: smokeTest });
-    await runLearning('configure', f.root);
+    writeFileSync(join(home, 'config.json'), JSON.stringify({ schema: 'mc.learning.config.v1', enabled: true }));
     const judgment = observation(f.root), log = join(f.root, 'circuit.jsonl');
     const jid = logCircuit(log, judgment);
-    const first = await runLearning('cycle', f.root);
-    assert.equal(first.accepted, 1); assert.equal(first.observations, 1);
-    assert.equal(first.tasks.symbol_disambiguation.labeled, 0);
     recordLabel(log, f.root, jid, judgment.top1, 'checked the exact declaration and caller');
-    const second = await runLearning('cycle', f.root);
-    assert.equal(second.observations, 1); assert.equal(second.tasks.symbol_disambiguation.labeled, 1);
     const status = await runLearning('status', f.root);
-    assert.equal(status.enabled, true); assert.equal(status.models.symbol_disambiguation, null);
+    assert.equal(status.schema, 'mc.learning.service.status.v1'); assert.equal(status.enabled, true);
+    assert.equal(status.last_cycle, null); assert.equal(existsSync(join(home, 'feedback.sqlite3')), false);
+    assert.equal(readdirSync(join(home, 'inbox')).length, 2);
+    await assert.rejects(runLearning('cycle', f.root), /mc_learning_mc_owned/);
     const selected = resolveRuntime(f.root);
     const path = join(selected.root, 'bundle.json'), bundle = JSON.parse(readFileSync(path));
     bundle.channels.patch_quality.version = bundle.channels.patch_quality.version === '0.2.0' ? '0.2.1' : '0.2.0';
@@ -139,15 +140,15 @@ test('actual signed API3 package connects Grafly feedback to the MC database and
 
 test('resident callers use the model activated since the previous request',
     { skip: !process.env.GRAFLY_TEST_MC_SOURCE || !process.env.GRAFLY_TEST_PYTHON }, async t => {
-    const f = configured(t, true), home = join(f.root, 'learning'), repo = join(f.root, 'repo');
+    const f = configured(t, true), home = join(f.root, 'consumer'), repo = join(f.root, 'repo');
     mkdirSync(home); mkdirSync(repo); mkdirSync(join(home, 'models'));
-    const keys = ['GRAFLY_MC_RUNTIME_HOME', 'MC_LEARNING_HOME', 'GRAFLY_WEIGHTS', 'MC_ROOT'];
+    const keys = ['GRAFLY_MC_RUNTIME_HOME', 'MC_LEARNING_HOME', 'MC_MODEL_HOME', 'GRAFLY_WEIGHTS', 'MC_ROOT'];
     const prior = Object.fromEntries(keys.map(k => [k, process.env[k]]));
     t.after(() => { for (const k of keys) prior[k] === undefined ? delete process.env[k] : process.env[k] = prior[k]; });
-    process.env.GRAFLY_MC_RUNTIME_HOME = f.root; process.env.MC_LEARNING_HOME = home;
+    process.env.GRAFLY_MC_RUNTIME_HOME = f.root; process.env.MC_MODEL_HOME = home;
+    process.env.MC_LEARNING_HOME = join(f.root, 'learning-disabled');
     delete process.env.GRAFLY_WEIGHTS; delete process.env.MC_ROOT;
     await syncRuntime(f.root, { transport: f.transport, smoke: smokeTest });
-    await runLearning('configure', f.root);
     for (const name of ['a', 'b']) writeFileSync(join(repo, name + '.js'), 'export function choose() {}');
     const build = await executeCliRequest({ command: 'build', argv: ['build', '.'], cwd: repo });
     assert.equal(build.exitCode, 0, build.stderr);
@@ -155,17 +156,8 @@ test('resident callers use the model activated since the previous request',
     const first = await executeCliRequest(request);
     assert.equal(first.exitCode, 0, first.stderr);
     assert.equal(JSON.parse(first.stdout).circuit.model_sha256, null);
-    const weights = JSON.parse(readFileSync(new URL('../dist/circuit/mc/symbol_disambiguation.json', import.meta.url))).weights;
-    const activate = delta => {
-        const model = { schema: 'mc.learned.v1', policy: 'mc.grouped-fresh-audit.v1', task: 'symbol_disambiguation',
-            approved: true, abstain_gap: 0.5, bias: 0, weights: { ...weights, exact_name: weights.exact_name + delta } };
-        const bytes = Buffer.from(JSON.stringify(model)), digest = sha256(bytes);
-        writeFileSync(join(home, 'models', digest + '.json'), bytes);
-        writeFileSync(join(home, 'active.json'), JSON.stringify({ schema: 'mc.learning.active.v1', models: { symbol_disambiguation: digest } }));
-        return digest;
-    };
     for (const delta of [0.01, 0.02]) {
-        const expected = activate(delta), result = await executeCliRequest(request);
+        const expected = installConsumerModel(home, symbolModel(delta)), result = await executeCliRequest(request);
         assert.equal(result.exitCode, 0, result.stderr);
         assert.equal(JSON.parse(result.stdout).circuit.model_sha256, expected);
     }

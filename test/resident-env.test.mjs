@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { readGraph, wiringPath } from '../dist/graph/write.js';
+import { symbolModel, installConsumerModel } from './fixtures/mc-model.mjs';
 
 test('stdio requests inherit executable lookup, accept overrides and restore it for the next request', t => {
     const root = mkdtempSync(join(tmpdir(), 'grafly-resident-env-'));
@@ -47,7 +47,7 @@ test('stdio requests inherit executable lookup, accept overrides and restore it 
     }
 });
 
-test('actual resident clients select and collect into their own MC learning home on each request', async t => {
+test('resident clients select inference models separately from their feedback home on each request', async t => {
     const root = mkdtempSync(join(tmpdir(), 'grafly-resident-learning-'));
     let daemon;
     t.after(async () => {
@@ -69,11 +69,9 @@ test('actual resident clients select and collect into their own MC learning home
         writeFileSync(join(home, 'config.json'), JSON.stringify({ schema: 'mc.learning.config.v1', enabled: true }));
     writeFileSync(join(service, 'config.json'), JSON.stringify({ xerjUrl: null }));
     for (const name of ['a', 'b']) writeFileSync(join(repo, name + '.js'), 'export function choose() {}');
-    const weights = JSON.parse(readFileSync(new URL('../dist/circuit/mc/symbol_disambiguation.json', import.meta.url))).weights;
-    const model = { schema: 'mc.learned.v1', policy: 'mc.grouped-fresh-audit.v1', task: 'symbol_disambiguation',
-        approved: true, abstain_gap: 0.5, bias: 0, weights: { ...weights, exact_name: weights.exact_name + 0.1 } };
-    const bytes = Buffer.from(JSON.stringify(model)), sha = createHash('sha256').update(bytes).digest('hex');
-    writeFileSync(join(learnedHome, 'models', sha + '.json'), bytes);
+    const modelHome = join(root, 'consumer'), emptyModels = join(root, 'empty-models');
+    const sha = installConsumerModel(modelHome, symbolModel(0.1));
+    writeFileSync(join(learnedHome, 'models', sha + '.json'), JSON.stringify(symbolModel(0.1)));
     writeFileSync(join(learnedHome, 'active.json'), JSON.stringify({ schema: 'mc.learning.active.v1', models: { symbol_disambiguation: sha } }));
     const env = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(GRAFLY_|GRAFT_|MC_)/i.test(key))),
         HOME: root, USERPROFILE: root, GRAFLY_MC_RUNTIME_HOME: join(root, 'unconfigured-runtime'), GRAFLY_SEARCH_HOME: service, GRAFLY_MC: '0' };
@@ -99,10 +97,12 @@ test('actual resident clients select and collect into their own MC learning home
         });
     });
     const callers = requestEnv => JSON.parse(run(['callers', 'choose', '--json'], { ...env, ...requestEnv })).circuit;
-    assert.equal(callers({ MC_LEARNING_HOME: learnedHome, GRAFLY_NO_DAEMON: '1' }).model_sha256, sha);
-    for (const [home, expected] of [[learnedHome, sha], [seedHome, null], [learnedHome, sha]])
-        assert.equal(callers({ MC_LEARNING_HOME: home }).model_sha256, expected);
-    assert.equal(JSON.parse(run(['daemon', 'status'], env)).queries, 3);
+    assert.equal(callers({ MC_LEARNING_HOME: learnedHome, MC_MODEL_HOME: modelHome, GRAFLY_NO_DAEMON: '1' }).model_sha256, sha);
+    for (const [home, models, expected] of [[learnedHome, modelHome, sha], [seedHome, emptyModels, null], [learnedHome, modelHome, sha]])
+        assert.equal(callers({ MC_LEARNING_HOME: home, MC_MODEL_HOME: models }).model_sha256, expected);
+    assert.equal(callers({ MC_LEARNING_HOME: seedHome, MC_MODEL_HOME: modelHome, MC_MODEL_DISABLED: '1' }).model_sha256, null);
+    assert.equal(callers({ MC_LEARNING_HOME: seedHome, MC_MODEL_HOME: modelHome }).model_sha256, sha);
+    assert.equal(JSON.parse(run(['daemon', 'status'], env)).queries, 5);
     assert.equal(existsSync(join(serviceHome, 'inbox')), false);
     for (const home of [learnedHome, seedHome]) assert.equal(readdirSync(join(home, 'inbox')).length, 1);
 });

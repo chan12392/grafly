@@ -192,8 +192,8 @@ export function judgeSymbols(graph, query, matches, ctx) {
     const deg = degreeMap(graph);
     const candidates = matches.map(node => ({ id: node.id, node,
         features: matchFeatures(graph, query, node, deg, ctx?.cwdTokens) }));
-    const result = rankFeatures(candidates, { weights: W, abstainGap: ABSTAIN_GAP });
+    const result = rankFeatures(candidates, { ...(process.env.GRAFLY_WEIGHTS ? { weights: W } : {}), abstainGap: ABSTAIN_GAP });
     // Retain Grafly's in-process Infinity convention; channel JSON uses null.
-    return { ...result, model_sha256: process.env.GRAFLY_WEIGHTS ? null : MODEL_SHA256, gap: result.gap ?? Number.POSITIVE_INFINITY,
+    return { ...result, model_sha256: process.env.GRAFLY_WEIGHTS ? null : (Object.hasOwn(result, 'model_sha256') ? result.model_sha256 : MODEL_SHA256), gap: result.gap ?? Number.POSITIVE_INFINITY,
         ranked: result.ranked.map(({ id, ...candidate }) => candidate) };
 }

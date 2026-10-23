@@ -127,10 +127,10 @@ export function applyRanges(text, stream) {
 
 export async function runCommand(command, args = [], options = {}) {
     const env = options.env ?? process.env;
+    const pinned = pinRuntime(env); // An in-flight command retains its starting version.
     await observeComparison({ task: 'tool_call_suitability', items: [{ id: 'proposed-call',
         text: JSON.stringify({ command, args, purpose: 'The caller requested this command; no independent scope judgment is available.' }),
         protected: false, constraint_status: 'unknown' }] }, { cwd: options.cwd, sessionId: options.sessionId, env });
-    const pinned = pinRuntime(env); // An in-flight command retains its starting version.
     // Shell wrappers stay raw. Serve only simple, directly invoked file reads.
     if (env.GRAFLY_TOOL_OUTPUT !== "0") {
         try {

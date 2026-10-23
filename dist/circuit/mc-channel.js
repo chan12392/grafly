@@ -13,6 +13,6 @@ if (channel.ARTIFACT?.schema !== 'mc.symbol_disambiguation.v1' || channel.ARTIFA
     throw new Error('mc_symbol_channel_contract');
 export const SYMBOL_CHANNEL = Object.freeze({ channel_id: channel.ARTIFACT.channel_id, version: channel.ARTIFACT.channel_version,
     source: managed ? 'signed-runtime' : 'packaged', runtimeVersion: managed ? pinned.metadata.version : null,
-    model_sha256: process.env.GRAFLY_WEIGHTS ? null : channel.MODEL_SHA256 || null });
+    get model_sha256() { return process.env.GRAFLY_WEIGHTS ? null : channel.MODEL_SHA256 || null; } });
 export const { rankFeatures, DEFAULT_WEIGHTS, FEATURE_KEYS, ARTIFACT } = channel;
 export const MODEL_SHA256 = channel.MODEL_SHA256 || null;
