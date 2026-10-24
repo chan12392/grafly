@@ -176,7 +176,9 @@ export async function runCommand(command, args = [], options = {}) {
         protected: false, constraint_status: 'unknown', ...(typed ? { tool } : {}) }] },
         { cwd: options.cwd, sessionId: options.sessionId, env });
     // Shell wrappers stay raw. Serve only simple, directly invoked file reads.
-    if (env.GRAFLY_TOOL_OUTPUT !== "0") {
+    // Preservation hints require validation against the original command streams.
+    if (env.GRAFLY_TOOL_OUTPUT !== "0" && options.required_stdout_ranges === undefined
+        && options.required_stderr_ranges === undefined && options.focus_terms === undefined) {
         try {
             const { serveReadCommand } = await import("./output.js");
             if (classifyCommand(command, args) === "read") {

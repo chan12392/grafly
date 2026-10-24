@@ -241,6 +241,46 @@ test("caller ranges and focus reach MC unchanged; an older reduction losing them
     assert.equal(readOutput(result.id, { archiveDir: f.options.archiveDir, stream: 'stderr' }).toString(), payload.stderr);
 });
 
+test("direct cat reads preserve caller-required and focused original lines", async t => {
+    const command = process.platform === "win32" ? "C:/Program Files/Git/usr/bin/cat.exe" : "cat";
+    if (spawnSync(command, [], { input: "", encoding: "utf8", windowsHide: true }).status !== 0) return t.skip("cat unavailable");
+    for (const [name, hints, reason] of [
+        ["required range", { required_stdout_ranges: [[300, 301]] }, "required_output_omitted"],
+        ["literal focus", { focus_terms: ["preserve this focus"] }, "focused_output_omitted"],
+        ["combined hints", { required_stdout_ranges: [[300, 301]], required_stderr_ranges: [],
+            focus_terms: ["preserve this focus"] }, "required_output_omitted"],
+    ]) await t.test(name, async () => {
+        const f = fixture();
+        const original = Array.from({ length: 400 }, (_, i) => `line ${i}: ${i === 300 ? "preserve this focus" : "ordinary output details"}\n`).join("");
+        writeFileSync(join(f.dir, "rows.txt"), original);
+        let payload;
+        const result = await runCommand(command, ["rows.txt"], { ...f.options, ...hints, judge(input) {
+            payload = input;
+            return { decision: { verdict: "reduced", streams: {
+                stdout: { keep: [[0, 200]], output_bytes: Buffer.byteLength(lines(input.stdout).slice(0, 200).join("")) },
+                stderr: { keep: [], output_bytes: 0 },
+            } } };
+        } });
+        assert.match(f.text("stdout"), /line 300: preserve this focus\n/);
+        assert.equal(result.exit_code, 0); assert.equal(result.verdict, "passthrough"); assert.equal(result.reason, reason);
+        for (const [key, value] of Object.entries(hints)) assert.deepEqual(payload[key], value);
+        assert.equal(f.text("stdout"), original);
+        assert.equal(readOutput(result.id, { archiveDir: f.options.archiveDir }).toString(), original);
+    });
+});
+
+test("direct cat reads without preservation hints retain bounded read delivery", async () => {
+    const f = fixture();
+    writeFileSync(join(f.dir, "rows.txt"), Array.from({ length: 400 }, (_, i) => `line ${i}\n`).join(""));
+    const result = await runCommand("cat", ["rows.txt"], { ...f.options,
+        judge() { assert.fail("bounded reads must not request an MC reduction"); } });
+    assert.equal(result.served, "read-path"); assert.equal(result.exit_code, 0); assert.equal(result.archive, null);
+    assert.match(f.text("stdout"), /shown 1-200;.*complete=false/);
+    assert.match(f.text("stdout"), /line 199\n/);
+    assert.ok(!f.text("stdout").includes("line 200\n"));
+    assert.equal(f.text("stderr"), "");
+});
+
 test("literal search arguments supply focus only when unambiguous and never rewrite requested coordinates", async t => {
     if (spawnSync('rg', ['--version'], { encoding: 'utf8', windowsHide: true }).status !== 0) return t.skip('rg unavailable');
     const f = fixture();
