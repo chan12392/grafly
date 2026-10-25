@@ -9,7 +9,8 @@
  * human text and wires the CLI command; the workspace path renders the same
  * shape.
  */
-import { join } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
+import { realpathSync } from "node:fs";
 import { WALK_RELATIONS } from "../graph/relations.js";
 import { assertPrefixIndexed, pathUnderPrefix } from "../graph/scopes.js";
 import { normalizePathPrefix } from "../util/paths.js";
@@ -89,7 +90,15 @@ export function grepGraph(graph, repoRoot, pattern, opts = {}) {
     for (const file of fileNodes) {
         let text;
         try {
-            const decoded = readSourceFile(join(repoRoot, file.path));
+            // Graph paths cannot grant access outside the checkout, including through links.
+            const base = realpathSync(repoRoot);
+            const path = realpathSync(resolve(base, file.path));
+            const rel = relative(base, path);
+            if (isAbsolute(file.path) || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+                truncatedFiles++;
+                continue;
+            }
+            const decoded = readSourceFile(path);
             if (decoded === null) {
                 truncatedFiles++; // unsupported encoding (e.g. UTF-16BE) — same posture as unreadable
                 continue;

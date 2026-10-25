@@ -398,11 +398,11 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
                 const candidates = (perFileName.get(targetFile)?.get(e.name) ?? []).filter((n) => importKinds.includes(n.kind));
                 if (candidates.length === 1) {
                     add(e.source, candidates[0].id, "calls", "extracted");
-                    continue;
                 }
-                // Module resolved but the name isn't found uniquely inside —
-                // `export *` re-export chains hide it from perFileName, so
-                // fall through to bare-name resolution rather than force a drop.
+                else if (candidates.length > 1 && opts.dropped)
+                    opts.dropped.push({ source: e.source, name: e.name });
+                // Unknown exports/re-exports are not evidence for a global name match.
+                continue;
             }
             hit = resolveName(e.name, e.file, callKinds, perFileName, globalName);
             // Python is the Java case without the `new` to mark it: `Widget()` is an
@@ -478,8 +478,8 @@ function nameCandidateCount(name, file, kinds, perFileName, globalName) {
  *
  * Returns:
  *   - `{ id, confidence }` — resolved: a single candidate at some owner level (or the
- *     same-file one among several).
- *   - `"ambiguous"` — several candidates at some owner level and none is same-file;
+ *     unique same-file one among several).
+ *   - `"ambiguous"` — several candidates at some owner level without a unique same-file match;
  *     per the inviolable philosophy we drop and stop rather than guess, and we do
  *     NOT continue up the chain past this level.
  *   - `null` — the whole chain (recvType + ancestors, breadth-first, depth ≤ 3,
@@ -529,10 +529,10 @@ function resolveTypedMember(recvType, name, file, ownerMethod, classParents, cla
                 // stamp it `extracted`, a confidently wrong edge. Drop instead.
                 if (SWIFT_EXT.test(file))
                     return "ambiguous";
-                const sameFile = candidates.find((c) => c.path === file);
-                if (sameFile)
-                    return { id: sameFile.id, confidence: "extracted" };
-                return "ambiguous"; // several, none same-file — drop and stop
+                const sameFile = candidates.filter((c) => c.path === file);
+                if (sameFile.length === 1)
+                    return { id: sameFile[0].id, confidence: "extracted" };
+                return "ambiguous";
             }
             const traitHit = resolveTraitMember(type, name, file, ownerMethod, classTraits, argCount);
             if (traitHit === "ambiguous")

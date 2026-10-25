@@ -233,6 +233,7 @@ export function serveReadCommand(command, args = [], { cwd = process.cwd(), sess
     const inv = readInvocation(command, args);
     if (!inv) return null;
     const full = resolve(cwd, inv.path);
+    if (!statSync(full).isFile()) return null;
     if (inv.opts.tail !== undefined) { // tail: read to locate the start line; output stays budgeted
         const total = lines(new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(full))).length;
         return readPath(full, { start: String(Math.max(1, total - inv.opts.tail + 1)), count: String(inv.opts.tail), sessionId });

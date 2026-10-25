@@ -35,7 +35,7 @@ export interface GrepResult {
     /** Sorted: inDegree desc, then path asc. */
     groups: GrepGroup[];
     /** Dropped counts — never silent. `files`: indexed file nodes that
-     * couldn't be read from disk. `hits`: matches found beyond `maxHits`,
+     * couldn't be read within the checkout. `hits`: matches found beyond `maxHits`,
      * counted but not collected. */
     truncated: {
         files: number;

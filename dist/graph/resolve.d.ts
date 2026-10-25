@@ -12,5 +12,7 @@ export interface ResolveOptions {
      * (`example.com/app/pkg/util`) to the in-repo directory they name, relative to the
      * owning module's `go.mod` location. Empty/absent → Go imports stay external strings. */
     goModules?: GoModule[];
+    /** Receives call/reference sites dropped because several candidates remain. */
+    dropped?: { source: string; name: string }[];
 }
 export declare function resolveEdges(nodes: NodeV1[], rawEdges: RawEdge[], opts?: ResolveOptions): EdgeV1[];

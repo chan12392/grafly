@@ -1,4 +1,5 @@
-import { type Direction } from "./traverse.js";
+import type { CallersCliOptions, CircuitReport, symbolJson, hitJson, unresolvedCallers } from "./traverse-cli.js";
+import type { Savings } from "../context/savings.js";
 import type { GraphV1 } from "./types.js";
 import { type AskResult } from "../ask/ask.js";
 import { type GrepResult } from "../search/grep.js";
@@ -106,13 +107,31 @@ export declare function federateCheck(root: string, override?: string): Promise<
 }>;
 /** Resolve a symbol across every child, grouped per child. Reuses the shared
  * traverse-cli formatters so each block reads exactly like `graft callers`. */
-export declare function federateCallers(root: string, override: string | undefined, symbol: string, opts?: {
-    direction?: Direction;
-    depth?: number;
-    in?: string;
-}): {
+export type FederateCallersOptions = Omit<CallersCliOptions, "globalDir">;
+export interface WorkspaceCallersPayload {
+    query: string;
+    /** Symbol IDs and paths remain relative to each named child repository. */
+    repos: Array<{
+        repo: string;
+        matches: Array<{
+            symbol: ReturnType<typeof symbolJson>;
+            hits: ReturnType<typeof hitJson>[];
+            hitOverflow?: number;
+            note?: string;
+        }>;
+        circuit?: CircuitReport & { jid?: string };
+        truncated?: { shown: number; total: number; omitted: string[] };
+        ambiguousCalls?: ReturnType<typeof unresolvedCallers>["ambiguous"];
+        unresolvedNameRefs?: ReturnType<typeof unresolvedCallers>["nameRefs"];
+        limitations?: string[];
+        saved?: Savings;
+    }>;
+    coverage?: string;
+}
+export declare function federateCallers(root: string, override: string | undefined, symbol: string, opts?: FederateCallersOptions): {
     text: string;
     found: boolean;
+    payload: WorkspaceCallersPayload;
 };
 /**
  * Split a parent into a workspace: build each git child (via the supplied

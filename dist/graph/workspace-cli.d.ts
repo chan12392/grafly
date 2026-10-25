@@ -1,5 +1,5 @@
 import type { EngineConfig } from "../ai/providers.js";
-import type { Direction } from "./traverse.js";
+import type { FederateCallersOptions } from "./workspace.js";
 export interface WorkspaceBuildOptions {
     deep: boolean;
     vision?: boolean;
@@ -41,8 +41,4 @@ export declare function runWorkspaceMap(root: string, override: string | undefin
     maxDirs?: number;
 }): void;
 export declare function runWorkspaceCheck(root: string, override?: string): Promise<void>;
-export declare function runWorkspaceCallers(root: string, override: string | undefined, symbol: string, opts: {
-    direction?: Direction;
-    depth?: number;
-    in?: string;
-}): void;
+export declare function runWorkspaceCallers(root: string, override: string | undefined, symbol: string, opts: FederateCallersOptions): void;

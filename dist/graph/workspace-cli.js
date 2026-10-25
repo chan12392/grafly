@@ -101,10 +101,10 @@ export async function runWorkspaceCheck(root, override) {
         exitCommand(1);
 }
 export function runWorkspaceCallers(root, override, symbol, opts) {
-    const { text, found } = federateCallers(root, override, symbol, opts);
+    const { text, found, payload } = federateCallers(root, override, symbol, opts);
     if (!found) {
         console.error(`✗ ${text}`);
         exitCommand(1);
     }
-    process.stdout.write(text + "\n");
+    process.stdout.write((opts.json ? JSON.stringify(payload, null, 2) : text) + "\n");
 }

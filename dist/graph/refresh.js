@@ -219,7 +219,7 @@ export async function ensureFreshGraph(root, opts = {}) {
 export async function ensureFreshChildren(root, children, opts = {}) {
     if (opts.disabled || envDisabled())
         return CLEAN;
-    const refreshedIn = [], stale = [];
+    const refreshedIn = [], notes = [];
     let files = 0;
     for (const child of children) {
         // Deliberately NOT `opts`: `contextDirFor` returns an override verbatim and
@@ -234,17 +234,16 @@ export async function ensureFreshChildren(root, children, opts = {}) {
             refreshedIn.push(child);
             files += r.drift ? driftCount(r.drift) : 0;
         }
-        // A child that could not refresh answers from a stale graph — its note
-        // must reach the caller whether or not siblings rebuilt fine.
-        else if (r.note)
-            stale.push(`${child}: ${r.note}`);
+        // Partial rebuilds also carry warnings that must reach the caller.
+        if (r.note)
+            notes.push(`${child}: ${r.note}`);
     }
     if (!refreshedIn.length)
-        return stale.length ? { refreshed: false, note: stale.join("; ") } : CLEAN;
+        return notes.length ? { refreshed: false, note: notes.join("; ") } : CLEAN;
     const built = `refreshed ${refreshedIn.join(", ")} (${files || "?"} file${files === 1 ? "" : "s"} changed) before answering`;
     return {
         refreshed: true,
-        note: stale.length ? `${built}; stale: ${stale.join("; ")}` : built,
+        note: notes.length ? `${built}; ${notes.join("; ")}` : built,
     };
 }
 /** The one-line note a query surface prints when a refresh actually happened.
