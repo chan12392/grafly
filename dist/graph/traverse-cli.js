@@ -185,10 +185,10 @@ function boundedLevenshtein(a, b, max) {
     }
     return prev[b.length];
 }
-function symbolJson(n) {
+export function symbolJson(n) {
     return { id: n.id, name: n.name, kind: n.kind, path: n.path, span: n.span };
 }
-function hitJson(hit) {
+export function hitJson(hit) {
     const out = { id: hit.id, relation: hit.relation, depth: hit.depth };
     if (hit.node) {
         out.name = hit.node.name;
@@ -206,6 +206,37 @@ function resolveDirection(raw) {
         return raw;
     console.error(`✗ --direction must be "in" or "out", got "${raw}"`);
     exitCommand(1);
+}
+/** Shared option validation and output bounds for single-repo and workspace walks. */
+export function parseCallersOptions(opts) {
+    const direction = resolveDirection(opts.direction);
+    let depth = DEFAULT_DEPTH;
+    if (opts.depth !== undefined) {
+        if (opts.depth === Infinity || /^(all|full|max)$/i.test(opts.depth)) depth = Infinity;
+        else {
+            const d = Number(opts.depth);
+            if (!Number.isFinite(d) || d < 1) {
+                console.error(`✗ --depth must be a positive number or "all", got "${opts.depth}"`);
+                exitCommand(1);
+            }
+            depth = Math.floor(d);
+        }
+    }
+    const topN = opts.top !== undefined ? Math.max(1, Math.floor(Number(opts.top) || 1)) : null;
+    const hitLimit = opts.limit === undefined ? 100
+        : /^(0|all|none)$/i.test(String(opts.limit)) ? Infinity
+            : Math.max(1, Math.floor(Number(opts.limit) || 1));
+    return { direction, depth, topN, hitLimit };
+}
+/** Preserve dropped calls and bare-name edges outside the resolved hit counts. */
+export function unresolvedCallers(graph, matches, adj, direction) {
+    const names = new Set(matches.map(m => m.name));
+    const ids = new Set(matches.map(m => m.id));
+    return {
+        ambiguous: direction === "in" ? (graph.ambiguousCalls ?? []).filter(a => names.has(a.name)) : [],
+        nameRefs: direction === "in" ? [...names].filter(name => !ids.has(name))
+            .flatMap(name => (adj.get(name) ?? []).map(edge => ({ source: edge.other, relation: edge.relation, name }))) : [],
+    };
 }
 /**
  * Resolve `query` in the graph at `dir` (respecting `--dir`/`--in`), walk edges
@@ -242,26 +273,7 @@ export function runCallersCommand(query, dir, opts) {
             `  for unindexed text (scripts, docs, generated code): grafly grep "${query}" or raw grep -rn`);
         exitCommand(1);
     }
-    const direction = resolveDirection(opts.direction);
-    let depth = DEFAULT_DEPTH;
-    if (opts.depth !== undefined) {
-        // `all` (aka full/max) = the whole transitive closure: walk until no new
-        // node is reached. The BFS's visited-set makes this cycle-safe, and it
-        // terminates when the frontier empties. This is the "show me every
-        // connected source" mode — the right first move before a multi-file
-        // refactor, where stopping at direct edges misses sibling/downstream files.
-        if (/^(all|full|max)$/i.test(opts.depth)) {
-            depth = Number.POSITIVE_INFINITY;
-        }
-        else {
-            const d = Number(opts.depth);
-            if (!Number.isFinite(d) || d < 1) {
-                console.error(`✗ --depth must be a positive number or "all", got "${opts.depth}"`);
-                exitCommand(1);
-            }
-            depth = Math.floor(d);
-        }
-    }
+    const { direction, depth, topN, hitLimit } = parseCallersOptions(opts);
     const showDepth = depth > 1;
     // Navigation BEFORE judging: narrowing is an observation, not a correct/incorrect label.
     // Runs before this query's own judgment is appended so a query can never
@@ -284,7 +296,6 @@ export function runCallersCommand(query, dir, opts) {
     // would hide the very ambiguity it just surfaced. Only a confident
     // ranking earns the right to cut.
     let truncated = null;
-    const topN = opts.top !== undefined ? Math.max(1, Math.floor(Number(opts.top) || 1)) : null;
     const shown = topN !== null && matches.length > topN && circuit?.verdict !== "abstain"
         ? matches.slice(0, topN)
         : matches;
@@ -298,9 +309,6 @@ export function runCallersCommand(query, dir, opts) {
     // A hub symbol (log, error, render) can have thousands of callers — an
     // agent needs the shape and a representative sample, not every line. The
     // overflow count and how-to-widen hint keep the tail discoverable.
-    const hitLimit = opts.limit === undefined ? 100
-        : /^(0|all|none)$/i.test(String(opts.limit)) ? Infinity
-            : Math.max(1, Math.floor(Number(opts.limit) || 1));
     const results = shown.map((symbol) => {
         const hits = sharedEdgeWalk(graph, adj, byId, symbol, direction, depth);
         return { symbol, hits: hits.slice(0, hitLimit), overflow: Math.max(0, hits.length - hitLimit) };
@@ -308,26 +316,11 @@ export function runCallersCommand(query, dir, opts) {
     // Call sites that named one of these symbols but were dropped for
     // ambiguity — recorded at build time (graph.ambiguousCalls) so the
     // undercount is visible instead of silent. Incoming direction only.
-    const ambNames = new Set(matches.map((m) => m.name));
-    const ambiguous = direction === "in"
-        ? (graph.ambiguousCalls ?? []).filter((a) => ambNames.has(a.name))
-        : [];
+    const { ambiguous, nameRefs } = unresolvedCallers(graph, matches, adj, direction);
     // Opt-in second opinion: dropped call sites go to morecoffee's live
     // code_relation channel (GRAFLY_MC_HOME) — the circuit ranks from the
     // graph, MC re-reads the source. Null unless configured; never fatal.
     const escalation = escalateAmbiguous(root, query, matches, ambiguous);
-    // Name-literal edge targets: an ambiguous `extends Foo` resolves to the
-    // bare name, so the edge exists but is keyed under "Foo" — not under any
-    // node id. For a callers query on a real same-named node that's the same
-    // silent undercount, except the evidence is already in the graph: look up
-    // the bare name in adjacency too. (Skipped when the name IS a matched
-    // node id — file nodes are addressed by path — to avoid double-reporting
-    // resolved hits.)
-    const matchIds = new Set(matches.map((m) => m.id));
-    const nameRefs = direction === "in"
-        ? [...ambNames].filter((n) => !matchIds.has(n))
-            .flatMap((n) => (adj.get(n) ?? []).map((x) => ({ source: x.other, relation: x.relation, name: n })))
-        : [];
     const saved = callersSavings(graph, results);
     // Judgment log: what the circuit saw and decided, as JSONL next to the
     // graph it judged — the raw material for retraining weights and for

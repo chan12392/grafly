@@ -28,7 +28,7 @@ import { archiveIndex } from '../context/archive-index.js';
 import { loadGraphCached, loadTraverseCached } from "./load.js";
 import { buildRepoMap, formatRepoMap } from "./map.js";
 import { discoverWorkspaceChildren } from "./scopes.js";
-import { callersSavings, headerOf, hitLine, looseNoteFor, judgeAndRank, circuitVerdictLine, circuitLogPath, logCircuit, walkAdjacency, sharedEdgeWalk, } from "./traverse-cli.js";
+import { callersSavings, headerOf, hitLine, looseNoteFor, judgeAndRank, circuitVerdictLine, circuitLogPath, logCircuit, walkAdjacency, sharedEdgeWalk, parseCallersOptions, symbolJson, hitJson, unresolvedCallers } from "./traverse-cli.js";
 import { resolveSymbol } from "./traverse.js";
 import { cwdContextTokens } from "../circuit/judge.js";
 import { recordFollowup } from "../circuit/feedback.js";
@@ -131,7 +131,8 @@ export function coverageNote(g) {
 }
 /** Prefix a hit pointer with its child dir so a `path:span` (or concept path
  * list) opens correctly from the parent. Leaves free-text fragments alone. */
-function prefixPointer(child, pointer) {
+function prefixPointer(child, pointer, kind) {
+    if (kind !== "concept") return `${child}/${pointer}`;
     return pointer
         .split(",")
         .map((part) => {
@@ -214,7 +215,10 @@ export async function federateAskAsync(root, override, query, opts = {}) {
     for (const { child } of wg.loaded) {
         if (onlyChild && child !== onlyChild) continue;
         try { childResults.set(child, await askAsync(join(root, child), query, childAskOptions(opts, childIn))); }
-        catch { childResults.set(child, null); }
+        catch (error) {
+            if (onlyChild) throw error;
+            childResults.set(child, null);
+        }
     }
     const result = federateAsk(root, override, query, { ...opts, childResults });
     const backends = Object.fromEntries([...childResults].filter(([, r]) => r?.searchBackend)
@@ -240,14 +244,18 @@ export function federateAsk(root, override, query, opts = {}) {
             r = opts.childResults ? opts.childResults.get(child)
                 : ask(join(root, child), query, childAskOptions(opts, childIn));
         }
-        catch {
-            continue; // corrupt child, or a sub-scope --in matching nothing here
+        catch (error) {
+            if (onlyChild) throw error;
+            continue; // An unselected corrupt child must not hide healthy siblings.
         }
         if (!r || r.hits.length === 0)
             continue;
         const topGroup = r.ranking?.groups[0];
         runs.push({
             child,
+            mode: r.mode,
+            subject: r.subject,
+            note: r.note,
             hits: r.hits,
             coverage: topGroup?.coverage ?? r.coverage ?? 0,
             coverageStrong: topGroup?.coverageStrong ?? r.coverageStrong ?? 0,
@@ -255,6 +263,19 @@ export function federateAsk(root, override, query, opts = {}) {
             baselineCoverageStrong: r.ranking?.baselineCoverageStrong ?? r.coverageStrong ?? 0,
             ranking: r.ranking,
         });
+    }
+    // Resolved graph edges need no lexical coverage gate or file-score ranking.
+    const structural = runs.filter(run => run.mode === "structural");
+    if (structural.length) {
+        const hits = roundRobinQueues(structural.map(({ child, hits }) => hits.map(hit => ({
+            ...hit, scope: child, pointer: /:L\d+-L\d+$/.test(hit.pointer) ? `${child}/${hit.pointer}` : hit.pointer,
+            ...prefixEvidence(child, hit),
+        }))), limit);
+        return {
+            query, mode: "structural", subject: [...new Set(structural.map(run => run.subject))].join(", "), hits,
+            scopes: { federated: structural.map(run => run.child), alsoMatched: [] },
+            note: [...structural.map(run => `${run.child}: ${run.note}`), coverageNote(wg)].filter(Boolean).join("\n"),
+        };
     }
     // Exact definitions are corpus-independent evidence. Keep them outside the
     // coverage gate/RRF: a long query or another repo's rank-1 must not discard
@@ -265,7 +286,7 @@ export function federateAsk(root, override, query, opts = {}) {
         .map((hit) => ({
             group: `file:${child}/${hitFile(hit.pointer)}`,
             value: { ...hit, scope: hit.scope ? `${child}/${hit.scope}` : child,
-                pointer: prefixPointer(child, hit.pointer), ...prefixEvidence(child, hit) },
+                pointer: prefixPointer(child, hit.pointer, hit.kind), ...prefixEvidence(child, hit) },
         }))));
     const withExactScopes = (scopes) => {
         if (!exactHits.length)
@@ -310,7 +331,7 @@ export function federateAsk(root, override, query, opts = {}) {
             survivors.push(run);
         else {
             const best = run.ranking?.groups[0]?.hits[0] ?? run.hits[0];
-            gatedOut.push({ scope: run.child, bestId: prefixPointer(run.child, best.pointer) });
+            gatedOut.push({ scope: run.child, bestId: prefixPointer(run.child, best.pointer, best.kind) });
         }
     }
     if (fileTopLock) {
@@ -318,7 +339,7 @@ export function federateAsk(root, override, query, opts = {}) {
             ...hit,
             score,
             scope,
-            pointer: prefixPointer(child, hit.pointer),
+            pointer: prefixPointer(child, hit.pointer, hit.kind),
             ...prefixEvidence(child, hit),
         });
         const sameHit = (a, b) => a.kind === b.kind && a.pointer === b.pointer && a.title === b.title && a.material?.id === b.material?.id;
@@ -472,7 +493,7 @@ export function federateAsk(root, override, query, opts = {}) {
             ...hit,
             score: rd.score,
             scope: rd.scope,
-            pointer: prefixPointer(child, hit.pointer),
+            pointer: prefixPointer(child, hit.pointer, hit.kind),
             ...prefixEvidence(child, hit),
         };
         return {
@@ -599,13 +620,11 @@ export function federateCallers(root, override, symbol, opts = {}) {
     const wg = loadWorkspaceGraphs(root, override, loadTraverseCached);
     const allChildren = [...wg.loaded.map((l) => l.child), ...wg.missing];
     const { onlyChild, childIn } = splitWorkspaceScope(opts.in, allChildren);
-    const direction = opts.direction ?? "in";
-    const depth = opts.depth && opts.depth >= 1 ? Math.floor(opts.depth) : 1;
+    const { direction, depth, topN, hitLimit } = parseCallersOptions(opts);
     const showDepth = depth > 1;
     const blocks = [];
+    const repos = [];
     let found = false;
-    const topN = typeof opts.top === 'number' && Number.isFinite(opts.top) && opts.top >= 1
-        ? Math.floor(opts.top) : null;
     for (const { child, graph } of wg.loaded) {
         if (onlyChild && child !== onlyChild)
             continue;
@@ -624,7 +643,14 @@ export function federateCallers(root, override, symbol, opts = {}) {
             ? matches.slice(0, topN) : matches;
         const adj = walkAdjacency(graph, direction);
         const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-        const results = shown.map((m) => ({ symbol: m, hits: sharedEdgeWalk(graph, adj, byId, m, direction, depth) }));
+        const results = shown.map((m) => {
+            const hits = sharedEdgeWalk(graph, adj, byId, m, direction, depth);
+            return { symbol: m, hits: hits.slice(0, hitLimit), overflow: Math.max(0, hits.length - hitLimit) };
+        });
+        const { ambiguous, nameRefs } = unresolvedCallers(graph, matches, adj, direction);
+        const limitations = [];
+        if (ambiguous.length) limitations.push(`${ambiguous.length} call site(s) dropped as ambiguous — incoming edges may undercount`);
+        if (nameRefs.length) limitations.push(`${nameRefs.length} edge(s) target the bare name — attribution unknown`);
         const judgmentId = judged
             ? logCircuit(logPath, { ts: new Date().toISOString(), type: 'judge', cmd: 'federated_callers',
                 query: symbol, direction, depth: Number.isFinite(depth) ? depth : 'all',
@@ -639,26 +665,45 @@ export function federateCallers(root, override, symbol, opts = {}) {
         if (judgmentId) lines.push(`  judgment: ${judgmentId} — label with grafly feedback in ${child}/ (see --help)`);
         if (shown.length < matches.length)
             lines.push(`… top ${shown.length} of ${matches.length} matches (circuit-ranked)`);
-        for (const { symbol: sym, hits } of results) {
+        for (const { symbol: sym, hits, overflow } of results) {
             lines.push(headerOf(sym));
             if (hits.length === 0)
                 lines.push(looseNoteFor(direction, sym.name, matches.length));
             else
                 for (const h of hits)
                     lines.push(hitLine(direction, h, showDepth));
+            if (overflow > 0)
+                lines.push(`  … +${overflow} more ${direction === "out" ? "callees" : "callers"} (--limit 0 to show all, or --in <dir> to narrow)`);
         }
+        lines.push(...limitations.map(note => `· ${note} (not counted above)`));
         const body = lines.join("\n");
-        blocks.push(withSavings(body, callersSavings(graph, results)));
+        const saved = callersSavings(graph, results);
+        blocks.push(withSavings(body, saved));
+        repos.push({
+            repo: child,
+            matches: results.map(r => ({ symbol: symbolJson(r.symbol), hits: r.hits.map(hitJson),
+                ...(r.overflow ? { hitOverflow: r.overflow } : {}),
+                ...(!r.hits.length ? { note: looseNoteFor(direction, r.symbol.name, matches.length) } : {}) })),
+            ...(judged ? { circuit: { ...judged.circuit, ...(judgmentId ? { jid: judgmentId } : {}) } } : {}),
+            ...(shown.length < matches.length ? { truncated: { shown: shown.length, total: matches.length,
+                omitted: matches.slice(shown.length).map(n => n.id) } } : {}),
+            ...(ambiguous.length ? { ambiguousCalls: ambiguous } : {}),
+            ...(nameRefs.length ? { unresolvedNameRefs: nameRefs } : {}),
+            ...(limitations.length ? { limitations } : {}),
+            saved,
+        });
     }
     const cov = coverageNote(wg);
     if (!found) {
         const base = `no symbol "${symbol}" in any of the ${wg.loaded.length} workspace repo(s) — check spelling or run grafly build`;
-        return { text: cov ? `${base}\n${cov}` : base, found: false };
+        return { text: cov ? `${base}\n${cov}` : base, found: false,
+            payload: { query: symbol, repos, ...(cov ? { coverage: cov } : {}) } };
     }
     let text = blocks.join("\n\n");
     if (cov)
         text += `\n\n${cov}`;
-    return { text, found: true };
+    return { text, found: true,
+        payload: { query: symbol, repos, ...(cov ? { coverage: cov } : {}) } };
 }
 /**
  * Split a parent into a workspace: build each git child (via the supplied

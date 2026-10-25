@@ -6,8 +6,8 @@ export interface CallersCliOptions {
     json?: boolean;
     /** walk direction; defaults to "in" (callers). "out" gives callees. */
     direction?: string;
-    /** max BFS depth, as the raw --depth string (validated here); defaults to 1. */
-    depth?: string;
+    /** max BFS depth, as a number or raw --depth string (validated here); defaults to 1. */
+    depth?: string | number;
     /** the top-level `--dir` override, so this command respects it like every other. */
     globalDir?: string;
     top?: string | number;
@@ -16,6 +16,20 @@ export interface CallersCliOptions {
 export type WalkAdjacency = Map<string, Array<{ other: string; relation: Relation }>>;
 export declare function walkAdjacency(graph: GraphV1, direction: Direction): WalkAdjacency;
 export declare function sharedEdgeWalk(graph: GraphV1, adj: WalkAdjacency, byId: Map<string, NodeV1>, node: NodeV1, direction: Direction, depth: number): EdgeHit[];
+export declare function symbolJson(node: NodeV1): Pick<NodeV1, "id" | "name" | "kind" | "path" | "span">;
+export declare function hitJson(hit: EdgeHit): Pick<EdgeHit, "id" | "relation" | "depth"> & Partial<Pick<NodeV1, "name" | "kind" | "path" | "span">>;
+/** Shared option validation and output bounds for single-repo and workspace walks. */
+export declare function parseCallersOptions(opts: CallersCliOptions): {
+    direction: Direction;
+    depth: number;
+    topN: number | null;
+    hitLimit: number;
+};
+/** Dropped calls and bare-name edges are not included in resolved hit counts. */
+export declare function unresolvedCallers(graph: GraphV1, matches: NodeV1[], adjacency: WalkAdjacency, direction: Direction): {
+    ambiguous: Array<{ source: string; name: string }>;
+    nameRefs: Array<{ source: string; relation: Relation; name: string }>;
+};
 export interface CircuitReport {
     verdict: "confident" | "abstain";
     status: "ok" | "abstained";
