@@ -166,9 +166,22 @@ test('real shared hook schedules deep; model responses produce ready symbols and
     const result = await buildDeepProject(f.root, { baseUrl: model.baseUrl, model: 'gpt-5.6-luna', concurrency: 2 });
     assert.equal(result.status, 'ready');
     assert.equal(model.requests.length, calls, 'unchanged source must not call the model again');
+    const index = join(f.root, '.grafly'), notes = '# Archived concept\nOnly saved human notes.\n';
+    const backups = ['.index-history/snapshot', '.migration-backups/snapshot/index'];
+    for (const backup of backups) {
+        mkdirSync(join(index, backup, 'nested/empty'), { recursive: true });
+        writeFileSync(join(index, backup, 'nested/concept.md'), notes);
+    }
+    mkdirSync(join(index, 'src'), { recursive: true });
+    writeFileSync(join(index, 'src/retired.md'), '# Retired generated card\n');
     writeFileSync(join(f.root, 'sample.js'), 'export function classify(value) {\n if (value > 20) return "large";\n return "small";\n}\n');
     assert.equal((await buildDeepProject(f.root, { baseUrl: model.baseUrl, model: 'gpt-5.6-luna', concurrency: 2 })).status, 'ready');
     assert.ok(model.requests.length > calls, 'changed source must recompute meaning');
+    for (const backup of backups) {
+        assert.equal(readFileSync(join(index, backup, 'nested/concept.md'), 'utf8'), notes);
+        assert.ok(existsSync(join(index, backup, 'nested/empty')));
+    }
+    assert.equal(existsSync(join(index, 'src/retired.md')), false);
 });
 
 test('empty concepts and missing symbol results never claim ready', async t => {

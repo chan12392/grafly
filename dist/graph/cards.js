@@ -25,6 +25,8 @@ const INDEX_FILE = "INDEX.md";
 /** Where a root-level file card goes when `grafly/<stem>.md` is already a concept
  * node (same stem as a slug — Laravel `server.php` vs a "Server" concept). */
 const ROOT_CARD_DIR = "_root";
+/** Root-level index storage is outside the generated file-card trees. */
+const NON_CARD_DIRS = new Set([CACHE_DIR, GRAPH_DIR, ".index-history", ".migration-backups"]);
 /** True when `path` is an existing concept node (frontmatter carries `slug`). */
 function isConceptNodeFile(path) {
     if (!existsSync(path))
@@ -100,7 +102,7 @@ function listExistingCards(outDir) {
     const walk = (dir) => {
         for (const e of readdirSync(dir, { withFileTypes: true })) {
             if (e.isDirectory()) {
-                if (dir === outDir && (e.name === CACHE_DIR || e.name === GRAPH_DIR))
+                if (dir === outDir && NON_CARD_DIRS.has(e.name))
                     continue;
                 walk(join(dir, e.name));
             }
@@ -112,19 +114,19 @@ function listExistingCards(outDir) {
     for (const e of readdirSync(outDir, { withFileTypes: true })) {
         // Concept nodes and INDEX.md are top-level files — skip. Cards live in
         // subdirs (`src/…`, and `_root/` when a root card would collide with a concept).
-        if (e.isDirectory() && e.name !== CACHE_DIR && e.name !== GRAPH_DIR) {
+        if (e.isDirectory() && !NON_CARD_DIRS.has(e.name)) {
             walk(join(outDir, e.name));
         }
     }
     return out;
 }
-/** Remove now-empty directories under outDir (bottom-up), skipping .cache/.graph. */
+/** Remove now-empty card directories (bottom-up), skipping root-level storage. */
 function pruneEmptyDirs(outDir) {
     const visit = (dir) => {
         // returns true if dir is empty after visiting children
         let empty = true;
         for (const e of readdirSync(dir, { withFileTypes: true })) {
-            if (dir === outDir && (e.name === CACHE_DIR || e.name === GRAPH_DIR)) {
+            if (dir === outDir && NON_CARD_DIRS.has(e.name)) {
                 empty = false;
                 continue;
             }
