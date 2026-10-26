@@ -296,7 +296,10 @@ export async function runCommand(command, args = [], options = {}) {
             // NUL/binary output is never interpreted as a text transcript.
             if (input.stdout.includes("\0") || input.stderr.includes("\0")) throw new Error("binary_output");
             manifest.mc_attempted = true;
+<<<<<<< HEAD
             const hints = outputHints(command, args, options);
+=======
+>>>>>>> chan12392/cstack-review-20261020
             const result = (options.judge ?? judge)({ ...input, kind, exit_code: exitCode, complete: true,
                 exit_one_is_result: Boolean(exitMeaning), ...hints }, env, pinned);
             const decision = result.decision;

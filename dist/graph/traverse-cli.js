@@ -522,7 +522,11 @@ export function logCircuit(logPath, record) {
     if (!logPath)
         return null;
     record.jid = jidFor(record);
+<<<<<<< HEAD
     if (!appendCircuitRecord(logPath, record)) return null;
     collectJudgment(record);
     return record.jid;
+=======
+    return appendCircuitRecord(logPath, record) ? record.jid : null;
+>>>>>>> chan12392/cstack-review-20261020
 }

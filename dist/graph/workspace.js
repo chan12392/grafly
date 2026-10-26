@@ -643,6 +643,7 @@ export function federateCallers(root, override, symbol, opts = {}) {
             ? matches.slice(0, topN) : matches;
         const adj = walkAdjacency(graph, direction);
         const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+<<<<<<< HEAD
         const results = shown.map((m) => {
             const hits = sharedEdgeWalk(graph, adj, byId, m, direction, depth);
             return { symbol: m, hits: hits.slice(0, hitLimit), overflow: Math.max(0, hits.length - hitLimit) };
@@ -651,6 +652,9 @@ export function federateCallers(root, override, symbol, opts = {}) {
         const limitations = [];
         if (ambiguous.length) limitations.push(`${ambiguous.length} call site(s) dropped as ambiguous — incoming edges may undercount`);
         if (nameRefs.length) limitations.push(`${nameRefs.length} edge(s) target the bare name — attribution unknown`);
+=======
+        const results = shown.map((m) => ({ symbol: m, hits: sharedEdgeWalk(graph, adj, byId, m, direction, depth) }));
+>>>>>>> chan12392/cstack-review-20261020
         const judgmentId = judged
             ? logCircuit(logPath, { ts: new Date().toISOString(), type: 'judge', cmd: 'federated_callers',
                 query: symbol, direction, depth: Number.isFinite(depth) ? depth : 'all',
