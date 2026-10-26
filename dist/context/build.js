@@ -21,7 +21,7 @@ import { relPosix } from "../util/paths.js";
 import { readSourceFile } from "../util/source.js";
 import { readFollowNestedRepos, readFollowSubmodules, readIncludeDirs } from "../util/state.js";
 import { LlmFailureGate } from "../ai/failure.js";
-import { CACHE_DIR, MANIFEST_VERSION, contextDirFor, deleteNode, digestSources, existingNodeSlugs, slugify, writeManifest, writeNode, } from "./node-file.js";
+import { CACHE_DIR, MANIFEST_VERSION, contextDirFor, deleteNode, digestSources, existingNodeSlugs, slugify, writeManifest, writeNode, readNodes, readManifest } from "./node-file.js";
 /** Extensions treated as source code. */
 export const CODE_EXTENSIONS = [
     ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
@@ -63,6 +63,8 @@ export async function buildContext(dir, opts) {
     // the fingerprint) so out-of-scope files are never summarized or synthesized.
     const files = listContextFiles(root, outDir, exts, opts.onlyDirs);
     const cache = loadCache(outDir);
+    const previousNodes = opts.incremental ? readNodes(outDir) : [];
+    const previousManifest = opts.incremental ? readManifest(outDir) : null;
     // Flush the summary cache to disk during phase 1 so a build interrupted
     // partway (session/rate limit, crash, Ctrl-C) resumes without re-summarizing
     // the files it already did. Throttled to keep disk churn negligible; on the
@@ -146,8 +148,19 @@ export async function buildContext(dir, opts) {
     result.files = processed.length;
     const hashByPath = new Map(processed.map((w) => [w.rel, w.hash]));
     // Phase 2: synthesize curated nodes from the summaries, batched + cached.
+    const affected = new Set();
+    const previousHashes = new Map((previousManifest?.files ?? []).map(f => [f.path, f.hash]));
+    for (const item of processed) if (previousHashes.get(item.rel) !== item.hash) affected.add(item.rel);
+    // A concept spanning several files is the unit of replacement. Its unchanged
+    // summaries are reused as context; unrelated concepts remain byte-identical.
+    const staleNodes = new Set(previousNodes.filter(n => n.sources.some(s => hashByPath.get(s.path) !== s.hash)).map(n => n.slug));
+    for (const n of previousNodes) if (staleNodes.has(n.slug))
+        for (const s of n.sources) if (hashByPath.has(s.path)) affected.add(s.path);
+    const covered = new Set(previousNodes.flatMap(n => n.sources.map(s => s.path)));
+    for (const item of processed) if (!covered.has(item.rel)) affected.add(item.rel);
     const summarized = processed
         .filter((w) => Boolean(w.summary))
+        .filter(w => !opts.incremental || affected.has(w.rel))
         .map((w) => ({ path: w.rel, summary: w.summary }))
         .sort((a, b) => a.path.localeCompare(b.path));
     const batches = batchBySize(summarized, BATCH_CHAR_BUDGET);
@@ -161,7 +174,9 @@ export async function buildContext(dir, opts) {
         // synthesis permanent, the same trap #177 closed for the meaning pass (#129).
         const cached = Array.isArray(nodes) && nodes.length > 0;
         if (!cached) {
-            nodes = await opts.synthesizer.synthesize(batches[b]);
+            try { nodes = await opts.synthesizer.synthesize(batches[b]); }
+            catch (error) { result.errors.push(`synthesis: ${errMsg(error)}`); nodes = []; }
+            if (!nodes.length) result.errors.push(`synthesis batch ${b + 1} produced no concepts`);
             if (nodes.length > 0)
                 cache.synth[key] = nodes;
             else
@@ -179,9 +194,17 @@ export async function buildContext(dir, opts) {
         return v && v.length > 0 ? [[k, v]] : [];
     }));
     saveCache(outDir, cache);
+    // Never prune/replace a previously useful concept map with a partial model
+    // response. Cached successes survive, and the old manifest stays retryable.
+    if (result.errors.length) {
+        result.nodes = readNodes(outDir).length;
+        return result;
+    }
     // Phase 3: merge synth nodes by slug, building a name→slug resolution table.
     const drafts = new Map();
     const nameToSlug = new Map();
+    const kept = previousNodes.filter(n => !staleNodes.has(n.slug));
+    for (const n of kept) registerName(nameToSlug, n.name, n.slug);
     for (const n of synthNodes) {
         const slug = slugify(n.name);
         let draft = drafts.get(slug);
@@ -224,6 +247,9 @@ export async function buildContext(dir, opts) {
             if (target)
                 for (const [p, h] of target.sources)
                     draft.sources.set(p, h);
+            else
+                for (const source of kept.find(n => n.slug === link.to)?.sources ?? [])
+                    draft.sources.set(source.path, source.hash);
         }
     }
     // Phase 5: finalize, reconcile with disk, write.
@@ -242,13 +268,42 @@ export async function buildContext(dir, opts) {
             human: "",
         };
     });
+    const generatedSlugs = new Set(nodes.map(n => n.slug));
+    for (const old of kept) {
+        const replacement = nodes.find(n => n.slug === old.slug);
+        if (!replacement) nodes.push(old);
+        else {
+            const sources = new Map(old.sources.map(s => [s.path, s]));
+            for (const s of replacement.sources) sources.set(s.path, s);
+            replacement.sources = [...sources.values()].sort((a, b) => a.path.localeCompare(b.path));
+            replacement.sourcesDigest = digestSources(replacement.sources);
+            const links = new Map(old.links.map(l => [`${l.to}|${l.relation}`, l]));
+            for (const l of replacement.links) links.set(`${l.to}|${l.relation}`, l);
+            replacement.links = [...links.values()];
+        }
+    }
     nodes.sort((a, b) => a.slug.localeCompare(b.slug));
     const liveSlugs = new Set(nodes.map((n) => n.slug));
-    for (const slug of existingNodeSlugs(outDir)) {
-        if (!liveSlugs.has(slug))
-            deleteNode(outDir, slug);
+    // A removed concept can also be referenced by an otherwise unchanged card.
+    // Rewrite only those affected cards; writeNode retains their human section.
+    for (const node of nodes) {
+        const links = node.links.filter(link => liveSlugs.has(link.to));
+        if (links.length !== node.links.length) {
+            node.links = links;
+            generatedSlugs.add(node.slug);
+        }
+    }
+    for (const slug of opts.incremental ? previousNodes.map(n => n.slug) : existingNodeSlugs(outDir)) {
+        if (!liveSlugs.has(slug)) {
+            if (opts.incremental) {
+                const archive = join(outDir, CACHE_DIR, 'concept-history', `${Date.now()}-${process.pid}`);
+                mkdirSync(archive, { recursive: true });
+                renameSync(join(outDir, `${slug}.md`), join(archive, `${slug}.md`));
+            } else deleteNode(outDir, slug);
+        }
     }
     for (let i = 0; i < nodes.length; i++) {
+        if (opts.incremental && !generatedSlugs.has(nodes[i].slug)) continue;
         opts.onProgress?.({ phase: "write", index: i, total: nodes.length, file: nodes[i].slug });
         writeNode(outDir, nodes[i]);
     }

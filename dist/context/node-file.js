@@ -28,6 +28,7 @@ import { contentHash, normalizeName } from "../util/id.js";
 import { relPosix, stripTrailingSlashes } from "../util/paths.js";
 // Value-only import of a constant; `write.ts` pulls in nothing from here, so no cycle.
 import { GRAPH_DIR } from "../graph/write.js";
+import location from './location.cjs';
 export const MANIFEST_VERSION = 1;
 const GEN_START = "<!-- context:generated:start -->";
 const GEN_END = "<!-- context:generated:end -->";
@@ -58,13 +59,11 @@ export function digestSources(sources) {
         .join("\n");
     return contentHash(lines);
 }
-/** Absolute path of the `grafly/` directory for a repo root. Visible (not
- * dot-prefixed) on purpose: default ripgrep skips hidden dirs, so the agent's
- * grep/ls/find reflex must be able to land on the graph. */
+/** Hidden index, with read compatibility for an identified legacy index. */
 export function contextDirFor(root, override) {
     if (override)
         return override;
-    return join(root, "grafly");
+    return location.indexDir(root);
 }
 /**
  * Make sure the repo's root `.gitignore` ignores the grafly output dir. The
@@ -135,6 +134,9 @@ export function ensureSearchable(root, contextDir) {
     if (rel === "" || rel.startsWith(".."))
         return; // outside the repo — nothing to re-admit
     const dir = stripTrailingSlashes(rel);
+    // .grafly also carries private settings. Only explicit Grafly reads should
+    // enter it; never re-admit the whole hidden directory into generic searches.
+    if (dir === '.grafly') return;
     const entry = `!${dir}/`;
     const path = join(root, ".ignore");
     let current = "";
@@ -287,6 +289,8 @@ export function readNodes(dir) {
             slug: String(fm.slug ?? fallbackSlug),
             name: String(fm.name ?? ""),
             type: String(fm.type ?? ""),
+            summary: (parsed.content.split(GEN_START)[1]?.split(GEN_END)[0] ?? '')
+                .replace(/^\s*## Summary\s*\n/, '').split(/\n## Related\s*\n/)[0].trim(),
             sources: Array.isArray(fm.sources) ? fm.sources : [],
             sourcesDigest: String(fm.sources_digest ?? ""),
             links: Array.isArray(fm.links) ? fm.links : [],

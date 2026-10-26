@@ -30,6 +30,8 @@ import { HOSTS } from './registry.js';
 import { ALL_MARKERS } from './sections.js';
 import { mcpTargets, stripTomlSection } from './mcp-config.js';
 import { hookTargets } from './codex-hooks.js';
+import { archiveIndex } from '../context/archive-index.js';
+import location from '../context/location.cjs';
 import { antigravitySkillTargets } from './antigravity.js';
 import { claudeGlobalTargets } from './claude-global.js';
 import { claudeTargets } from '../claude/init.js';
@@ -477,8 +479,9 @@ function targets(repo, opts) {
         const gitignore = join(repo, '.gitignore');
         const ignore = join(repo, '.ignore');
         for (const t of [
-            { hostId: 'graph', path: cache, what: 'local graph cache', scope: 'repo', run: (a) => removeDir(cache, a) },
-            { hostId: 'graph', path: legacyCache, what: 'legacy graph cache', scope: 'repo', run: (a) => removeDir(legacyCache, a) },
+            { hostId: 'graph', path: join(repo, '.grafly'), what: 'local graph artifacts (settings preserved)', scope: 'repo', run: (a) => archiveIndex(join(repo, '.grafly'), a) },
+            { hostId: 'graph', path: cache, what: 'legacy graph cache', scope: 'repo', run: (a) => location.hasIndexAt(cache) ? archiveIndex(cache, a) : 'absent' },
+            { hostId: 'graph', path: legacyCache, what: 'legacy graph cache', scope: 'repo', run: (a) => location.hasIndexAt(legacyCache) ? archiveIndex(legacyCache, a) : 'absent' },
             { hostId: 'graph', path: gitignore, what: 'Grafly ignore entries', scope: 'repo', run: (a) => stripIgnoreEntries(gitignore, [/^\/?grafly\/?$/, /^\/?graft\/?$/], a) },
             { hostId: 'graph', path: ignore, what: 'Grafly search re-admit entries', scope: 'repo', run: (a) => stripIgnoreEntries(ignore, [/^!?grafly\/?$/, /^grafly\/\.(cache|graph)\/?$/, /^!?graft\/?$/, /^graft\/\.(cache|graph)\/?$/], a) },
         ])

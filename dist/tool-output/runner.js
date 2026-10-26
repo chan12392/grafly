@@ -205,6 +205,11 @@ export async function runCommand(command, args = [], options = {}) {
     const kind = classifyCommand(command, args);
     if (kind) manifest.kind = kind;
     const exitMeaning = exitCode === 1 && sizes.stderr === 0 ? exitOneMeaning(command, args) : null;
+    manifest.mc_attempted = false;
+    manifest.reason = env.GRAFLY_TOOL_OUTPUT === "0" ? "disabled" : !archived ? "archive_unavailable"
+        : !manifest.complete ? "incomplete_output" : !(exitCode === 0 || exitMeaning) ? "command_failed"
+        : live ? "streamed" : !kind ? "unsupported_command"
+        : size < MINIMUM ? "output_too_small" : "not_reduced";
     let reduced = null;
     // Only known command semantics with no diagnostics allow an exit-1 result.
     // Unsupported kinds and shell wrappers never reach MC.
@@ -215,9 +220,12 @@ export async function runCommand(command, args = [], options = {}) {
             const input = Object.fromEntries(["stdout", "stderr"].map(s => [s, decoder.decode(Buffer.concat(buffers[s]))]));
             // NUL/binary output is never interpreted as a text transcript.
             if (input.stdout.includes("\0") || input.stderr.includes("\0")) throw new Error("binary_output");
+            manifest.mc_attempted = true;
             const result = (options.judge ?? judge)({ ...input, kind, exit_code: exitCode, complete: true,
                 exit_one_is_result: Boolean(exitMeaning) }, env, pinned);
             const decision = result.decision;
+            manifest.mc_reason_codes = result.reason_codes ?? [];
+            manifest.reason = result.reason_codes?.[0] ?? "mc_passthrough";
             if (decision.verdict === "reduced") {
                 const candidate = Object.fromEntries(["stdout", "stderr"].map(s => [s, applyRanges(input[s], decision.streams?.[s])]));
                 const bytes = Buffer.byteLength(candidate.stdout) + Buffer.byteLength(candidate.stderr);
@@ -230,6 +238,8 @@ export async function runCommand(command, args = [], options = {}) {
                         const total = st.total_lines ?? lines(input[s]).length;
                         return [s, { shown: st.shown_lines ?? total - (st.removed_lines ?? 0), total }];
                     }));
+                } else {
+                    manifest.reason = "insufficient_savings";
                 }
             }
         } catch (error) { manifest.reason = error.message; }
