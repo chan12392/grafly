@@ -261,8 +261,7 @@ export function runCallersCommand(query, dir, opts) {
         }
     }
     const showDepth = depth > 1;
-    // Feedback BEFORE judging: this resolution may be the caller's verdict on
-    // a previous judgment (a strict-subset follow-up = adopt/reject label).
+    // Navigation BEFORE judging: narrowing is an observation, not a correct/incorrect label.
     // Runs before this query's own judgment is appended so a query can never
     // attribute to itself.
     const logPath = circuitLogPath(contextDir);
@@ -331,8 +330,8 @@ export function runCallersCommand(query, dir, opts) {
     // Judgment log: what the circuit saw and decided, as JSONL next to the
     // graph it judged — the raw material for retraining weights and for
     // auditing bad rankings. GRAFLY_CIRCUIT_LOG=0 disables; =path redirects.
-    if (circuit)
-        logCircuit(logPath, { ts: new Date().toISOString(), type: "judge", cmd: "callers",
+    const judgmentId = circuit
+        ? logCircuit(logPath, { ts: new Date().toISOString(), type: "judge", cmd: "callers",
             query, direction, depth: !showDepth ? 1 : Number.isFinite(depth) ? depth : "all",
             in: opts.in ?? null,
             top: opts.top ?? null, root,
@@ -344,7 +343,7 @@ export function runCallersCommand(query, dir, opts) {
             shown: shown.map((n) => n.id),
             ...(escalation ? { escalation: { resolved: escalation.resolved.length,
                 sites: escalation.sites, errors: escalation.errors.length,
-                elapsed_ms: escalation.elapsed_ms } } : {}) });
+                elapsed_ms: escalation.elapsed_ms } } : {}) }) : null;
     if (opts.json) {
         // mc.channel.v1-style limitations: machine-readable "what this
         // answer cannot claim" list, alongside the human-visible notes.
@@ -373,7 +372,7 @@ export function runCallersCommand(query, dir, opts) {
             saved,
         };
         if (circuit)
-            payload.circuit = circuit;
+            payload.circuit = { ...circuit, ...(judgmentId ? { jid: judgmentId } : {}) };
         if (truncated)
             payload.truncated = truncated;
         if (ambiguous.length)
@@ -390,6 +389,7 @@ export function runCallersCommand(query, dir, opts) {
     const lines = [];
     if (circuit) {
         lines.push(circuitVerdictLine(circuit, matches.length));
+        if (judgmentId) lines.push(`  judgment: ${judgmentId} — label with grafly feedback (see --help)`);
         lines.push("");
     }
     if (truncated) {
@@ -524,8 +524,8 @@ export function circuitLogPath(contextDir) {
  * they label. Best-effort: a failed write must never break a query. */
 export function logCircuit(logPath, record) {
     if (!logPath)
-        return;
+        return null;
     record.jid = jidFor(record);
-    appendCircuitRecord(logPath, record);
+    return appendCircuitRecord(logPath, record) ? record.jid : null;
 }
 //# sourceMappingURL=traverse-cli.js.map
