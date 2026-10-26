@@ -24,6 +24,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { contextDirFor } from "../context/node-file.js";
+import { archiveIndex } from '../context/archive-index.js';
 import { checkGraph } from "./check.js";
 import { loadGraphCached } from "./load.js";
 import { buildRepoMap, formatRepoMap } from "./map.js";
@@ -98,7 +99,7 @@ export function migrationNote(children) {
  * workspace.json. Child graphs live in sibling `<child>/grafly/`, never under
  * this dir, so they are untouched. */
 export function clearParentGraft(root, override) {
-    rmSync(contextDirFor(root, override), { recursive: true, force: true });
+    archiveIndex(contextDirFor(root, override));
 }
 /** Load each child's graph via `loadGraphCached`. Children come from
  * workspace.json when present, otherwise from live git-child discovery (a
@@ -591,17 +592,18 @@ export function federateCallers(root, override, symbol, opts = {}) {
         const adj = walkAdjacency(graph, direction);
         const byId = new Map(graph.nodes.map((n) => [n.id, n]));
         const results = shown.map((m) => ({ symbol: m, hits: sharedEdgeWalk(graph, adj, byId, m, direction, depth) }));
-        if (judged)
-            logCircuit(logPath, { ts: new Date().toISOString(), type: 'judge', cmd: 'federated_callers',
+        const judgmentId = judged
+            ? logCircuit(logPath, { ts: new Date().toISOString(), type: 'judge', cmd: 'federated_callers',
                 query: symbol, direction, depth: Number.isFinite(depth) ? depth : 'all',
                 in: opts.in ?? null, top: topN, root: childRoot,
                 matchCount: matches.length, verdict: judged.circuit.verdict,
                 gap: judged.circuit.gap, reason: judged.circuit.reason,
                 top1: judged.circuit.top, scores: judged.circuit.scores,
-                features: judged.features, shown: shown.map((n) => n.id) });
+                features: judged.features, shown: shown.map((n) => n.id) }) : null;
         const lines = [`## ${child}/`];
         if (judged)
             lines.push(circuitVerdictLine(judged.circuit, matches.length));
+        if (judgmentId) lines.push(`  judgment: ${judgmentId} — label with grafly feedback in ${child}/ (see --help)`);
         if (shown.length < matches.length)
             lines.push(`… top ${shown.length} of ${matches.length} matches (circuit-ranked)`);
         for (const { symbol: sym, hits } of results) {

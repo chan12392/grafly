@@ -11,6 +11,7 @@
  */
 import { readFileSync, writeFileSync, mkdirSync, renameSync, rmSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
+import location from '../context/location.cjs';
 export const LOCK_STALE_MS = 300000;
 export function emptyStats() {
     return { nodeCount: 0, edgeCount: 0, languages: [], totalCount: 0, readyCount: 0,
@@ -37,11 +38,7 @@ export function resolveContextDir(projectDir) {
     const override = process.env.GRAFLY_DIR ?? process.env.GRAFT_DIR;
     if (override)
         return isAbsolute(override) ? override : join(projectDir, override);
-    if (existsSync(join(projectDir, 'grafly')))
-        return join(projectDir, 'grafly');
-    if (existsSync(join(projectDir, 'graft')))
-        return join(projectDir, 'graft');
-    return join(projectDir, 'grafly');
+    return location.indexDir(projectDir);
 }
 export function cacheDir(projectDir) { return join(resolveContextDir(projectDir), '.cache'); }
 function statsPath(d) { return join(cacheDir(d), 'stats.json'); }

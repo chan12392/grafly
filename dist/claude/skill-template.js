@@ -6,7 +6,7 @@
 export function skillTemplate() {
     return `---
 name: grafly
-description: This repo is indexed by grafly/. For ANY task here, whether
+description: This repo is indexed by .grafly/. For ANY task here, whether
   understanding how something works, finding where code lives, tracing what
   calls a symbol or what a change breaks, or scoping an edit, get your context
   from grafly before grepping or reading source files.
@@ -14,7 +14,7 @@ description: This repo is indexed by grafly/. For ANY task here, whether
 
 # grafly
 
-\`grafly/\` holds a graph of this repo: small markdown nodes that each explain one
+\`.grafly/\` holds a graph of this repo: small markdown nodes that each explain one
 part in prose and name the exact \`file:line\` spans they cover, plus a wiring
 graph of who-calls-what. Querying a node costs a few hundred tokens; rebuilding
 that understanding by reading source costs thousands, and misses the edges.
@@ -84,13 +84,13 @@ Every tool above refreshes the graph itself before answering, so what those tool
 return always describes the code as it is right now — including edits you just made
 and have not committed. You do **not** need to run \`build\` after editing.
 
-One caveat, if you \`grep\` the markdown under \`grafly/\` directly: those cards are a
+One caveat, if you \`grep\` the markdown under \`.grafly/\` directly: those cards are a
 projection, rebuilt at the end of the turn rather than on each query, so after an edit
 they can lag. The tools above never do — prefer them, and treat a card's spans as
 stale if you have edited that file this turn.
 
 \`build\` is for the LLM layer (\`--deep\` adds a concept map; skip unless asked);
-\`check\` fails when \`grafly/\` is stale, for CI.
+\`check\` fails when \`.grafly/\` is stale, for CI.
 
 ## Scenarios: the shortest path through a coding task
 
@@ -152,8 +152,8 @@ total is parsed from.
 - Span truncated ("+N more lines"): open the file at that exact range.
 - A node lacks a detail: ask a more specific question; only then read source at
   the exact \`file:line\`, never a whole file to rebuild understanding grafly gives.
-- You may also grep / ls / cat inside \`grafly/\` directly (plain markdown;
-  \`grafly/INDEX.md\` indexes the nodes), but the tools above are faster and
+- You may also grep / ls / cat inside \`.grafly/\` directly (plain markdown;
+  \`.grafly/INDEX.md\` indexes the nodes), but the tools above are faster and
   exhaustive where it matters, so reach for them first.
 
 When the grafly MCP server is connected, these are exposed as tools too:
