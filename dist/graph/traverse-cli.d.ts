@@ -11,6 +11,7 @@ export interface CallersCliOptions {
     /** the top-level `--dir` override, so this command respects it like every other. */
     globalDir?: string;
 }
+export declare function logCircuit(logPath: string | null, record: Record<string, unknown>): string | null;
 /** Exported so the MCP `graft_trace_calls` tool (`src/mcp/tools.ts`) can render the
  * same human report format as the CLI, rather than re-implementing it — both
  * surfaces walk the same edges via the same `resolveSymbol` / `edgeWalk` core. */
