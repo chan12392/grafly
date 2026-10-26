@@ -297,11 +297,16 @@ export async function runCommand(command, args = [], options = {}) {
             if (input.stdout.includes("\0") || input.stderr.includes("\0")) throw new Error("binary_output");
             manifest.mc_attempted = true;
 <<<<<<< HEAD
+<<<<<<< HEAD
             const hints = outputHints(command, args, options);
 =======
 >>>>>>> chan12392/cstack-review-20261020
             const result = (options.judge ?? judge)({ ...input, kind, exit_code: exitCode, complete: true,
                 exit_one_is_result: Boolean(exitMeaning), ...hints }, env, pinned);
+=======
+            const result = (options.judge ?? judge)({ ...input, kind, exit_code: exitCode, complete: true,
+                exit_one_is_result: Boolean(exitMeaning) }, env);
+>>>>>>> chan12392/feat-general-tool-output
             const decision = result.decision;
             manifest.mc_reason_codes = result.reason_codes ?? [];
             manifest.reason = result.reason_codes?.[0] ?? "mc_passthrough";

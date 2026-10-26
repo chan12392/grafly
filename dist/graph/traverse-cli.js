@@ -523,10 +523,14 @@ export function logCircuit(logPath, record) {
         return null;
     record.jid = jidFor(record);
 <<<<<<< HEAD
+<<<<<<< HEAD
     if (!appendCircuitRecord(logPath, record)) return null;
     collectJudgment(record);
     return record.jid;
 =======
     return appendCircuitRecord(logPath, record) ? record.jid : null;
 >>>>>>> chan12392/cstack-review-20261020
+=======
+    return appendCircuitRecord(logPath, record) ? record.jid : null;
+>>>>>>> chan12392/feat-general-tool-output
 }

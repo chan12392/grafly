@@ -654,7 +654,10 @@ export function federateCallers(root, override, symbol, opts = {}) {
         if (nameRefs.length) limitations.push(`${nameRefs.length} edge(s) target the bare name — attribution unknown`);
 =======
         const results = shown.map((m) => ({ symbol: m, hits: sharedEdgeWalk(graph, adj, byId, m, direction, depth) }));
+<<<<<<< HEAD
 >>>>>>> chan12392/cstack-review-20261020
+=======
+>>>>>>> chan12392/feat-general-tool-output
         const judgmentId = judged
             ? logCircuit(logPath, { ts: new Date().toISOString(), type: 'judge', cmd: 'federated_callers',
                 query: symbol, direction, depth: Number.isFinite(depth) ? depth : 'all',

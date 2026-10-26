@@ -3,9 +3,12 @@ import { appendFileSync, closeSync, openSync, readSync, renameSync, statSync } f
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 <<<<<<< HEAD
+<<<<<<< HEAD
 import { collectJudgment } from '../mc-runtime/feedback.js';
 =======
 >>>>>>> chan12392/cstack-review-20261020
+=======
+>>>>>>> chan12392/feat-general-tool-output
 
 /** Associate navigation only with judgments this recent — same sitting,
  * not last week's unrelated query. */
@@ -147,8 +150,11 @@ export function recordLabel(logPath, root, jid, expected, evidence) {
     if (!isExplicitLabel(label, judgment)) throw new Error("expected must be an exact candidate ID, or abstain");
     if (!appendCircuitRecord(logPath, label)) throw new Error("could not persist the explicit review");
 <<<<<<< HEAD
+<<<<<<< HEAD
     collectJudgment(judgment, label);
 =======
 >>>>>>> chan12392/cstack-review-20261020
+=======
+>>>>>>> chan12392/feat-general-tool-output
     return label;
 }
