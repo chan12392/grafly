@@ -55,6 +55,8 @@ test("runner executes once, reduces real unittest output, and retrieves exact ra
     const f = fixture(); const args = suite(f.dir);
     const result = await runCommand(python, args, { ...f.options, judge: stubJudge });
     assert.equal(result.exit_code, 0); assert.equal(result.verdict, "reduced");
+    assert.equal(result.mc_attempted, true);
+    assert.deepEqual(result.mc_reason_codes, ["passing_test_details"]);
     assert.match(f.text("stderr"), /Ran 160 tests/); assert.match(f.text("stderr"), /grafly tool_output/);
     assert.ok(!f.text("stderr").includes("test_detail_159"));
     const raw = readOutput(result.id, { archiveDir: f.options.archiveDir, stream: "stderr" });
@@ -112,7 +114,7 @@ test("GRAFLY_TOOL_OUTPUT=0 disables archiving and reduction entirely", async () 
     f.options.env = { ...process.env, GRAFLY_TOOL_OUTPUT: "0" };
     const result = await runCommand(process.execPath, ["-e", "console.log('x'.repeat(9000))"], f.options);
     assert.equal(result.exit_code, 0); assert.equal(result.verdict, "passthrough");
-    assert.equal(result.reason, "streamed"); assert.equal(result.archive, null);
+    assert.equal(result.reason, "disabled"); assert.equal(result.archive, null);
     assert.equal(f.data("stdout").length, 9001);
     assert.equal(existsSync(result.id ? join(f.options.archiveDir, result.id) : f.dir), false);
 });
@@ -134,6 +136,39 @@ test("missing MC leaves complete output intact with no repeated command", async 
     assert.equal((f.text("stderr").match(/Ran 160 tests/g) ?? []).length, 1);
 });
 
+test("raw manifests distinguish skipped MC, channel passthrough and insufficient savings", async () => {
+    for (const mode of ["unsupported", "small", "failed", "passthrough", "insufficient"]) {
+        const f = fixture();
+        let calls = 0;
+        if (mode === "small") writeFileSync(join(f.dir, "test_small.py"), "import unittest\nclass Small(unittest.TestCase):\n def test_one(self): self.assertEqual(1,1)\n");
+        const args = mode === "unsupported" || mode === "failed"
+            ? ["-e", "console.log('raw');" + (mode === "failed" ? "process.exit(7)" : "")]
+            : mode === "small" ? ["-m", "unittest", "test_small"] : suite(f.dir);
+        const command = mode === "unsupported" || mode === "failed" ? process.execPath : python;
+        const judge = p => {
+            calls++;
+            if (mode === "passthrough") return { reason_codes: ["no_supported_reduction"], decision: { verdict: "passthrough" } };
+            return { reason_codes: ["passing_test_details"], decision: { verdict: "reduced", streams:
+                Object.fromEntries(["stdout", "stderr"].map(s => {
+                    const count = (p[s].match(/[^\n]*\n|[^\n]+$/g) ?? []).length;
+                    return [s, { keep: count ? [[0, count]] : [], output_bytes: Buffer.byteLength(p[s]) }];
+                })) } };
+        };
+        const result = await runCommand(command, args, { ...f.options, judge });
+        const expected = { unsupported: "unsupported_command", small: "output_too_small", failed: "command_failed",
+            passthrough: "no_supported_reduction", insufficient: "insufficient_savings" }[mode];
+        assert.equal(result.reason, expected, mode);
+        assert.equal(result.mc_attempted, mode === "passthrough" || mode === "insufficient");
+        assert.equal(calls, Number(result.mc_attempted));
+        assert.equal(result.verdict, "passthrough");
+        for (const stream of ["stdout", "stderr"]) assert.deepEqual(readOutput(result.id,
+            { archiveDir: f.options.archiveDir, stream }), f.data(stream));
+        const manifest = JSON.parse(readFileSync(join(result.archive, "manifest.json"), "utf8"));
+        assert.equal(manifest.reason, expected);
+        if (mode === "insufficient") assert.deepEqual(manifest.mc_reason_codes, ["passing_test_details"]);
+    }
+});
+
 test("short and unknown output never starts MC; binary and oversized output are exact", async () => {
     for (const size of [12, 9000, 4 * 1024 * 1024 + 123]) {
         const f = fixture(); f.options.env = { ...process.env, MC_PYTHON: "nonexistent" };
@@ -149,6 +184,7 @@ test("archive failure runs command once and delivers its output without reducing
     const f = fixture(); writeFileSync(f.options.archiveDir, "not a directory");
     const result = await runCommand(process.execPath, ["-e", "console.log('once')"], f.options);
     assert.equal(result.archive, null); assert.equal(result.exit_code, 0); assert.equal(f.text("stdout"), "once\n");
+    assert.equal(result.reason, "archive_unavailable");
 });
 
 test("timeout and missing executable cannot report success", async () => {
