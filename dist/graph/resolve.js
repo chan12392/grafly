@@ -380,11 +380,13 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
                 // Ctor-call kinds are widened in: `import {Widget}` then
                 // `new Widget()` must find a class, not just a function.
                 const targetFile = moduleTarget(e.specifier, e.file);
-                // Python keeps its previous name-based resolution when the module is
-                // external or defines no such name: `__init__.py` re-exports are
-                // routine, so a miss there is not evidence of absence.
-                const py = PY_EXT.test(e.file);
-                if (byId.has(targetFile)) {
+                // Python falls back to name-based resolution only when the module is
+                // in the repo but defines no such name: `__init__.py` re-exports are
+                // routine, so a miss there is not evidence of absence. An external
+                // module (`os.path`, `numpy`) never resolves to repo code.
+                const inRepo = byId.has(targetFile);
+                const py = inRepo && PY_EXT.test(e.file);
+                if (inRepo) {
                     const importKinds = [...new Set([...callKinds, "class", "struct", "enum"])];
                     const candidates = (perFileName.get(targetFile)?.get(e.name) ?? []).filter((n) => importKinds.includes(n.kind));
                     if (candidates.length === 1) {

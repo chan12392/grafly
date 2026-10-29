@@ -96,16 +96,24 @@ function renderCard(sourcePath, fileNode, symbols, conceptSlugs) {
         lines.push(`- ${n.name} · ${n.kind} · ${n.span}${tail}`);
     }
     if (sorted.length === 0)
-        lines.push("_No extracted symbols in this file._");
+        lines.push(NO_SYMBOLS);
     return lines.join("\n") + "\n";
 }
-/** A top-level root-source card: its first line is the `renderCard` heading for a
- * root-level source whose card name is exactly this file's name. Concept nodes
- * (frontmatter) and hand-placed notes with an ordinary `# Title` are left alone. */
+const NO_SYMBOLS = "_No extracted symbols in this file._";
+const SYMBOL_LINE = /^- .+ · \S+ · L\d+-L\d+(?: — .*)?$/;
+/** A top-level root-source card: exactly the `renderCard` shape — a heading naming
+ * a root-level source whose card name is this file's name, an optional one-line
+ * summary, then only symbol lines (or the no-symbols marker). Concept nodes
+ * (frontmatter) and hand-placed notes are never matched, so never pruned. */
 function isRootCard(path, name) {
-    const first = readFileSync(path, "utf8").split(/\r?\n/, 1)[0];
-    const m = /^# ([^/]+?)(?: · \[\[.*\]\])?$/.exec(first);
-    return m !== null && (cardStem(m[1]) === name || `${m[1]}.md` === name);
+    const lines = readFileSync(path, "utf8").split(/\r?\n/);
+    while (lines.length && lines[lines.length - 1] === "")
+        lines.pop();
+    const m = /^# ([^/]+?)(?: · \[\[.*\]\])?$/.exec(lines[0] ?? "");
+    if (!m || (cardStem(m[1]) !== name && `${m[1]}.md` !== name) || lines[1] !== "")
+        return false;
+    const body = lines[3] === "" ? lines.slice(4) : lines.slice(2);
+    return body.length > 0 && (body.length === 1 && body[0] === NO_SYMBOLS || body.every((l) => SYMBOL_LINE.test(l)));
 }
 /** Every existing card file: `.md` inside subdirs of outDir, plus top-level
  * root-source cards (see `isRootCard`). */

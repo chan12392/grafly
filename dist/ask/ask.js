@@ -178,7 +178,7 @@ function matchedStrongTerms(query, name) {
     return terms;
 }
 // ── Structural intent ──────────────────────────────────────────────────────
-const INCOMING = /\b(caller|callers|calls?\s+into|who\s+calls|what\s+calls|called\s+by|used\s+by|uses|(?:who|what)\s+imports|imported\s+by|importers?)\b/;
+const INCOMING = /\b(caller|callers|calls?\s+into|who\s+calls|what\s+calls|called\s+by|used\s+by|uses|who\s+imports|what\s+imports(?!\s+(?:does|do|did|is|are)\b)|imported\s+by|importers?)\b/;
 const OUTGOING = /\b(callee|callees|what\s+does\s+\w+\s+call|calls\s+what|imports?|depends\s+on)\b/;
 const INCOMING_RELS = ["calls", "references", "imports", "implements", "extends"];
 const OUTGOING_RELS = ["calls", "references", "imports", "implements", "extends"];

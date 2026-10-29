@@ -22,11 +22,14 @@ test("a root-level card is pruned once its source is gone; concept nodes stay", 
     const out = mkdtempSync(join(tmpdir(), "grafly-cards-"));
     writeFileSync(join(out, "concept.md"), "---\nslug: concept\nsources: []\n---\nBody.\n");
     writeFileSync(join(out, "mc-report.md"), "# MC 0.6 consumer report\n\nHand-placed note.\n");
+    writeFileSync(join(out, "TODO.md"), "# TODO\n\n- fix the build\n");
+    writeFileSync(join(out, "glossary.md"), "# glossary\n\n_No extracted symbols in this file._\nmore notes\n");
     writeCards({ nodes: [file("setup.py"), file("src/a.js")], edges: [] }, out);
     assert.ok(existsSync(join(out, "setup.md")));
     const r = writeCards({ nodes: [file("src/a.js")], edges: [] }, out);
     assert.equal(r.pruned, 1);
     assert.equal(existsSync(join(out, "setup.md")), false);
     assert.ok(existsSync(join(out, "concept.md")));
-    assert.ok(existsSync(join(out, "mc-report.md")));
+    for (const note of ["mc-report.md", "TODO.md", "glossary.md"])
+        assert.ok(existsSync(join(out, note)), note);
 });

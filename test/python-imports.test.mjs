@@ -31,6 +31,8 @@ test("bare calls to from-imported names resolve inside the imported module", asy
     put("pkg/use_mod.py", "import pkg.b as m\n\ndef go():\n    return m.x()\n");
     put("pkg/use_reexport.py", "from pkg import x\n\ndef go():\n    return x()\n");
     put("pkg/local.py", "from .b import x\n\ndef x():\n    return 'local'\n\ndef go():\n    return x()\n");
+    put("util.py", "def join(*a):\n    return a\n");
+    put("pkg/use_ext.py", "from os.path import join as pjoin\n\ndef go():\n    return pjoin('a')\n");
     await buildGraph(d, {});
     const g = JSON.parse(readFileSync(join(d, ".grafly", ".graph", "wiring.json"), "utf8"));
     const calls = (src) => g.edges.filter((e) => e.relation === "calls" && e.source === src).map((e) => e.target).sort();
@@ -41,6 +43,8 @@ test("bare calls to from-imported names resolve inside the imported module", asy
     assert.deepEqual(calls("pkg/local.py#go"), ["pkg/local.py#x"]);
     // __init__ re-export: the module has no def, so no edge is invented
     assert.ok(!calls("pkg/use_reexport.py#go").includes("pkg/a.py#x"));
+    // an aliased name from an external module never binds to a same-named repo def
+    assert.deepEqual(calls("pkg/use_ext.py#go"), []);
     // no import references are emitted for Python imported names
     assert.equal(g.edges.filter((e) => e.relation === "references" && e.source.startsWith("pkg/use_")).length, 0);
 });
