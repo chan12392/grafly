@@ -64,8 +64,6 @@ export declare function keyOf(chunk: string): PickerKey | null;
 export declare function keysOf(chunk: string): PickerKey[];
 export declare function reducePicker(state: PickerState, key: PickerKey): PickerState;
 export declare function renderPicker(state: PickerState, tty?: boolean): string;
-/** Ids in plan order, so output ordering never depends on toggle order. */
-export declare function pickedIds(state: PickerState): string[];
 /** Just the agents, with the setting rows filtered out — what init wires. */
 export declare function pickedHostIds(state: PickerState): string[];
 /** The consent answer, or undefined when the row was never offered (a fork, CI,

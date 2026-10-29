@@ -236,6 +236,7 @@ export async function buildGraph(dir, opts = {}) {
             languages: [...langs].sort(),
             extensions,
             scopes,
+            ...(onlyDirs ? { onlyDirs: [...onlyDirs] } : {}),
         },
         nodes,
         edges,

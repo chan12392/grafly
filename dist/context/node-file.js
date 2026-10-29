@@ -21,7 +21,7 @@
  * file→hash map `init` saw, so `check` can detect drift in O(files) without an
  * LLM and without re-reading every node body.
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import matter from "gray-matter";
 import { parseFrontmatter } from "./frontmatter.js";
@@ -306,12 +306,6 @@ export function existingNodeSlugs(dir) {
     return new Set(readdirSync(dir)
         .filter((e) => e.endsWith(".md") && e !== "INDEX.md")
         .map((e) => e.replace(/\.md$/, "")));
-}
-/** Delete a node file by slug. */
-export function deleteNode(dir, slug) {
-    const path = join(dir, `${slug}.md`);
-    if (existsSync(path))
-        rmSync(path);
 }
 export function writeManifest(dir, manifest) {
     mkdirSync(dir, { recursive: true });

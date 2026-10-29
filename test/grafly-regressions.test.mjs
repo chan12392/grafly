@@ -5,13 +5,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { contextDirFor } from "../dist/context/node-file.js";
 import { Grafly, Graft } from "../dist/engine.js";
-import { normalizeTraceDepth, splitWorkspaceScope } from "../dist/compat/options.js";
+import { splitWorkspaceScope } from "../dist/compat/options.js";
+import { parseCallersOptions } from "../dist/graph/traverse-cli.js";
 import { posthogKey } from "../dist/telemetry/key.js";
 import { appendCircuitRecord, recordFollowup } from "../dist/circuit/feedback.js";
 
 test("Grafly is primary engine and Graft remains alias",()=>assert.equal(Graft,Grafly));
 test("default graph directory is .grafly",()=>{const root=mkdtempSync(join(tmpdir(),"grafly-"));assert.equal(contextDirFor(root),join(root,".grafly"));});
-test("trace depth all is infinite",()=>{assert.equal(normalizeTraceDepth("all"),Infinity);assert.equal(normalizeTraceDepth("4"),4);});
+test("trace depth all is infinite",()=>{assert.equal(parseCallersOptions({depth:"all"}).depth,Infinity);assert.equal(parseCallersOptions({depth:"4"}).depth,4);});
 test("workspace scope splits child",()=>assert.deepEqual(splitWorkspaceScope("repoA/src",["repoA","repoB"]),{onlyChild:"repoA",childIn:"src"}));
 test("telemetry has no baked key",()=>{const a=process.env.GRAFLY_POSTHOG_KEY,b=process.env.GRAFT_POSTHOG_KEY;delete process.env.GRAFLY_POSTHOG_KEY;delete process.env.GRAFT_POSTHOG_KEY;try{assert.equal(posthogKey(),"");}finally{if(a!==undefined)process.env.GRAFLY_POSTHOG_KEY=a;if(b!==undefined)process.env.GRAFT_POSTHOG_KEY=b;}});
 test("narrowing is not adopt/reject",()=>{const d=mkdtempSync(join(tmpdir(),"grafly-log-")),p=join(d,"circuit-log.jsonl");appendCircuitRecord(p,{ts:new Date().toISOString(),type:"judge",jid:"j1",root:"/repo",query:"run",top1:"A",scores:[{id:"A",score:2},{id:"B",score:1},{id:"C",score:0}]});const ev=recordFollowup(p,"/repo","run",["A","B"]);assert.equal(ev.type,"narrow");const rows=readFileSync(p,"utf8").trim().split("\n").map(JSON.parse);assert.equal(rows.some(r=>r.type==="adopt"||r.type==="reject"),false);});

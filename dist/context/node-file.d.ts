@@ -107,7 +107,5 @@ export interface ParsedNode {
 export declare function readNodes(dir: string): ParsedNode[];
 /** List the node files present (slug → filename), for pruning deleted nodes. */
 export declare function existingNodeSlugs(dir: string): Set<string>;
-/** Delete a node file by slug. */
-export declare function deleteNode(dir: string, slug: string): void;
 export declare function writeManifest(dir: string, manifest: Manifest): void;
 export declare function readManifest(dir: string): Manifest | undefined;

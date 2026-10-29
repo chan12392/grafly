@@ -1,6 +1,6 @@
 {
   "channel_id": "symbol_disambiguation",
-  "channel_version": "0.3.7",
+  "channel_version": "0.3.13",
   "schema": "mc.symbol_disambiguation.v1",
   "source": "Grafly nine-feature seed circuit; ranking is not calibrated confidence",
   "abstain_gap": 0.5,

@@ -1,6 +1,6 @@
 /** Signed, per-user MC runtime. No network or installation on the command path. */
 import { createHash, createPublicKey, verify, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, lstatSync, readFileSync, writeFileSync, renameSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, lstatSync, readFileSync, writeFileSync, renameSync, readdirSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve, isAbsolute } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -353,13 +353,15 @@ export async function syncRuntime(home = runtimeHome(), { transport = fetch, smo
       mkdirSync(join(path, '..'), { recursive: true, mode: 0o700 });
       writeFileSync(path, Buffer.from(file.data, 'base64'), { flag: 'wx', mode: 0o600 });
     }
-    verifyTree(stage, bundle);
-    smoke(stage, config.python);
-    verifyTree(stage, bundle);
-    if (existsSync(target)) {
-      validatePinned({ root: target, metadata });
-      // A previous crash may have installed this immutable version before activation.
-    } else renameSync(stage, target);
+    try {
+      verifyTree(stage, bundle);
+      smoke(stage, config.python);
+      verifyTree(stage, bundle);
+      if (existsSync(target)) {
+        validatePinned({ root: target, metadata });
+        // A previous crash may have installed this immutable version before activation.
+      } else renameSync(stage, target);
+    } finally { if (existsSync(stage)) rmSync(stage, { recursive: true, force: true }); }
     atomicWrite(activePath, JSON.stringify(envelope));
     const status = { status: 'updated', version: metadata.version, sequence: metadata.sequence, checked_at: new Date().toISOString() };
     atomicWrite(join(home, 'status.json'), JSON.stringify(status));

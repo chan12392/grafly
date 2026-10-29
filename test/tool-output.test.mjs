@@ -10,6 +10,9 @@ import { runCommand, readOutput, applyRanges, isTestCommand, classifyCommand, ex
 import { searchOutput, writeOutput, readPath } from "../dist/tool-output/output.js";
 import { installOutputHook } from "../dist/tool-output/install.js";
 import { outputContext } from "../dist/tool-output/hook.js";
+// The ambient host may disable or reroute tool output; these tests own that configuration.
+for (const key of Object.keys(process.env))
+    if (key === "GRAFLY_TOOL_OUTPUT" || key === "GRAFLY_NO_TOOL_ROUTE" || key.startsWith("GRAFLY_MC")) delete process.env[key];
 
 const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
 const python = process.env.MC_PYTHON || "python";

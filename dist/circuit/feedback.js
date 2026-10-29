@@ -2,13 +2,7 @@
 import { appendFileSync, closeSync, openSync, readSync, renameSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
-<<<<<<< HEAD
-<<<<<<< HEAD
 import { collectJudgment } from '../mc-runtime/feedback.js';
-=======
->>>>>>> chan12392/cstack-review-20261020
-=======
->>>>>>> chan12392/feat-general-tool-output
 
 /** Associate navigation only with judgments this recent — same sitting,
  * not last week's unrelated query. */
@@ -98,7 +92,7 @@ export function recordFollowup(logPath, root, query, matchedIds) {
     for (let i = records.length - 1; i >= 0; i--) {
         const r = records[i];
         const isJudge = r.type === "judge" || (!r.type && Array.isArray(r.scores));
-        if (!isJudge || r.root !== root)
+        if (!isJudge || typeof r.root !== "string" || rootKey(r.root) !== rootKey(root))
             continue;
         const ts = Date.parse(r.ts);
         if (!Number.isFinite(ts) || ts < cutoff)
@@ -149,12 +143,6 @@ export function recordLabel(logPath, root, jid, expected, evidence) {
         source: "explicit", jid, root: judgment.root, expected, evidence: evidence.trim() };
     if (!isExplicitLabel(label, judgment)) throw new Error("expected must be an exact candidate ID, or abstain");
     if (!appendCircuitRecord(logPath, label)) throw new Error("could not persist the explicit review");
-<<<<<<< HEAD
-<<<<<<< HEAD
     collectJudgment(judgment, label);
-=======
->>>>>>> chan12392/cstack-review-20261020
-=======
->>>>>>> chan12392/feat-general-tool-output
     return label;
 }

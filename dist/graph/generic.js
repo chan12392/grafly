@@ -150,10 +150,6 @@ export async function warmGenericGrammars(langNames) {
         }
     }
 }
-/** True if a grammar has been warmed for this lang (else extractGeneric is file-only). */
-export function isWarm(langName) {
-    return loaded.has(langName);
-}
 /** Test seam: swap in (or, with null, remove) a grammar entry, returning the
  * previous one so the caller can restore it. The parse-failure path in
  * extractGeneric needs a grammar that throws deterministically; the real crash
@@ -293,16 +289,10 @@ export function extractGeneric(rel, source, langName) {
         tree.delete();
     }
 }
-/** PHP `use App\Models\User;` → a file→class-file `imports` raw edge, one per imported
- * name (a `{ … }` group expands to several). `use function`/`use const` are skipped —
- * those name a symbol, not a PSR-4 class file. resolve.ts settles the fully-qualified
- * name to the in-repo file by namespace suffix, and drops it when it can't. */
-function extractPhpUses(root, rel, rawEdges) {
+/** Pre-order walk over every named node under `root`. */
+function visitAll(root, fn) {
     const visit = (n) => {
-        if (n.type === "namespace_use_declaration") {
-            for (const fqn of phpUseNames(n.text))
-                rawEdges.push({ source: rel, relation: "imports", specifier: fqn, file: rel });
-        }
+        fn(n);
         for (let i = 0; i < (n.namedChildCount ?? 0); i++) {
             const c = n.namedChild?.(i);
             if (c)
@@ -310,6 +300,18 @@ function extractPhpUses(root, rel, rawEdges) {
         }
     };
     visit(root);
+}
+/** PHP `use App\Models\User;` → a file→class-file `imports` raw edge, one per imported
+ * name (a `{ … }` group expands to several). `use function`/`use const` are skipped —
+ * those name a symbol, not a PSR-4 class file. resolve.ts settles the fully-qualified
+ * name to the in-repo file by namespace suffix, and drops it when it can't. */
+function extractPhpUses(root, rel, rawEdges) {
+    visitAll(root, (n) => {
+        if (n.type === "namespace_use_declaration") {
+            for (const fqn of phpUseNames(n.text))
+                rawEdges.push({ source: rel, relation: "imports", specifier: fqn, file: rel });
+        }
+    });
 }
 /** The fully-qualified class names a PHP `use` declaration imports. Handles a plain
  * `use A\B\C;`, a comma list `use A\B, C\D;`, a group `use A\B\{C, D};`, and `as` aliases;
@@ -332,19 +334,13 @@ function phpUseNames(text) {
  * `super::`, `self::`, external crates, and globs are skipped — resolve.ts settles the
  * path against the file's crate root, and drops it when it can't. */
 function extractUses(root, rel, rawEdges) {
-    const visit = (n) => {
+    visitAll(root, (n) => {
         if (n.type === "use_declaration") {
             const spec = rustUseModule(n.text);
             if (spec !== null)
                 rawEdges.push({ source: rel, relation: "imports", specifier: spec ? `crate/${spec}` : "crate", file: rel });
         }
-        for (let i = 0; i < (n.namedChildCount ?? 0); i++) {
-            const c = n.namedChild?.(i);
-            if (c)
-                visit(c);
-        }
-    };
-    visit(root);
+    });
 }
 /** The crate-relative path a Rust `use crate::…` names (`::`→`/`), or null when it is not
  * an in-crate import. The FULL path is returned — including any trailing item segment —
@@ -371,7 +367,7 @@ function rustUseModule(text) {
  * in-repo header (relative to the including file, else a unique path-suffix match), and
  * keeps it as an external string when it cannot — never a guessed edge. */
 function extractIncludes(root, rel, rawEdges) {
-    const visit = (n) => {
+    visitAll(root, (n) => {
         if (n.type === "preproc_include") {
             const raw = n.childForFieldName?.("path")?.text ?? "";
             if (raw.startsWith('"')) {
@@ -380,13 +376,7 @@ function extractIncludes(root, rel, rawEdges) {
                     rawEdges.push({ source: rel, relation: "imports", specifier: spec, file: rel });
             }
         }
-        for (let i = 0; i < (n.namedChildCount ?? 0); i++) {
-            const c = n.namedChild?.(i);
-            if (c)
-                visit(c);
-        }
-    };
-    visit(root);
+    });
 }
 /** Per-language import binding: local name → {name, specifier}. An entry WITH
  * `name` is a bare binding (`import {work as w}` → `w()` calls the exported
@@ -410,17 +400,6 @@ const GENERIC_BINDINGS = {
 const GENERIC_QUALIFIER = {
     rust: rustQualifier, solidity: solidityQualifier, clojure: clojureQualifier,
     elixir: elixirQualifier, lua: luaQualifier,
-};
-const visitAll = (root, fn) => {
-    const visit = (n) => {
-        fn(n);
-        for (let i = 0; i < (n.namedChildCount ?? 0); i++) {
-            const c = n.namedChild?.(i);
-            if (c)
-                visit(c);
-        }
-    };
-    visit(root);
 };
 const firstId = (n) => {
     if (!n)
@@ -494,7 +473,7 @@ function rustBindings(root) {
 }
 function rustQualifier(nameNode) {
     const p = nameNode.parent;
-    if (p?.type !== "scoped_identifier" || p.childForFieldName("name") !== nameNode)
+    if (p?.type !== "scoped_identifier" || p.childForFieldName("name")?.id !== nameNode.id)
         return null;
     const mids = [];
     let cur = p.childForFieldName("path");
@@ -729,7 +708,7 @@ function elixirBindings(root) {
 }
 function elixirQualifier(nameNode) {
     const p = nameNode.parent;
-    if (p?.type !== "dot" || p.childForFieldName("right") !== nameNode)
+    if (p?.type !== "dot" || p.childForFieldName("right")?.id !== nameNode.id)
         return null;
     const left = p.childForFieldName("left");
     const text = left?.type === "alias" || left?.type === "identifier" || left?.type === "dot" ? left.text : null;
@@ -766,7 +745,7 @@ function luaBindings(root) {
 function luaQualifier(nameNode) {
     const p = nameNode.parent;
     const field = p?.type === "dot_index_expression" ? "field" : p?.type === "method_index_expression" ? "method" : null;
-    if (!field || p.childForFieldName(field) !== nameNode)
+    if (!field || p.childForFieldName(field)?.id !== nameNode.id)
         return null;
     const table = p.childForFieldName("table");
     return table?.type === "identifier" ? { local: table.text, mids: [] } : { unbound: true };

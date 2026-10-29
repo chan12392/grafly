@@ -3,7 +3,6 @@ import type { Savings } from "../context/savings.js";
 import type { GraphV1 } from "./types.js";
 import { type AskResult } from "../ask/ask.js";
 import { type GrepResult } from "../search/grep.js";
-import { formatGrepResult, zeroHitNote } from "../search/grep-cli.js";
 /** The parent index written to `<parent>/graft/workspace.json`. Nodes/edges
  * never live at the parent — they live in each child's own `graft/`. */
 export interface WorkspaceV1 {
@@ -152,4 +151,3 @@ export declare function splitWorkspace(root: string, override: string | undefine
     children: string[];
     migrated: boolean;
 }>;
-export { formatGrepResult, zeroHitNote };

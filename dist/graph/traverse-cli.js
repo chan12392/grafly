@@ -2,7 +2,7 @@
  * CLI wiring for `grafly callers` and its `--direction` / `--depth` flags.
  *
  * One command, one implementation: resolve a symbol via `resolveSymbol`, walk
- * edges via `edgeWalk` (incoming or outgoing, depth 1 or a BFS), and share the
+ * edges via `sharedEdgeWalk` (incoming or outgoing, depth 1 or a BFS), and share the
  * same resolve-or-die flow, human formatter, and --json shape. Kept out of
  * cli.ts so that file stays thin (argument wiring only) and this logic stays
  * unit-testable without shelling out to the CLI on every case.
@@ -26,12 +26,10 @@ import { escalateAmbiguous, escalationLines } from "../circuit/escalate.js";
 const ARROW = { in: "←", out: "→" };
 const DEFAULT_DEPTH = 1;
 /**
- * Walk adjacency built ONCE per command instead of per match — upstream
- * edgeWalk scans all edges for every matched symbol (O(matches × edges): 44M
- * scans for 308 `close` matches on a 144k-edge graph ≈ 9s). One shared pass
- * is O(edges) and produces byte-identical hit lists: callersOf/calleesOf is
- * exactly this adjacency lookup at depth 1, and impactOfMany's BFS is the
- * same loop with frontier expansion.
+ * Walk adjacency built ONCE per command instead of per match — a per-match
+ * edge scan is O(matches × edges): 44M scans for 308 `close` matches on a
+ * 144k-edge graph ≈ 9s. One shared pass is O(edges); impactOfMany's BFS is
+ * the same loop with frontier expansion.
  */
 export function walkAdjacency(graph, direction) {
     const adj = new Map();
@@ -51,7 +49,7 @@ export function walkAdjacency(graph, direction) {
 function symbolsInFile(graph, fileNode) {
     return graph.nodes.filter((n) => n.kind !== "file" && n.path === fileNode.path);
 }
-/** edgeWalk with shared adjacency — same seeds, same dedup, same hit order. */
+/** BFS over shared adjacency; a file seed at depth > 1 also seeds its symbols. */
 export function sharedEdgeWalk(graph, adj, byId, node, direction, depth) {
     const seeds = depth > 1 && node.kind === "file"
         ? [node, ...symbolsInFile(graph, node)] : [node];
@@ -75,7 +73,7 @@ export function sharedEdgeWalk(graph, adj, byId, node, direction, depth) {
 }
 /** Exported so the workspace federation path (`workspace.js`) can render the
  * same human report format as the CLI, rather than re-implementing it — both
- * surfaces walk the same edges via the same `resolveSymbol` / `edgeWalk` core. */
+ * surfaces walk the same edges via the same `resolveSymbol` / `sharedEdgeWalk` core. */
 export function headerOf(n) {
     return `${n.name} · ${n.kind} · ${n.path}:${n.span}`;
 }
@@ -262,7 +260,6 @@ export function runCallersCommand(query, dir, opts) {
     catch (err) {
         console.error(`✗ ${err instanceof Error ? err.message : String(err)}`);
         exitCommand(1);
-        return;
     }
     if (matches.length === 0) {
         const near = nearMisses(graph, query);
@@ -522,15 +519,7 @@ export function logCircuit(logPath, record) {
     if (!logPath)
         return null;
     record.jid = jidFor(record);
-<<<<<<< HEAD
-<<<<<<< HEAD
     if (!appendCircuitRecord(logPath, record)) return null;
     collectJudgment(record);
     return record.jid;
-=======
-    return appendCircuitRecord(logPath, record) ? record.jid : null;
->>>>>>> chan12392/cstack-review-20261020
-=======
-    return appendCircuitRecord(logPath, record) ? record.jid : null;
->>>>>>> chan12392/feat-general-tool-output
 }

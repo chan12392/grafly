@@ -63,7 +63,10 @@ export function getNpmViewVersion(pkgName = PKG_NAME, timeoutMs = 2000) {
 /** Pure formatter for `graft version` — no I/O, easy to unit-test. */
 export function formatVersionReport(current, latest) {
     const lines = [`grafly ${current}`];
-    if (!latest.ok || !latest.version) {
+    if (!PKG_NAME) {
+        lines.push("latest: registry check disabled (set GRAFLY_NPM_PACKAGE to enable)");
+    }
+    else if (!latest.ok || !latest.version) {
         lines.push("latest: unreachable (offline?)");
     }
     else if (latest.version === current) {

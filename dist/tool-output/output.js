@@ -1,5 +1,5 @@
 /** Bounded, literal archive lookup. Raw reads remain available for explicit retrieval. */
-import { lines, readOutput } from "./runner.js";
+import { commandName, lines, readOutput } from "./runner.js";
 import { conditionalRead, commitRead } from "./conditional.js";
 import { observeComparison } from "../mc-runtime/comparison.js";
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -180,7 +180,7 @@ export function readPath(pathArg, options = {}) {
  *  their flag so `-n 5 f` has one operand, not two — canServe and serve share
  *  this parser so eligibility and behavior can never diverge. */
 function readInvocation(command, args = []) {
-    const name = command.replaceAll("\\", "/").split("/").at(-1).toLowerCase().replace(/\.(?:exe|cmd|bat|com)$/, "");
+    const name = commandName(command);
     // Collect operands; each known flag consumes its numeric value. Unknown
     // flags or extra operands make the form unservable — run it for real.
     const operands = [];

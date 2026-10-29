@@ -157,14 +157,17 @@ export function judgeOneSite(cfg, root, file, candidates) {
  * to hand over — callers must treat null as "no escalation ran".
  */
 export function escalateAmbiguous(root, query, matches, dropped) {
+    if (!matches?.length || !dropped?.length)
+        return null;
+    const sites = [...new Set(dropped.filter((d) => d.name === query).map((d) => siteFile(d.source)))]
+        .filter(Boolean);
+    if (!sites.length)
+        return null;
+    // Resolve (and hash-verify) the MC installation only when there is work for it.
     const cfg = mcConfig(root);
-    if (!cfg || !matches?.length || !dropped?.length)
+    if (!cfg)
         return null;
-    const files = [...new Set(dropped.filter((d) => d.name === query).map((d) => siteFile(d.source)))]
-        .filter(Boolean)
-        .slice(0, cfg.maxSites);
-    if (!files.length)
-        return null;
+    const files = sites.slice(0, cfg.maxSites);
     // matches arrive circuit-ranked best-first; beyond MC's candidate cap the
     // tail is the least plausible anyway. The cap is reported, not silent.
     const truncated = matches.length > MC_MAX_CANDIDATES;

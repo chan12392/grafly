@@ -26,8 +26,6 @@ export interface Loaded {
  * awaited once before extractGeneric is used in a sync loop. Unknown/unavailable
  * grammars are silently skipped (their files then extract as file-only). */
 export declare function warmGenericGrammars(langNames: Iterable<string>): Promise<void>;
-/** True if a grammar has been warmed for this lang (else extractGeneric is file-only). */
-export declare function isWarm(langName: string): boolean;
 /** Test seam: swap in (or, with null, remove) a grammar entry, returning the
  * previous one so the caller can restore it. The parse-failure path in
  * extractGeneric needs a grammar that throws deterministically; the real crash

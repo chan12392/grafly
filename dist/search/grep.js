@@ -28,19 +28,25 @@ function spanBounds(span) {
         return null;
     return { start: Number(m[1]), end: Number(m[2]) };
 }
-/** The file's symbol nodes, sorted ascending by span start — the order
- * `enclosingSymbol` scans in to find the innermost containing span. */
-function symbolsOf(graph, path) {
-    const out = [];
+/** Each file's symbol nodes, sorted ascending by span start — the order
+ * `enclosingSymbol` scans in to find the innermost containing span. One pass
+ * over the nodes, not one per searched file. */
+function symbolsByFile(graph) {
+    const byPath = new Map();
     for (const n of graph.nodes) {
-        if (n.kind === "file" || n.path !== path)
+        if (n.kind === "file")
             continue;
         const b = spanBounds(n.span);
-        if (b)
-            out.push({ node: n, start: b.start, end: b.end });
+        if (!b)
+            continue;
+        let list = byPath.get(n.path);
+        if (!list)
+            byPath.set(n.path, list = []);
+        list.push({ node: n, start: b.start, end: b.end });
     }
-    out.sort((a, b) => a.start - b.start);
-    return out;
+    for (const list of byPath.values())
+        list.sort((a, b) => a.start - b.start);
+    return byPath;
 }
 /** Innermost symbol containing `line`: among spans that contain it, the one
  * with the greatest start line. Symbols are pre-sorted ascending by start,
@@ -87,11 +93,18 @@ export function grepGraph(graph, repoRoot, pattern, opts = {}) {
     let collected = 0;
     let truncatedHits = 0;
     let truncatedFiles = 0;
+    const symbolsByPath = symbolsByFile(graph);
+    let base = null;
+    try {
+        base = realpathSync(repoRoot);
+    }
+    catch { } // unreadable root: every file below counts as unreadable
     for (const file of fileNodes) {
         let text;
         try {
             // Graph paths cannot grant access outside the checkout, including through links.
-            const base = realpathSync(repoRoot);
+            if (base === null)
+                throw new Error("unreadable root");
             const path = realpathSync(resolve(base, file.path));
             const rel = relative(base, path);
             if (isAbsolute(file.path) || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
@@ -109,8 +122,8 @@ export function grepGraph(graph, repoRoot, pattern, opts = {}) {
             truncatedFiles++;
             continue;
         }
-        const symbols = symbolsOf(graph, file.path);
-        const lines = text.split("\n");
+        const symbols = symbolsByPath.get(file.path) ?? [];
+        const lines = text.split(/\r?\n/);
         for (let i = 0; i < lines.length; i++) {
             const raw = lines[i];
             if (!regex.test(raw))

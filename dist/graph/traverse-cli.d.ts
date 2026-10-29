@@ -13,7 +13,6 @@ export interface CallersCliOptions {
     top?: string | number;
     limit?: string | number;
 }
-<<<<<<< HEAD
 export type WalkAdjacency = Map<string, Array<{ other: string; relation: Relation }>>;
 export declare function walkAdjacency(graph: GraphV1, direction: Direction): WalkAdjacency;
 export declare function sharedEdgeWalk(graph: GraphV1, adj: WalkAdjacency, byId: Map<string, NodeV1>, node: NodeV1, direction: Direction, depth: number): EdgeHit[];
@@ -52,12 +51,6 @@ export declare function circuitVerdictLine(circuit: Pick<CircuitReport, "verdict
 export declare function circuitLogPath(contextDir: string): string | null;
 export declare function logCircuit(logPath: string | null, record: Record<string, unknown>): string | null;
 /** Human report header for callers results from the shared traversal core. */
-=======
-export declare function logCircuit(logPath: string | null, record: Record<string, unknown>): string | null;
-/** Exported so the MCP `graft_trace_calls` tool (`src/mcp/tools.ts`) can render the
- * same human report format as the CLI, rather than re-implementing it — both
- * surfaces walk the same edges via the same `resolveSymbol` / `edgeWalk` core. */
->>>>>>> chan12392/feat-general-tool-output
 export declare function headerOf(n: NodeV1): string;
 /** `showDepth` is set for multi-hop walks (depth > 1), matching the old
  * `graft impact` output which tagged every hit with its BFS depth.
@@ -95,7 +88,3 @@ export declare function looseNoteFor(direction: Direction, name: string, candida
  */
 export declare function runCallersCommand(query: string, dir: string, opts: CallersCliOptions): void;
 export {};
-<<<<<<< HEAD
-=======
-//# sourceMappingURL=traverse-cli.d.ts.map
->>>>>>> chan12392/feat-general-tool-output

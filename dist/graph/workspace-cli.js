@@ -8,8 +8,7 @@
 import { exitCommand } from "../util/cli-exit.js";
 import { contextDirFor, ensureGitignored } from "../context/node-file.js";
 import { patchBuildConfig } from "../util/state.js";
-import { formatAsk } from "../ask/ask.js";
-import { federateAskAsync, federateCallers, federateCheck, federateGrep, federateMap, formatGrepResult, migrationNote, splitWorkspace, zeroHitNote, } from "./workspace.js";
+import { federateCallers, federateCheck, federateMap, migrationNote, splitWorkspace } from "./workspace.js";
 /** Build every git child into its own committable `grafly/`, then replace the
  * parent's `grafly/` with `workspace.json`. Prints the one-time split warning
  * first when migrating away from a mega-graph. */
@@ -69,27 +68,6 @@ export async function runWorkspaceBuild(root, opts) {
     }
     console.log(`✓ workspace: ${children.length} repos federated → grafly/workspace.json`);
     console.log(`  grafly/ is git-ignored — each teammate runs \`grafly build\` to regenerate it locally.`);
-}
-export async function runWorkspaceAsk(root, override, query, opts) {
-    const r = await federateAskAsync(root, override, query, opts);
-    if (opts.json)
-        console.log(JSON.stringify(r, null, 2));
-    else
-        process.stdout.write(formatAsk(r));
-}
-export function runWorkspaceGrep(root, override, pattern, opts) {
-    const { result, coverage } = federateGrep(root, override, pattern, { ignoreCase: opts.ignoreCase, fixed: opts.fixed, in: opts.in });
-    if (opts.json) {
-        console.log(JSON.stringify(result, null, 2));
-        return;
-    }
-    if (result.totalHits === 0) {
-        console.error(coverage ? `${zeroHitNote(result)}\n${coverage}` : zeroHitNote(result));
-        return;
-    }
-    process.stdout.write(formatGrepResult(result));
-    if (coverage)
-        console.log(coverage);
 }
 export function runWorkspaceMap(root, override, opts) {
     process.stdout.write(federateMap(root, override, { maxDirs: opts.maxDirs }));

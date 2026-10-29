@@ -18,6 +18,10 @@ export class FileBindings {
     }
 }
 const FN_VALUE_TYPES = new Set(["arrow_function", "function", "function_expression", "generator_function"]);
+/** Definition node types that push a named scope segment (see `defName`). */
+const PHP_DEF_TYPES = new Set(["class_declaration", "interface_declaration", "trait_declaration", "enum_declaration", "method_declaration", "function_definition"]);
+const PY_DEF_TYPES = new Set(["class_definition", "function_definition"]);
+const TS_DEF_TYPES = new Set(["class_declaration", "abstract_class_declaration", "function_declaration", "generator_function_declaration", "method_definition", "interface_declaration", "type_alias_declaration", "enum_declaration"]);
 /** Definition-node types that push a new scope segment, mirroring extract.ts's
  * `describe()` closely enough to keep the two scope stacks in lockstep — but
  * duplicated here (not imported) to keep bindings.ts free of a value import on
@@ -48,15 +52,7 @@ export function defName(node, lang) {
     if (lang === "swift")
         return swiftDefName(node);
     if (lang === "php") {
-        const phpDefTypes = new Set([
-            "class_declaration",
-            "interface_declaration",
-            "trait_declaration",
-            "enum_declaration",
-            "method_declaration",
-            "function_definition",
-        ]);
-        if (phpDefTypes.has(node.type))
+        if (PHP_DEF_TYPES.has(node.type))
             return node.childForFieldName("name")?.text ?? null;
         // Closures push a scope segment in extract.ts too — mirror it so a typed
         // parameter bound inside a closure is keyed under the same scope path.
@@ -67,18 +63,7 @@ export function defName(node, lang) {
             return "{anonymous}";
         return null;
     }
-    const defTypes = lang === "python"
-        ? new Set(["class_definition", "function_definition"])
-        : new Set([
-            "class_declaration",
-            "abstract_class_declaration",
-            "function_declaration",
-            "generator_function_declaration",
-            "method_definition",
-            "interface_declaration",
-            "type_alias_declaration",
-            "enum_declaration",
-        ]);
+    const defTypes = lang === "python" ? PY_DEF_TYPES : TS_DEF_TYPES;
     if (defTypes.has(node.type))
         return node.childForFieldName("name")?.text ?? null;
     if ((lang === "typescript" || lang === "tsx") && node.type === "variable_declarator") {

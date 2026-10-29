@@ -45,7 +45,7 @@ function seedsForFile(graph, path, ranges) {
         // Drop any symbol that strictly contains another overlapping one (the class
         // around a changed method), keeping the tightest description of the edit.
         for (const s of overlapping) {
-            const containsAnother = overlapping.some((o) => o !== s && o.start >= s.start && o.end <= s.end);
+            const containsAnother = overlapping.some((o) => o !== s && o.start >= s.start && o.end <= s.end && (o.start > s.start || o.end < s.end));
             if (!containsAnother)
                 hit.set(s.node.id, s.node);
         }

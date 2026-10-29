@@ -271,8 +271,6 @@ export function rankScopesAndFuse(scopes, ops, graphWeight, rescueFloor) {
         if (maxLex <= 0)
             continue;
         meta.set(scope, { lex, maxLex, bestId });
-        if (maxLex > globalMaxLex)
-            globalMaxLex = maxLex;
     }
     // Body-only suppression. With a shared denominator a weak scope simply
     // scores low, so participation is decided on score in

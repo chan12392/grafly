@@ -71,3 +71,28 @@ test("generic tier: bare and qualified import-bound calls resolve in-module", ()
     assert.deepEqual(hitsFor(callers(d, "run"), "src/y/deep.clj#run"), ["src/app/core.clj#main"]);
     assert.deepEqual(hitsFor(callers(d, "make"), "src/util.rs#make"), ["src/main.rs#main"]);
 });
+
+test("generic tier: module-qualified calls pick the qualifier's module among same-named defs", () => {
+    // Each caller file can see two same-named definitions; only the qualifier
+    // (crate path / alias / required table) says which one is meant.
+    const d = mkdtempSync(join(tmpdir(), "grafly-gqual-"));
+    build(d, {
+        "src/a.rs": "pub fn work() -> i32 { 1 }\n",
+        "src/b.rs": "pub fn work() -> i32 { 2 }\n",
+        "src/lib.rs": "pub mod a;\npub mod b;\n",
+        "src/main.rs": "use crate::b;\nfn main() { crate::a::work(); }\n",
+        "lib/p/one.ex": "defmodule P.One do\n  def work(), do: 1\nend\n",
+        "lib/p/two.ex": "defmodule P.Two do\n  def work(), do: 2\nend\n",
+        "lib/app.ex": "alias P.One\nalias P.Two\ndefmodule App do\n  def run() do\n    One.work()\n  end\nend\n",
+        "m1.lua": "function work() return 1 end\n",
+        "m2.lua": "function work() return 2 end\n",
+        "main.lua": 'local x = require("m1")\nlocal y = require("m2")\nlocal function f() x.work() end\n',
+    });
+    const work = callers(d, "work");
+    assert.deepEqual(hitsFor(work, "src/a.rs#work"), ["src/main.rs#main"]);
+    assert.deepEqual(hitsFor(work, "src/b.rs#work"), []);
+    assert.deepEqual(hitsFor(work, "lib/p/one.ex#work"), ["lib/app.ex#run"]);
+    assert.deepEqual(hitsFor(work, "lib/p/two.ex#work"), []);
+    assert.deepEqual(hitsFor(work, "m1.lua#work"), ["main.lua#f"]);
+    assert.deepEqual(hitsFor(work, "m2.lua#work"), []);
+});

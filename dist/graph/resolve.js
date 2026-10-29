@@ -119,7 +119,11 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
     const exFilesBySuffix = new Map();
     const luaFilesBySuffix = new Map();
     const pyFilesByModule = new Map();
-    const SUFFIX_INDEX = [[SCALA_EXT, scalaFilesBySuffix], [CLJ_EXT, cljFilesBySuffix],
+    // Index every directory-boundary suffix, since the source root is unknown:
+    // `src/main/java/com/acme/Foo.java` is reachable as `com/acme/Foo.java`,
+    // `acme/Foo.java`, and so on. The import's own path picks the right depth.
+    const SUFFIX_INDEX = [[/\.java$/, javaFilesBySuffix], [C_EXT, cFilesBySuffix], [/\.php$/, phpFilesBySuffix],
+        [SCALA_EXT, scalaFilesBySuffix], [CLJ_EXT, cljFilesBySuffix],
         [ELIXIR_EXT, exFilesBySuffix], [LUA_EXT, luaFilesBySuffix]];
     const hasGoModules = !!opts.goModules?.length;
     for (const n of nodes) {
@@ -134,24 +138,6 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
             if (hasGoModules && n.path.endsWith(".go")) {
                 const dir = posix.dirname(toPosixPath(n.path));
                 push(goFilesByDir, dir, n.id);
-            }
-            if (n.path.endsWith(".java")) {
-                // Index every directory-boundary suffix, since the source root is unknown:
-                // `src/main/java/com/acme/Foo.java` is reachable as `com/acme/Foo.java`,
-                // `acme/Foo.java`, and so on. The import's own FQN picks the right depth.
-                const parts = toPosixPath(n.path).split("/");
-                for (let i = 0; i < parts.length; i++)
-                    push(javaFilesBySuffix, parts.slice(i).join("/"), n.id);
-            }
-            if (C_EXT.test(n.path)) {
-                const parts = toPosixPath(n.path).split("/");
-                for (let i = 0; i < parts.length; i++)
-                    push(cFilesBySuffix, parts.slice(i).join("/"), n.id);
-            }
-            if (n.path.endsWith(".php")) {
-                const parts = toPosixPath(n.path).split("/");
-                for (let i = 0; i < parts.length; i++)
-                    push(phpFilesBySuffix, parts.slice(i).join("/"), n.id);
             }
             for (const [ext, map] of SUFFIX_INDEX) {
                 if (!ext.test(n.path))
@@ -233,7 +219,9 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
                                     ? resolveElixirModule(spec, exFilesBySuffix)
                                     : LUA_EXT.test(file)
                                         ? resolveLuaRequire(spec, luaFilesBySuffix)
-                                        : resolveImport(spec, file, byId);
+                                        : PY_EXT.test(file)
+                                            ? resolvePyImport(spec, file, byId)
+                                            : resolveImport(spec, file, byId);
     const add = (source, target, relation, confidence) => {
         const key = `${source}\0${relation}\0${target}`;
         if (seen.has(key))
@@ -392,17 +380,26 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
                 // Ctor-call kinds are widened in: `import {Widget}` then
                 // `new Widget()` must find a class, not just a function.
                 const targetFile = moduleTarget(e.specifier, e.file);
-                if (!byId.has(targetFile))
-                    continue; // external/unresolved module — not in-repo
-                const importKinds = [...new Set([...callKinds, "class", "struct", "enum"])];
-                const candidates = (perFileName.get(targetFile)?.get(e.name) ?? []).filter((n) => importKinds.includes(n.kind));
-                if (candidates.length === 1) {
-                    add(e.source, candidates[0].id, "calls", "extracted");
+                // Python keeps its previous name-based resolution when the module is
+                // external or defines no such name: `__init__.py` re-exports are
+                // routine, so a miss there is not evidence of absence.
+                const py = PY_EXT.test(e.file);
+                if (byId.has(targetFile)) {
+                    const importKinds = [...new Set([...callKinds, "class", "struct", "enum"])];
+                    const candidates = (perFileName.get(targetFile)?.get(e.name) ?? []).filter((n) => importKinds.includes(n.kind));
+                    if (candidates.length === 1) {
+                        add(e.source, candidates[0].id, "calls", "extracted");
+                        continue;
+                    }
+                    if (candidates.length > 1) {
+                        if (opts.dropped)
+                            opts.dropped.push({ source: e.source, name: e.name });
+                        continue;
+                    }
                 }
-                else if (candidates.length > 1 && opts.dropped)
-                    opts.dropped.push({ source: e.source, name: e.name });
                 // Unknown exports/re-exports are not evidence for a global name match.
-                continue;
+                if (!py)
+                    continue;
             }
             hit = resolveName(e.name, e.file, callKinds, perFileName, globalName);
             // Python is the Java case without the `new` to mark it: `Widget()` is an
@@ -593,6 +590,29 @@ function resolveImport(spec, file, byId) {
     for (const c of candidates)
         if (byId.has(c))
             return c;
+    return spec;
+}
+/**
+ * Resolve a Python module specifier to a file node id, else return it raw.
+ *
+ * Relative (`.b`, `..pkg.mod`, `.`) climbs one directory per extra leading dot
+ * from the importing file. Absolute (`pkg.b`) resolves only from the repo root:
+ * the source root is unknown, and a suffix match would bind `import json` to
+ * any in-repo `json.py`, so anything else stays an external string.
+ */
+function resolvePyImport(spec, file, byId) {
+    const m = /^(\.*)(.*)$/.exec(spec);
+    const dots = m[1].length;
+    let dir = "";
+    if (dots > 0) {
+        dir = posix.dirname(toPosixPath(file));
+        for (let i = 1; i < dots; i++)
+            dir = posix.dirname(dir);
+    }
+    const base = posix.normalize(posix.join(dir, m[2].replace(/\./g, "/")));
+    for (const c of [`${base}.py`, `${base}/__init__.py`])
+        if (byId.has(posix.normalize(c)))
+            return posix.normalize(c);
     return spec;
 }
 /**

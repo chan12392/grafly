@@ -178,9 +178,9 @@ function matchedStrongTerms(query, name) {
     return terms;
 }
 // ── Structural intent ──────────────────────────────────────────────────────
-const INCOMING = /\b(caller|callers|calls?\s+into|who\s+calls|what\s+calls|called\s+by|used\s+by|uses)\b/;
+const INCOMING = /\b(caller|callers|calls?\s+into|who\s+calls|what\s+calls|called\s+by|used\s+by|uses|(?:who|what)\s+imports|imported\s+by|importers?)\b/;
 const OUTGOING = /\b(callee|callees|what\s+does\s+\w+\s+call|calls\s+what|imports?|depends\s+on)\b/;
-const INCOMING_RELS = ["calls", "references", "implements", "extends"];
+const INCOMING_RELS = ["calls", "references", "imports", "implements", "extends"];
 const OUTGOING_RELS = ["calls", "references", "imports", "implements", "extends"];
 /** Split a prose query into word-like tokens, keeping dots so a qualified name
  * ("Cache.get") or package-qualified name ("pkg.Fn") survives as one token —
@@ -964,7 +964,7 @@ function sliceSpan(root, path, from, to) {
         const source = readSourceFile(file);
         if (source === null)
             return null; // unsupported encoding (e.g. UTF-16BE)
-        const lines = source.split("\n");
+        const lines = source.split(/\r?\n/);
         const start = Math.max(1, from);
         const end = Math.min(lines.length, to);
         const slice = lines.slice(start - 1, end);
@@ -1054,9 +1054,10 @@ export async function askAsync(dir, query, opts = {}) {
     if (structuralOutcome?.result)
         return askFromCorpus(root, query, opts, corpus, undefined, structuralOutcome);
     const candidates = await xerjCandidates(outDir, query, corpus.graph, opts);
-    let result = askFromCorpus(root, query, opts, corpus, candidates.ids);
+    // A structural fallthrough is reused, not recomputed, by both lexical passes.
+    let result = askFromCorpus(root, query, opts, corpus, candidates.ids, structuralOutcome);
     if (candidates.ids && !result.hits.length) {
-        result = askFromCorpus(root, query, opts, corpus);
+        result = askFromCorpus(root, query, opts, corpus, undefined, structuralOutcome);
         candidates.reason = "no ranked candidates";
     }
     if (candidates.ids || candidates.reason)
