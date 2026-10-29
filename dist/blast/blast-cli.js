@@ -6,6 +6,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { basename, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { contextDirFor } from "../context/node-file.js";
 import { loadGraphCached } from "../graph/load.js";
 import { blastRadiusIn } from "./blast.js";
@@ -93,8 +94,8 @@ export async function runBlastCommand(dir, opts) {
 /**
  * Name the clusters left on their symbol backstop, then report what it cost.
  *
- * The work lives in `name.ts` so the GitHub App runs the identical pass; all
- * this adds is the `--name:` prefix a CLI note wants.
+ * The work lives in `name.js`; all this adds is the `--name:` prefix a CLI
+ * note wants.
  */
 async function nameClusters(graph, report, contextDir) {
     const { nameReport } = await import("./name.js");
@@ -134,14 +135,12 @@ export function repoLabel(root) {
  * tier's concept map, which a PR build no longer produces.
  */
 async function exportRadius(report, contextDir, root, outDir, subtitle) {
-    const { resolve: resolvePath } = await import("node:path");
-    const { fileURLToPath } = await import("node:url");
     const { exportViz } = await import("../viz/export.js");
     const { blastVizGraph } = await import("./viz.js");
     const out = exportViz({
         contextDir,
         viewerDir: fileURLToPath(new URL("../viewer/", import.meta.url)), // prebuilt, ships in dist
-        outDir: resolvePath(outDir),
+        outDir: resolve(outDir),
         repoName: repoLabel(root),
         subtitle,
         contextGraph: blastVizGraph(report, { root }),

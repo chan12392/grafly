@@ -255,7 +255,7 @@ export async function nameReport(graph, report, contextDir) {
     }
     const stats = await applyNames(graph, report, { namer, contextDir });
     if (!namer)
-        return { stats, note: "no API key (GRAFT_API_KEY), so areas keep their symbol names" };
+        return { stats, note: "no API key (GRAFLY_API_KEY), so areas keep their symbol names" };
     if (stats.error)
         return { stats, note: `naming failed (${stats.error}) — areas keep their symbol names` };
     if (stats.named + stats.cached + stats.declined > 0) {

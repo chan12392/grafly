@@ -63,10 +63,6 @@ export async function warmContainerGrammars(langNames) {
             loaded.set(name, language);
     }
 }
-/** True if a container grammar has been warmed (else extraction is file-only). */
-export function isContainerWarm(langName) {
-    return loaded.has(langName);
-}
 /** `L12-L20` shifted by n lines. The span format is produced in exactly two
  * places (extract.ts and generic.ts) and is always this shape; anything else is
  * returned untouched rather than guessed at. */

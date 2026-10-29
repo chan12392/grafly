@@ -15,8 +15,7 @@
  * Pure JS, no network or external inference.
  */
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join, relative, sep } from "node:path";
+import { relative, sep } from "node:path";
 import { stripOrdinals } from "../graph/traverse.js";
 import { rankFeatures, DEFAULT_WEIGHTS, FEATURE_KEYS as MC_FEATURE_KEYS, ARTIFACT, MODEL_SHA256 } from "./mc-channel.js";
 export { SYMBOL_CHANNEL } from './mc-channel.js';
@@ -26,14 +25,13 @@ export { SYMBOL_CHANNEL } from './mc-channel.js';
  * here is dead, a name here missing from the artifact scores 0. */
 export const FEATURE_KEYS = MC_FEATURE_KEYS;
 
-/** Weights are an ARTIFACT, not code: circuit/weights.json carries the
- * feature weights + abstain gap so a retrained circuit ships as a JSON
- * drop-in — no JS edits. Built-in seeds cover an absent/unparseable file.
- * GRAFLY_WEIGHTS points at an alternate artifact. */
+/** Weights are an ARTIFACT, not code: the pinned MC channel artifact
+ * (circuit/mc/symbol_disambiguation.json, or the signed runtime's copy) carries
+ * the feature weights + abstain gap. GRAFLY_WEIGHTS points at an alternate
+ * JSON artifact; an absent/unparseable override falls back to the channel. */
 function loadWeights() {
-    if (!process.env.GRAFLY_WEIGHTS) return { W: DEFAULT_WEIGHTS, abstain: ARTIFACT.abstain_gap };
-    const here = dirname(fileURLToPath(import.meta.url));
-    const path = process.env.GRAFLY_WEIGHTS ?? join(here, "weights.json");
+    const path = process.env.GRAFLY_WEIGHTS;
+    if (!path) return { W: DEFAULT_WEIGHTS, abstain: ARTIFACT.abstain_gap };
     try {
         const d = JSON.parse(readFileSync(path, "utf8"));
         if (!d?.weights || typeof d.weights !== "object")
@@ -115,7 +113,7 @@ export function matchFeatures(graph, query, node, deg, cwdTokens) {
     for (const t of qPrefix) if (pTokens.has(t)) overlap++;
     const pathOverlap = qPrefix.size ? overlap / qPrefix.size : 0;
 
-    const degree = (deg ?? degreeMap(graph)).get(node.id) ?? 0;
+    const degree = deg.get(node.id) ?? 0;
 
     const qTokens = new Set(tokens(q));
     let kindHit = 0;
@@ -167,11 +165,6 @@ export function matchFeatures(graph, query, node, deg, cwdTokens) {
 const VENDORED_PATH = /site-packages|dist-packages|node_modules|__pycache__|\/vendor\/|_vendor|third_party|\.venv|\/venv\/|qa-artifacts|frozen-gate|\/staging\/|backup/i;
 /** Test files — penalized mildly for bare-name intent. */
 const TEST_PATH = /(^|\/)test[s]?_|_test\.|(^|\/)tests?\/|\.test\.|\.spec\.|test_[^/]*\.py$/i;
-
-export function scoreMatch(graph, query, node, deg, cwdTokens) {
-    const f = matchFeatures(graph, query, node, deg, cwdTokens);
-    return Object.keys(W).reduce((s, k) => s + W[k] * (f[k] ?? 0), 0);
-}
 
 /** Tokens of `cwd` relative to `root` — the caller's location as query
  * context. Empty when cwd is outside the repo (feature-neutral). */

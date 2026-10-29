@@ -17,6 +17,10 @@ export interface InitOptions {
     extensions?: string[];
     /** Repo-relative directory prefixes to limit the concept pass (`--only-dir`). */
     onlyDirs?: string[];
+    /** Files summarized in parallel. Default 8. */
+    concurrency?: number;
+    /** Re-summarize only files changed since the last concept pass. */
+    incremental?: boolean;
     /** Progress callback for long builds. */
     onProgress?: (info: BuildProgress) => void;
 }

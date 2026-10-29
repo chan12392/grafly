@@ -1,14 +1,12 @@
 import { type AskIndex } from "../ask/index-file.js";
 import type { GraphV1 } from "./types.js";
-/** Real parses performed (cache misses), not cache hits — exported for tests
- * so the invalidation contract can be pinned down without spying on `fs`. */
+/** Real parses performed (cache misses), not cache hits — reported by the
+ * search daemon's status so cache reuse is observable. */
 export declare const __parseCount: {
     graph: number;
     askIndex: number;
     traverse: number;
 };
-/** Test-only: zero the counters (module state persists across a test file). */
-export declare function __resetParseCounts(): void;
 /** Cached `readGraph(wiringPath(outDir))` — same null-on-missing/unparseable
  * semantics, re-reads only when the wiring file's `(mtimeMs, size)` changed.
  * Returns a shared cached reference; callers must not mutate the returned graph. */

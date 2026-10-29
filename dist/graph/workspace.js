@@ -39,7 +39,6 @@ import { prependExactHits } from "../ask/exact-symbol.js";
 import { fileFirstRoundRobin, roundRobinQueues, } from "../ask/file-selection.js";
 import { fuseScopes, STRONG_FLOOR, HIGH_FLOOR } from "../ask/fuse.js";
 import { grepGraph } from "../search/grep.js";
-import { formatGrepResult, zeroHitNote } from "../search/grep-cli.js";
 import { withSavings } from "../context/savings.js";
 import { splitWorkspaceScope } from "../compat/options.js";
 const WORKSPACE_FILE = "workspace.json";
@@ -727,4 +726,3 @@ export async function splitWorkspace(root, override, buildChild, onStart) {
     writeWorkspace(root, { version: 1, children }, override); // …leaving ONLY workspace.json
     return { children, migrated };
 }
-export { formatGrepResult, zeroHitNote };

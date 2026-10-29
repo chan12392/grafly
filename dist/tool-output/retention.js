@@ -1,5 +1,4 @@
 /** Local raw-output quota. Active writers may exceed it; never follow links. */
-import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { lstatSync, readdirSync, realpathSync, renameSync, rmdirSync,

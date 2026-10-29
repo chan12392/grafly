@@ -222,7 +222,7 @@ if (check) {
 }
 else if (out) {
     writeFileSync(out, JSON.stringify(artifact, null, 2) + "\n");
-    console.log(`✓ ${out} — ${Object.keys(weights).length} weights, abstain_gap ${abstain} (set GRAFLY_WEIGHTS or drop into dist/circuit/weights.json)`);
+    console.log(`✓ ${out} — ${Object.keys(weights).length} weights, abstain_gap ${abstain} (set GRAFLY_WEIGHTS to use it)`);
 }
 else {
     process.stdout.write(JSON.stringify(artifact, null, 2) + "\n");

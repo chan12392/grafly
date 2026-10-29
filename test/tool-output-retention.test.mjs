@@ -11,6 +11,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, trunca
 import { setTimeout as delay } from 'node:timers/promises';
 import { ARCHIVE_BUDGET, startArchive, finishArchive, pruneArchives, startArchiveMaintenance } from '../dist/tool-output/retention.js';
 import { runCommand, readOutput } from '../dist/tool-output/runner.js';
+// The ambient host may disable or reroute tool output; these tests own that configuration.
+for (const key of Object.keys(process.env))
+    if (key === "GRAFLY_TOOL_OUTPUT" || key === "GRAFLY_NO_TOOL_ROUTE" || key.startsWith("GRAFLY_MC")) delete process.env[key];
 
 const MiB = 1024 * 1024;
 const fixtures = [];

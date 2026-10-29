@@ -50,8 +50,6 @@ export declare function containerExtensions(): string[];
  * unavailable grammar is skipped rather than fatal (its files then extract to a
  * file node only, exactly as they do today). */
 export declare function warmContainerGrammars(langNames: Iterable<string>): Promise<void>;
-/** True if a container grammar has been warmed (else extraction is file-only). */
-export declare function isContainerWarm(langName: string): boolean;
 /**
  * Extract one container file. Synchronous; needs the grammar pre-warmed.
  *

@@ -39,11 +39,16 @@ function isConceptNodeFile(path) {
         return false;
     }
 }
-/** The card path for a source path: mirror the tree, swap the extension for .md.
+/** Card name for a source path: swap the extension for .md. */
+function cardStem(sourcePath) {
+    return sourcePath.replace(/\.[^./]+$/, "") + ".md";
+}
+/** The card path for a source path: mirror the tree, swap the extension for .md
+ * (`keepExt` keeps it — `foo.c.md` — when `foo.c` and `foo.h` would share a card).
  * Root-level sources share `grafly/` with concept nodes. If that filename is
  * already a concept, park the file card under `_root/` instead of clobbering it. */
-function cardPathFor(outDir, sourcePath) {
-    const md = sourcePath.replace(/\.[^./]+$/, "") + ".md";
+function cardPathFor(outDir, sourcePath, keepExt) {
+    const md = keepExt ? sourcePath + ".md" : cardStem(sourcePath);
     const primary = join(outDir, md);
     if (sourcePath.includes("/"))
         return primary;
@@ -93,10 +98,27 @@ function renderCard(sourcePath, fileNode, symbols, conceptSlugs) {
         lines.push(`- ${n.name} · ${n.kind} · ${n.span}${tail}`);
     }
     if (sorted.length === 0)
-        lines.push("_No extracted symbols in this file._");
+        lines.push(NO_SYMBOLS);
     return lines.join("\n") + "\n";
 }
-/** Every existing card file (`.md` inside subdirs of outDir; not concept nodes). */
+const NO_SYMBOLS = "_No extracted symbols in this file._";
+const SYMBOL_LINE = /^- .+ · \S+ · L\d+-L\d+(?: — .*)?$/;
+/** A top-level root-source card: exactly the `renderCard` shape — a heading naming
+ * a root-level source whose card name is this file's name, an optional one-line
+ * summary, then only symbol lines (or the no-symbols marker). Concept nodes
+ * (frontmatter) and hand-placed notes are never matched, so never pruned. */
+function isRootCard(path, name) {
+    const lines = readFileSync(path, "utf8").split(/\r?\n/);
+    while (lines.length && lines[lines.length - 1] === "")
+        lines.pop();
+    const m = /^# ([^/]+?)(?: · \[\[.*\]\])?$/.exec(lines[0] ?? "");
+    if (!m || (cardStem(m[1]) !== name && `${m[1]}.md` !== name) || lines[1] !== "")
+        return false;
+    const body = lines[3] === "" ? lines.slice(4) : lines.slice(2);
+    return body.length > 0 && (body.length === 1 && body[0] === NO_SYMBOLS || body.every((l) => SYMBOL_LINE.test(l)));
+}
+/** Every existing card file: `.md` inside subdirs of outDir, plus top-level
+ * root-source cards (see `isRootCard`). */
 function listExistingCards(outDir) {
     const out = [];
     const walk = (dir) => {
@@ -113,9 +135,13 @@ function listExistingCards(outDir) {
     };
     for (const e of readdirSync(outDir, { withFileTypes: true })) {
         // Concept nodes and INDEX.md are top-level files — skip. Cards live in
-        // subdirs (`src/…`, and `_root/` when a root card would collide with a concept).
+        // subdirs (`src/…`, and `_root/` when a root card would collide with a concept)
+        // or at the top level when they mirror a root source.
         if (e.isDirectory() && !NON_CARD_DIRS.has(e.name)) {
             walk(join(outDir, e.name));
+        }
+        else if (e.isFile() && e.name.endsWith(".md") && e.name !== INDEX_FILE && isRootCard(join(outDir, e.name), e.name)) {
+            out.push(join(outDir, e.name));
         }
     }
     return out;
@@ -158,12 +184,17 @@ export function writeCards(graph, outDir) {
         byPath.set(n.path, list);
     }
     const concepts = conceptsByPath(outDir);
+    const stemCount = new Map();
+    for (const sourcePath of byPath.keys()) {
+        const stem = cardStem(sourcePath);
+        stemCount.set(stem, (stemCount.get(stem) ?? 0) + 1);
+    }
     const written = new Set();
     const files = [];
     for (const [sourcePath, group] of byPath) {
         const fileNode = group.find((n) => n.kind === "file");
         const symbols = group.filter((n) => n.kind !== "file");
-        const cardPath = cardPathFor(outDir, sourcePath);
+        const cardPath = cardPathFor(outDir, sourcePath, stemCount.get(cardStem(sourcePath)) > 1);
         mkdirSync(dirname(cardPath), { recursive: true });
         writeFileSync(cardPath, renderCard(sourcePath, fileNode, symbols, concepts.get(sourcePath) ?? []));
         written.add(cardPath);

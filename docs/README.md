@@ -32,20 +32,10 @@ remain available for provenance.
 The session compaction implementations are no longer shipped. These notices
 preserve the retirement context and point to command output handling.
 
-## GitHub App startup
-
-The optional GitHub App server starts with `node dist/app/main.js`. This checkout
-contains no deployment automation; the operator must provide hosting, secrets,
-TLS/routing and process supervision.
-
-Set `GRAFLY_APP_ID`, `GRAFLY_APP_PRIVATE_KEY` (PEM, raw or with escaped newlines),
-`GRAFLY_WEBHOOK_SECRET`, and `GRAFLY_PUBLIC_URL`. `PORT` defaults to `3000` and
-`GRAFLY_CONCURRENCY` to `2`. LLM-backed operations use the normal Grafly provider
-configuration. Set `GRAFLY_PAGE_DIR` to persistent storage if review page links
-must survive restarts. `GRAFLY_BRAIN_BUILD_SECRET` explicitly enables the optional
-`POST /brain/build` route. The server drains its queue on SIGTERM/SIGINT with a
-25-second shutdown deadline. These are startup requirements, not evidence of an
-existing deployment.
+The GitHub App webhook server (`dist/app/main.js` and its review/page/queue
+modules) was removed: nothing in this checkout deployed or invoked it. The
+local brain path (`grafly brain push`) keeps the digest readers in
+`dist/app/history.js` and `dist/app/sources.js`.
 
 ## Outstanding dependency advisory
 

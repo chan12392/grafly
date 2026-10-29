@@ -116,17 +116,6 @@ export function formatRetrieval(ask, cap = 5) {
         `${tokensOf(body.length).toLocaleString()} tok vs reading the ${ask.saved.files} file(s) whole ≈ ` +
         `${base.toLocaleString()} tok (estimate).`);
 }
-/**
- * Superseded by the two-clause strength gate in {@link relevantRetrieval} (see
- * {@link STRONG_FLOOR} / {@link HIGH_FLOOR}). Kept exported because the old
- * single-clause floor is still the documented reference point for why it changed:
- * it sat at 0.15, and a prompt measuring 0.165 / strong 0.033 cleared it by 0.015
- * and injected three test files for a question whose answer was elsewhere. The
- * comment it used to carry justified leaning low — "a wrongly-skipped pack is
- * recoverable, the agent pulls with `grafly ask`" — and that assumption is exactly
- * what a traced session falsified: the agent did not pull. It grepped 38 times.
- */
-export const INJECT_MIN_COVERAGE = 0.15;
 /** How many recently-injected pointers the novelty gate remembers per session. */
 const INJECTED_POINTERS_CAP = 40;
 /** How many weak-match nudges one session may spend. A line that shows up every

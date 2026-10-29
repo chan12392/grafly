@@ -70,43 +70,10 @@ function symbolMatches(nodes, lowerQuery) {
         return candidateId.endsWith(suffixHash) || candidateId.endsWith(suffixDot);
     });
 }
-/** Depth-1: nodes with a walk-relation edge whose target is `symbol`. */
-export function callersOf(graph, symbol) {
-    const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-    const hits = [];
-    for (const e of graph.edges) {
-        if (!WALK_RELATIONS.has(e.relation) || e.target !== symbol.id)
-            continue;
-        hits.push({ node: byId.get(e.source) ?? null, id: e.source, relation: e.relation, depth: 1 });
-    }
-    return hits;
-}
-/** Depth-1: walk-relation edges whose source is `symbol`. */
-export function calleesOf(graph, symbol) {
-    const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-    const hits = [];
-    for (const e of graph.edges) {
-        if (!WALK_RELATIONS.has(e.relation) || e.source !== symbol.id)
-            continue;
-        hits.push({ node: byId.get(e.target) ?? null, id: e.target, relation: e.relation, depth: 1 });
-    }
-    return hits;
-}
-/**
- * BFS over INCOMING walk-relation edges from `symbol`, up to `maxDepth` hops
- * — "who breaks if this changes". Each reached node is deduped by id and
- * reported once, at the depth it was first reached (a diamond-shaped
- * dependency graph counts its convergence node exactly once).
- */
-export function impactOf(graph, symbol, maxDepth = 2) {
-    return impactOfMany(graph, [symbol], maxDepth);
-}
 /**
  * BFS over walk-relation edges from *multiple* seed nodes at once, in the given
  * `direction` (`in` = incoming, the default — "who breaks if this changes";
- * `out` = outgoing — "what this reaches"). The multi-seed generalization of
- * {@link impactOf} (`impactOf(g, n, d)` is exactly `impactOfMany(g, [n], d)`).
- * Used when one logical unit spans several graph node ids — e.g. a file plus
+ * `out` = outgoing — "what this reaches"). Used when one logical unit spans several graph node ids — e.g. a file plus
  * every symbol defined in it, since a `calls`/`references`/etc. edge from
  * another file always targets the SYMBOL id, never the FILE id, so walking the
  * file node alone misses dependents that call into it rather than merely
@@ -114,7 +81,7 @@ export function impactOf(graph, symbol, maxDepth = 2) {
  *
  * Every seed is pre-marked visited (so a seed can never appear as its own
  * hit, and an edge between two seeds is never reported), then the walk
- * proceeds exactly like `impactOf`'s: each reached node deduped by id and
+ * proceeds breadth-first: each reached node deduped by id and
  * reported once, at the depth it was first reached from *any* seed.
  */
 export function impactOfMany(graph, seeds, maxDepth = 2, direction = "in") {
@@ -152,41 +119,4 @@ export function impactOfMany(graph, seeds, maxDepth = 2, direction = "in") {
         frontier = next;
     }
     return hits;
-}
-/** Every non-file node whose `path` equals `fileNode.path` — the symbols
- * defined in that file. */
-function symbolsInFile(graph, fileNode) {
-    return graph.nodes.filter((n) => n.kind !== "file" && n.path === fileNode.path);
-}
-/**
- * `impactOf`, generalized for a `kind: 'file'` seed: aggregates the BFS over
- * the file node AND every symbol node defined in that file (via
- * {@link impactOfMany} — dedup by id, min depth, seeds excluded). Fixes a file
- * query silently dropping dependents that `calls`/`references`/etc. into a
- * symbol the file defines, rather than merely `imports`-ing the file itself —
- * see this module's header and `impactOfMany`'s doc for why. Symbol-kind
- * queries keep using plain `impactOf`; this is only for file-kind matches.
- */
-export function impactOfFile(graph, fileNode, maxDepth = 2, direction = "in") {
-    return impactOfMany(graph, [fileNode, ...symbolsInFile(graph, fileNode)], maxDepth, direction);
-}
-/**
- * The single entry point behind `grafly callers`, covering all of what were
- * once three commands:
- *   - `direction:in,  depth:1`  → callers      (who calls/references this)
- *   - `direction:out, depth:1`  → callees      (what this calls/references)
- *   - `direction:in,  depth>1`  → blast radius  (transitive dependents)
- *   - `direction:out, depth>1`  → transitive dependencies
- *
- * Depth 1 uses the plain single-hop scan ({@link callersOf}/{@link calleesOf})
- * so `graft callers <symbol>` output is unchanged. Depth >1 runs the BFS, and
- * for a `kind: 'file'` seed aggregates over the symbols the file defines (see
- * {@link impactOfMany}) so file-level dependents aren't silently dropped.
- */
-export function edgeWalk(graph, node, direction, depth) {
-    if (depth <= 1)
-        return direction === "in" ? callersOf(graph, node) : calleesOf(graph, node);
-    if (node.kind === "file")
-        return impactOfFile(graph, node, depth, direction);
-    return impactOfMany(graph, [node], depth, direction);
 }

@@ -1,17 +1,9 @@
 /**
- * CLI wiring + human formatter for `graft grep`.
- *
- * Kept out of cli.ts (argument wiring only) and out of grep.ts (pure core,
- * unit-testable against hand-built fixture graphs without touching a real
- * repo root) — same split as traverse.ts/traverse-cli.ts. `formatGrepResult`
- * is exported so the workspace surface renders the identical
- * report, rather than re-implementing it.
+ * Human formatter for `grafly grep` results. Kept out of grep.js (pure core,
+ * unit-testable against hand-built fixture graphs) so the single-repo and
+ * workspace surfaces render the identical report.
  */
-import { resolve } from "node:path";
-import { contextDirFor } from "../context/node-file.js";
 import { withSavings } from "../context/savings.js";
-import { loadTraverseCached } from "../graph/load.js";
-import { grepGraph } from "./grep.js";
 function groupHeader(g) {
     if (g.symbol)
         return `${g.symbol.name} · ${g.symbol.kind} · ${g.symbol.path}:${g.symbol.span} · ${g.inDegree} in-edges`;
@@ -66,35 +58,4 @@ export function zeroHitNote(result) {
     if (files === 0)
         return base;
     return `${base} — note: ${files} indexed file${files === 1 ? "" : "s"} could not be read (stale graph? run grafly build)`;
-}
-/** Search the indexed files once; zero hits retain the normal fallback note. */
-export function runGrepCommand(pattern, dir, opts) {
-    const root = resolve(dir);
-    const contextDir = contextDirFor(root, opts.globalDir);
-    const graph = loadTraverseCached(contextDir);
-    if (!graph) {
-        console.error("✗ no graph — run grafly build first");
-        process.exit(1);
-    }
-    let result;
-    try {
-        result = grepGraph(graph, root, pattern, { ignoreCase: opts.ignoreCase, fixed: opts.fixed, in: opts.in });
-    }
-    catch (err) {
-        // `new RegExp` throws SyntaxError; anything else (an unindexed `--in` prefix)
-        // is a different mistake and must not be reported as a bad pattern.
-        const message = err instanceof Error ? err.message : String(err);
-        console.error(err instanceof SyntaxError ? `✗ invalid pattern "${pattern}": ${message}` : `✗ ${message}`);
-        process.exit(1);
-        return;
-    }
-    if (opts.json) {
-        console.log(JSON.stringify(result, null, 2));
-        return;
-    }
-    if (result.totalHits === 0) {
-        console.error(zeroHitNote(result));
-        return;
-    }
-    process.stdout.write(formatGrepResult(result));
 }

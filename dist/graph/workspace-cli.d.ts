@@ -23,20 +23,6 @@ export interface WorkspaceBuildOptions {
  * parent's `graft/` with `workspace.json`. Prints the one-time split warning
  * first when migrating away from a mega-graph. */
 export declare function runWorkspaceBuild(root: string, opts: WorkspaceBuildOptions): Promise<void>;
-export declare function runWorkspaceAsk(root: string, override: string | undefined, query: string, opts: {
-    xerj?: boolean;
-    graphRank?: boolean;
-    limit?: number;
-    source?: boolean;
-    full?: boolean;
-    in?: string;
-    json?: boolean;
-}): Promise<void>;
-export declare function runWorkspaceGrep(root: string, override: string | undefined, pattern: string, opts: {
-    ignoreCase?: boolean;
-    fixed?: boolean;
-    json?: boolean;
-}): void;
 export declare function runWorkspaceMap(root: string, override: string | undefined, opts: {
     maxDirs?: number;
 }): void;
