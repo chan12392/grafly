@@ -35,6 +35,17 @@ function valueExports(path) {
     return exports;
 }
 
+test('shipped JavaScript and declaration sources have no syntax errors', () => {
+    const diagnostics = [];
+    for (const path of files(root).filter(path => /(?:\.js|\.d\.ts)$/.test(path))) {
+        const source = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true,
+            path.endsWith('.js') ? ts.ScriptKind.JS : ts.ScriptKind.TS);
+        for (const diagnostic of source.parseDiagnostics)
+            diagnostics.push(`${relative(root, path)}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')}`);
+    }
+    assert.deepEqual(diagnostics, []);
+});
+
 test('maintained declarations match runtime value exports and literal constants', () => {
     const drift = [];
     for (const declaration of files(root).filter(path => path.endsWith('.d.ts'))) {
