@@ -1,4 +1,4 @@
-import type { Fetch } from "./identity.js";
+import type { Fetch } from "./history.js";
 /** What kind of thing a source is, so extraction can weigh it. */
 export type SourceKind = "agent_instructions" | "decision_doc" | "lint_config" | "ci_config" | "codeowners" | "branch_protection" | "revert" | "test_name" | "declined_issue";
 /** One rule-bearing artefact. */

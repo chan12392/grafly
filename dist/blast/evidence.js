@@ -148,7 +148,7 @@ export function fileReader(root) {
             return hit;
         let lines = null;
         try {
-            lines = readFileSync(join(root, path), "utf8").split("\n");
+            lines = readFileSync(join(root, path), "utf8").split(/\r?\n/);
         }
         catch {
             // Deleted, renamed under us, or unreadable: no snippet, no failure.

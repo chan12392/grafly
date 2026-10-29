@@ -32,17 +32,6 @@ export interface AskJson {
 /** Tokens saved (baseline − this pack), or 0 when no honest estimate applies. */
 export declare function retrievalTokensSaved(ask: AskJson, cap?: number): number;
 export declare function formatRetrieval(ask: AskJson, cap?: number): string | null;
-/**
- * Superseded by the two-clause strength gate in {@link relevantRetrieval} (see
- * {@link STRONG_FLOOR} / {@link HIGH_FLOOR}). Kept exported because the old
- * single-clause floor is still the documented reference point for why it changed:
- * it sat at 0.15, and a prompt measuring 0.165 / strong 0.033 cleared it by 0.015
- * and injected three test files for a question whose answer was elsewhere. The
- * comment it used to carry justified leaning low — "a wrongly-skipped pack is
- * recoverable, the agent pulls with `graft ask`" — and that assumption is exactly
- * what a traced session falsified: the agent did not pull. It grepped 38 times.
- */
-export declare const INJECT_MIN_COVERAGE = 0.15;
 /** How many weak-match nudges one session may spend. A line that shows up every
  * turn stops being read; two is enough to land the habit without becoming
  * wallpaper. */

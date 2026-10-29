@@ -21,7 +21,8 @@ export async function runLearning(action = 'status', home = runtimeHome()) {
 export async function syncUpdates(home = runtimeHome(), { transport = fetch, modelsHome } = {}) {
   const code = syncRuntime(home, { transport }).catch(error => {
     const result = { status: 'retrying', reason: /^mc_[a-z_]+$/.test(error.message) ? error.message : 'mc_update_failed', checked_at: new Date().toISOString() };
-    atomicWrite(join(home, 'status.json'), JSON.stringify(result));
+    // An unconfigured home may not exist; the reason must survive a failed status write.
+    try { atomicWrite(join(home, 'status.json'), JSON.stringify(result)); } catch {}
     return result;
   });
   const models = syncModels(home, { transport, ...(modelsHome ? { home: modelsHome } : {}) }).catch(error => ({

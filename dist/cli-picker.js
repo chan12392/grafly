@@ -194,10 +194,6 @@ export function renderPicker(state, tty = true) {
     lines.push('', dim('↑↓ move · space toggle · a all · enter confirm · esc cancel'));
     return lines.join('\n');
 }
-/** Ids in plan order, so output ordering never depends on toggle order. */
-export function pickedIds(state) {
-    return state.rows.filter((r) => state.checked.has(r.id)).map((r) => r.id);
-}
 /** Just the agents, with the setting rows filtered out — what init wires. */
 export function pickedHostIds(state) {
     return state.rows.filter((r) => r.kind === 'host' && state.checked.has(r.id)).map((r) => r.id);

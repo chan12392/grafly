@@ -127,7 +127,7 @@ export function staleBanner(f) {
 /** Render a check result as a human-readable report. */
 export function formatCheckReport(r) {
     if (r.missing) {
-        return "grafly check: NO GRAPH\n\nNo grafly/manifest.json found. Run `grafly build --deep` first.";
+        return "grafly check: NO GRAPH\n\nNo .grafly/manifest.json found. Run `grafly build --deep` first.";
     }
     if (r.ok)
         return "grafly check: OK — the graph is in sync with the code.";
@@ -152,7 +152,7 @@ export function formatCheckReport(r) {
         for (const s of r.indexDrift)
             lines.push(`  ! ${s}`);
     }
-    lines.push("", "Run `grafly build --deep` to regenerate, then commit grafly/.");
+    lines.push("", "Run `grafly build --deep` to regenerate.");
     return lines.join("\n");
 }
 function short(hash) {

@@ -107,7 +107,7 @@ export function ownersFor(root, files, opts = {}) {
     const history = [];
     for (const batch of batches) {
         const out = git(resolve(root), ["--literal-pathspecs", "log", "--no-merges", `--since=${SINCE}`,
-            "--format=\x01%H\x02%aI\x02%aN\x02%aE", "--name-only", "--", ...batch]);
+            "--format=\x01%H\x02%aI\x02%aN\x02%aE", "--name-only", "--relative", "--", ...batch]);
         if (out === null) return []; // never present partial history as complete
         history.push(out);
     }

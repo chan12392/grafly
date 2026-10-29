@@ -661,6 +661,7 @@ function walk(node, ctx, out, edges, minted) {
         return;
     }
     else if (node.type === "identifier" &&
+        ctx.lang !== "python" && // Python bindings wire calls only
         !isDirectCallee(node, callTypes) &&
         !isDeclarationName(node)) {
         const imported = ctx.importedSymbols.get(node.text);
@@ -749,7 +750,44 @@ function collectImportedSymbols(root, lang) {
     }
     if (lang === "php")
         return collectPhpImportedSymbols(root);
+    if (lang === "python")
+        return collectPyImportedSymbols(root);
     return new Map();
+}
+/** Module-level `from M import name [as alias]` bindings: local → { exported
+ * name, module specifier }. Imports inside a def/class are local scope and a
+ * module-level def/class of the same name rebinds it, so both are skipped. */
+function collectPyImportedSymbols(root) {
+    const out = new Map();
+    const defined = new Set();
+    const visit = (node) => {
+        for (const child of node.namedChildren) {
+            if (child.type === "decorated_definition" || child.type === "function_definition" || child.type === "class_definition") {
+                const def = child.type === "decorated_definition" ? child.childForFieldName("definition") : child;
+                const name = def?.childForFieldName("name")?.text;
+                if (name)
+                    defined.add(name);
+            }
+            else if (child.type === "import_from_statement") {
+                const specifier = child.childForFieldName("module_name")?.text;
+                if (!specifier)
+                    continue;
+                for (const n of child.childrenForFieldName("name")) {
+                    const aliased = n.type === "aliased_import";
+                    const name = aliased ? n.childForFieldName("name")?.text : n.text;
+                    const local = aliased ? n.childForFieldName("alias")?.text : name;
+                    if (name && local && !name.includes("."))
+                        out.set(local, { name, specifier });
+                }
+            }
+            else if (["if_statement", "try_statement", "else_clause", "elif_clause", "except_clause", "finally_clause", "block"].includes(child.type))
+                visit(child);
+        }
+    };
+    visit(root);
+    for (const name of defined)
+        out.delete(name);
+    return out;
 }
 /** PHP `use` bindings: local alias → { exported name, FQN specifier }. */
 function collectPhpImportedSymbols(root) {

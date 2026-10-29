@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { literalArgv, routeInput, routeHook } from '../dist/tool-output/route.js';
+// The ambient host may disable or reroute tool output; these tests own that configuration.
+for (const key of Object.keys(process.env))
+    if (key === "GRAFLY_TOOL_OUTPUT" || key === "GRAFLY_NO_TOOL_ROUTE" || key.startsWith("GRAFLY_MC")) delete process.env[key];
 
 test('only the three requested hosts route literal shell commands', () => {
     for (const [host, tool] of [['codex', 'Bash'], ['devin', 'exec'], ['hermes', 'terminal']]) {

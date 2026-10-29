@@ -73,6 +73,8 @@ export interface GraphV1 {
         /** Ranking scopes: posix path prefixes relative to the graph root, "" = root scope.
          * Absent (old graphs) ≡ [{ prefix: "", label: "" }]. Sorted by prefix length desc. */
         scopes?: ScopeV1[];
+        /** `--only-dir` whitelist this graph was built with; absent = full tree. */
+        onlyDirs?: string[];
     };
     nodes: NodeV1[];
     edges: EdgeV1[];

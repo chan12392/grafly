@@ -190,10 +190,12 @@ export async function ensureFreshGraph(root, opts = {}) {
             // card's mtime, and skipping them is most of what keeps this cheap.
             // A `--only-dir` build recorded its whitelist in the fingerprint; re-apply it
             // here so an auto-rebuild keeps the same limited file set instead of silently
-            // widening to the whole tree.
-            const onlyDirs = readFingerprint(outDir)?.onlyDirs;
+            // widening to the whole tree. The graph's meta carries it too, because the
+            // fingerprint is filed per extractor stamp and is absent right after an upgrade.
+            const meta = loadGraphCached(outDir)?.meta;
+            const onlyDirs = readFingerprint(outDir)?.onlyDirs ?? meta?.onlyDirs;
             const { buildGraph } = await import("./build.js");
-            const extensions = loadGraphCached(outDir)?.meta?.extensions;
+            const extensions = meta?.extensions;
             const built = await buildGraph(dir, { contextDir: opts.contextDir, graphOnly: true, onlyDirs, extensions });
             invalidateGraphCaches(outDir);
             const note = built.structuralErrors ? `graph refresh incomplete: ${built.structuralErrors} structural error(s)`

@@ -70,7 +70,9 @@ export function changedFiles(root, base) {
 }
 /** Both git passes for one range: name-status (statuses, renames) then hunks. */
 function diffFiles(dir, range) {
-    const status = git(dir, ["diff", "--name-status", "--find-renames", "-z", ...range, "--"]);
+    // --relative: graph paths are relative to the indexed root, which may sit
+    // below the git top level.
+    const status = git(dir, ["diff", "--relative", "--name-status", "--find-renames", "-z", ...range, "--"]);
     if (status === null)
         return null;
     const files = parseNameStatus(status);
@@ -78,6 +80,7 @@ function diffFiles(dir, range) {
         return files;
     const patch = git(dir, [
         "diff",
+        "--relative",
         "--unified=0",
         "--no-color",
         "--no-ext-diff",

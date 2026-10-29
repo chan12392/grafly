@@ -115,6 +115,8 @@ export function needsRefresh(cache, now = Date.now()) {
  * — never from a hook, which reads the cache and nothing else.
  */
 export function maybeRefreshInBackground(home, now = Date.now()) {
+    if (!process.env.GRAFLY_NPM_PACKAGE)
+        return false; // registry checks are disabled unless explicitly configured
     const cache = readUpdateCache(home);
     if (!needsRefresh(cache, now))
         return false;
@@ -213,7 +215,8 @@ export function writeStamp(repo, version, hosts, opts = {}, at = new Date().toIS
  */
 export function wiredHostIds(repo) {
     const ids = [];
-    if (existsSync(join(repo, '.claude', 'helpers', 'graft-hooks.cjs')))
+    const helpers = join(repo, '.claude', 'helpers');
+    if (existsSync(join(helpers, 'grafly-hooks.cjs')) || existsSync(join(helpers, 'graft-hooks.cjs')))
         ids.push('claude');
     for (const host of HOSTS) {
         const path = join(repo, host.relPath);

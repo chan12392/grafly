@@ -92,7 +92,7 @@ export function recordFollowup(logPath, root, query, matchedIds) {
     for (let i = records.length - 1; i >= 0; i--) {
         const r = records[i];
         const isJudge = r.type === "judge" || (!r.type && Array.isArray(r.scores));
-        if (!isJudge || r.root !== root)
+        if (!isJudge || typeof r.root !== "string" || rootKey(r.root) !== rootKey(root))
             continue;
         const ts = Date.parse(r.ts);
         if (!Number.isFinite(ts) || ts < cutoff)

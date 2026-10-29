@@ -22,13 +22,19 @@ export class Grafly {
     }
     /** Build the `.context/` graph from the repo at `dir`. */
     async init(dir, opts = {}) {
+        // Build the LLM clients first: an ambient endpoint probe may replace the
+        // configured model, and the manifest must record the one actually used.
+        const summarizer = this.summarizer();
+        const synthesizer = this.synthesizer();
         return buildContext(dir, {
             contextDir: this.cfg.contextDir,
             extensions: opts.extensions,
             onlyDirs: opts.onlyDirs,
+            concurrency: opts.concurrency,
+            incremental: opts.incremental,
             model: this.modelLabel(),
-            summarizer: this.summarizer(),
-            synthesizer: this.synthesizer(),
+            summarizer,
+            synthesizer,
             onProgress: opts.onProgress,
         });
     }

@@ -8,7 +8,6 @@ import { fileURLToPath } from "node:url";
 import { pinRuntime, validatePinned } from "../mc-runtime/runtime.js";
 import { observeComparison, outputItems } from "../mc-runtime/comparison.js";
 import { archiveRoot, startArchive, finishArchive, pruneArchives } from "./retention.js";
-export { archiveRoot } from "./retention.js";
 
 const LIMIT = 4 * 1024 * 1024;
 const MINIMUM = 4096;
@@ -27,7 +26,7 @@ const GIT_VALUE_OPTS = new Set(["-C", "-c", "--git-dir", "--work-tree", "--exec-
 const GIT_LIST_FLAGS = new Set(["--name-only", "--name-status", "--numstat", "--shortstat", "--stat",
     "--raw", "--dirstat", "--summary", "--compact-summary"]);
 
-const commandName = command => command.replaceAll("\\", "/").split("/").at(-1).toLowerCase().replace(/\.(?:exe|cmd|bat|com)$/, "");
+export const commandName = command => command.replaceAll("\\", "/").split("/").at(-1).toLowerCase().replace(/\.(?:exe|cmd|bat|com)$/, "");
 
 function gitSubcommand(args) {
     for (let i = 0; i < args.length; i++) {

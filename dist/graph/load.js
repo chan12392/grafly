@@ -25,15 +25,9 @@ import { readAskIndex, askIndexPath } from "../ask/index-file.js";
 const graphCache = new Map();
 const askIndexCache = new Map();
 const traverseCache = new Map();
-/** Real parses performed (cache misses), not cache hits — exported for tests
- * so the invalidation contract can be pinned down without spying on `fs`. */
+/** Real parses performed (cache misses), not cache hits — reported by the
+ * search daemon's status so cache reuse is observable. */
 export const __parseCount = { graph: 0, askIndex: 0, traverse: 0 };
-/** Test-only: zero the counters (module state persists across a test file). */
-export function __resetParseCounts() {
-    __parseCount.graph = 0;
-    __parseCount.askIndex = 0;
-    __parseCount.traverse = 0;
-}
 function statOf(path) {
     try {
         const s = statSync(path);
