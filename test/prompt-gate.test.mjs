@@ -94,6 +94,18 @@ test('repository hook retrieves short code queries and retains pointer deduplica
   assert.deepEqual(session.injectedPointers, ['src/graph.js:L1-L3']);
 });
 
+test('a no-change request adds the read-only hint; other prompts do not', (t) => {
+  const f = fixture(t);
+  const plain = JSON.parse(f.run('loadGraph 호출 위치 찾아줘'));
+  assert.doesNotMatch(plain.hookSpecificOutput.additionalContext, /--read-only/);
+  for (const [prompt, session] of [['loadGraph 위치를 알려 주세요. 파일은 수정하지 마세요.', 'ko'],
+    ["Find loadGraph callers; don't modify anything.", 'en']]) {
+    const context = JSON.parse(f.run(prompt, { session })).hookSpecificOutput.additionalContext;
+    assert.match(context, /^\[grafly\] no-change request: add --read-only/);
+    assert.match(context, /src\/graph.js:L1-L3/);
+  }
+});
+
 test('Codex/Devin adapter applies the gate and preserves message-field compatibility', (t) => {
   const f = fixture(t);
   const project = join(f.root, 'project');
