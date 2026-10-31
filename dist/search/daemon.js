@@ -8,7 +8,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createInterface } from "node:readline";
 import { embeddedBinding } from "./embedded.js";
 import { packageRoot, searchHome, searchEndpoint, searchConfig, serviceRequest, parseResidentRequest, requestEnv } from "./client.js";
-import { residentCommands } from "./commands.js";
+import { residentCommands, residentFeatures } from "./commands.js";
 
 export async function serveSearch({ stdio = false } = {}) {
     const home = searchHome(), endpoint = searchEndpoint();
@@ -113,7 +113,7 @@ export async function serveSearch({ stdio = false } = {}) {
     try { await new Promise((done, fail) => { server.once("error", fail); server.listen(endpoint, done); }); }
     catch (error) { if (error.code === "EADDRINUSE" && !stdio) return; throw error; }
     if (process.platform !== "win32") chmodSync(endpoint, 0o600);
-    writeFileSync(join(home, "state.json"), JSON.stringify({ protocol: 1, token, pid: process.pid, packageRoot, commands: residentCommands }), { mode: 0o600 });
+    writeFileSync(join(home, "state.json"), JSON.stringify({ protocol: 1, token, pid: process.pid, packageRoot, commands: residentCommands, features: residentFeatures }), { mode: 0o600 });
     server.on("error", (error) => { console.error(error.message); shutdown(); process.exitCode = 1; });
     process.once("SIGINT", shutdown); process.once("SIGTERM", shutdown);
     if (config.xerjUrl !== "embedded" && config.oracleHost && config.xerjPort) {

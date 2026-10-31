@@ -76,6 +76,8 @@ export async function tryResidentSearch(argv) {
     // Old services cannot accept a newly routed mutating command. Fall back
     // before delivery, rather than guessing after an interrupted build.
     if (["build", "callers"].includes(request.command) && !saved.commands?.includes(request.command)) return false;
+    // An older service ignores read-only and would refresh the graph; answer locally instead.
+    if ((request.opts?.readOnly || process.env.GRAFLY_READONLY === "1") && !saved.features?.includes("read-only")) return false;
     request.env = Object.fromEntries(Object.entries(process.env).filter(([key]) => requestEnv.test(key)));
     const response = await serviceRequest({ action: "search", ...request });
     if (!response || !Number.isInteger(response.exitCode) || typeof response.stdout !== "string" || typeof response.stderr !== "string") return false;

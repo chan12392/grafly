@@ -1,5 +1,7 @@
 // One option contract for the resident entry shim and the full CLI.
 export const residentCommands = ["ask", "grep", "build", "callers"];
+// Request options a service understands; a client never sends them to an older one.
+export const residentFeatures = ["read-only"];
 export function cliOptions(program) {
     return program.option("--dir <path>", "context graph directory (default: <repo>/.grafly)")
         .option("--provider <name>", "LLM wire format: openai | anthropic | litellm | orcarouter (env GRAFLY_PROVIDER)")
@@ -19,6 +21,7 @@ export function searchCommands(program, action) {
         .option("--no-graph-rank", "rank by lexical relevance only")
         .option("--no-xerj", "use builtin retrieval")
         .option("--no-refresh", "answer from the graph as-is")
+        .option("--read-only", "write nothing: no refresh, sync or answer cache (env GRAFLY_READONLY=1)")
         .action((query, dir, opts) => action("ask", query, dir, opts));
     program.command("grep")
         .description("Search indexed source, ranked by graph connectivity")
@@ -28,6 +31,7 @@ export function searchCommands(program, action) {
         .option("--in <path>", "narrow to this indexed path prefix")
         .option("--json", "output as JSON")
         .option("--no-refresh", "answer from the graph as-is")
+        .option("--read-only", "write nothing: no refresh, sync or answer cache (env GRAFLY_READONLY=1)")
         .action((query, dir, opts) => action("grep", query, dir, opts));
 }
 

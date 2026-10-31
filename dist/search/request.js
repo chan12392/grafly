@@ -17,13 +17,15 @@ const syncRetryAfter = new Map();
 // The CLI and resident service use the same refresh, cache and rendering path.
 export async function executeSearch({ command, query, dir, cwd = process.cwd(), opts = {} }) {
     let stderr = "";
+    // Read-only answers from the saved graph: no refresh, XERJ sync or answer-cache write.
+    const readOnly = opts.readOnly === true || process.env.GRAFLY_READONLY === "1";
     const found = dir === undefined ? nearestGraflyRoot(cwd, opts.contextDir) : { root: resolve(cwd, dir), levels: 0 };
     const root = found.root;
     if (found.levels > 0) stderr += `[grafly] no .grafly/ here — answering from ${root}/.grafly\n`;
     setInputRate(sessionInputRate(root));
     try {
         const ws = readWorkspace(root, opts.contextDir);
-        if (opts.refresh !== false) {
+        if (opts.refresh !== false && !readOnly) {
             const { ensureFreshGraph, ensureFreshChildren, refreshNote } = await import("../graph/refresh.js");
             const refreshed = ws ? await ensureFreshChildren(root, ws.children, { contextDir: opts.contextDir })
                 : await ensureFreshGraph(root, { contextDir: opts.contextDir });
@@ -44,7 +46,7 @@ export async function executeSearch({ command, query, dir, cwd = process.cwd(), 
             return { stdout, stderr, exitCode: 0, root, hit: result.totalHits > 0 };
         }
         const xerjUrl = searchConfig().xerjUrl;
-        if (xerjUrl && opts.xerj !== false) {
+        if (xerjUrl && opts.xerj !== false && !readOnly) {
             for (const child of ws ? ws.children.map((name) => join(root, name)) : [root]) {
                 const out = contextDirFor(child, ws ? undefined : opts.contextDir);
                 const status = xerjStatus(out);
@@ -73,7 +75,7 @@ export async function executeSearch({ command, query, dir, cwd = process.cwd(), 
         }
         const r = await askAsync(root, query, { ...opts, limit: Number(opts.limit ?? 8) });
         const stdout = opts.json ? JSON.stringify(r, null, 2) + "\n" : formatAsk(r);
-        if (!r.searchBackend?.fallback) {
+        if (!r.searchBackend?.fallback && !readOnly) {
             try {
                 answers.store(cache, key, { text: stdout, files: answers.stampFiles(root, [...hitFiles(r.hits), ...answers.indexDeps(ctxDir, root)]) });
                 answers.saveAnswers(ctxDir, cache);
