@@ -309,7 +309,7 @@ export function extractFile(rel, source, lang) {
         enclosingClass: null,
         goReceiverVar: null,
         importedSymbols,
-        pyModules: lang === "python" ? collectPyModuleScopes(root) : null,
+        pyModules: lang === "python" ? collectPyModuleScopes(root, rel) : null,
         rR6Access: null,
         rGenerics,
         rSuperClass: null,
@@ -946,9 +946,10 @@ function sameSyntaxNode(a, b) {
 }
 /** Python module imports are lexical bindings, not a file-wide alias table.
  * Keep blocked names as null so parameters/reassignments also mask outer imports.
- * Only direct `import module [as alias]` proves a module binding: `from p import x`
- * may select a package attribute or re-export, so it masks rather than guesses. */
-function collectPyModuleScopes(root) {
+ * `import module [as alias]` binds a module. `from p import x` binds `p.x`, which resolve.ts
+ * accepts only when it names exactly one repo module file (`from src.billing import invoice`);
+ * a package attribute, re-export or external name still resolves to nothing. */
+function collectPyModuleScopes(root, rel) {
     const scopes = new Map();
     const scopeTypes = new Set(["module", "function_definition", "class_definition", "lambda",
         "list_comprehension", "set_comprehension", "dictionary_comprehension", "generator_expression"]);
@@ -989,10 +990,17 @@ function collectPyModuleScopes(root) {
             return;
         }
         if (node.type === "import_from_statement") {
+            const from = pyFromModuleParts(node.childForFieldName("module_name")?.text, rel);
             for (const name of node.childrenForFieldName("name")) {
-                const local = name.type === "aliased_import" ? name.childForFieldName("alias")?.text : name.text;
-                if (local)
-                    bindings.set(local, null);
+                const aliased = name.type === "aliased_import";
+                const imported = aliased ? name.childForFieldName("name")?.text : name.text;
+                const local = aliased ? name.childForFieldName("alias")?.text : name.text;
+                if (!local)
+                    continue;
+                const binding = from && imported ? { specifier: [...from, imported].join("."), start: node.endIndex } : null;
+                const previous = bindings.get(local);
+                bindings.set(local, !bindings.has(local) ? binding
+                    : previous && binding && previous.specifier === binding.specifier ? previous : null);
             }
             if (node.namedChildren.some((child) => child.type === "wildcard_import"))
                 bindings.set("*", null);
@@ -1023,6 +1031,20 @@ function collectPyModuleScopes(root) {
     };
     visit(root, null);
     return scopes;
+}
+/** Dotted module parts of a `from X import …` source, with relative dots resolved against the
+ * importing file's package (`from . import b` in pkg/a.py → ["pkg"]); null past the repo root. */
+function pyFromModuleParts(text, rel) {
+    if (!text)
+        return null;
+    const dots = text.match(/^\.*/)[0].length;
+    const rest = text.slice(dots) ? text.slice(dots).split(".") : [];
+    if (!dots)
+        return rest;
+    const pkg = rel.replace(/\\/g, "/").split("/").slice(0, -1);
+    if (dots - 1 > pkg.length)
+        return null;
+    return [...pkg.slice(0, pkg.length - (dots - 1)), ...rest];
 }
 function pyModuleForCall(node, receiver, scopes) {
     let innerScope = false;
