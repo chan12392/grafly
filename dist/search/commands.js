@@ -19,6 +19,7 @@ export function searchCommands(program, action) {
         .option("--no-graph-rank", "rank by lexical relevance only")
         .option("--no-xerj", "use builtin retrieval")
         .option("--no-refresh", "answer from the graph as-is")
+        .option("--read-only", "write nothing: no refresh, sync or answer cache (env GRAFLY_READONLY=1)")
         .action((query, dir, opts) => action("ask", query, dir, opts));
     program.command("grep")
         .description("Search indexed source, ranked by graph connectivity")
@@ -28,6 +29,7 @@ export function searchCommands(program, action) {
         .option("--in <path>", "narrow to this indexed path prefix")
         .option("--json", "output as JSON")
         .option("--no-refresh", "answer from the graph as-is")
+        .option("--read-only", "write nothing: no refresh, sync or answer cache (env GRAFLY_READONLY=1)")
         .action((query, dir, opts) => action("grep", query, dir, opts));
 }
 
