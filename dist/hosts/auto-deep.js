@@ -10,6 +10,7 @@ import { acquireLockIn, releaseLockIn } from '../util/state.js';
 import { contextDirFor } from '../context/node-file.js';
 import { readFingerprint } from '../graph/fingerprint.js';
 import { migrateIndex } from '../context/migrate-index.js';
+import { preferredLocalModel } from '../ai/providers.js';
 
 const SELF = fileURLToPath(import.meta.url);
 const HOUR = 3600000;
@@ -97,7 +98,7 @@ async function localModel(c) {
     const response = await fetch(`${c.baseUrl}/models`, { signal: AbortSignal.timeout(4000), redirect: 'error' });
     if (!response.ok) throw new Error(`model endpoint returned HTTP ${response.status}`);
     const ids = (await response.json()).data?.map(m => m.id).filter(id => typeof id === 'string') || [];
-    const model = c.model || ids.find(id => /luna/i.test(id));
+    const model = c.model || preferredLocalModel(ids);
     if (!model || !ids.includes(model)) throw new Error('configured model is unavailable');
     return model;
 }

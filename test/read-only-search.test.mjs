@@ -48,6 +48,11 @@ test('--read-only and GRAFLY_READONLY=1 leave the saved graph directory untouche
         assert.equal(r.status, 0, r.stderr);
         assert.match(r.stdout, /alphaHandler/);
     }
+    // Graph-walking commands outside ask/grep honor the env switch too.
+    for (const args of [['callers', 'alphaHandler', '.'], ['skeleton', 'alpha.js', '.']]) {
+        const r = run(args, { GRAFLY_READONLY: '1' });
+        assert.equal(r.status, 0, r.stderr);
+    }
     assert.deepEqual(snapshot(ctx), before);
     // Control: the same ask without read-only writes (refresh or answer cache), so the check above is meaningful.
     assert.equal(run(['ask', 'alphaHandler', '.']).status, 0);

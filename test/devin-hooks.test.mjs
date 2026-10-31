@@ -88,3 +88,23 @@ test('no Devin config dir means nothing to install', (t) => {
   assert.deepEqual(devinHookTargets(f.home), []);
   assert.deepEqual(installDevinHooks(f.home), []);
 });
+
+test('on Windows the config Devin loads (%APPDATA%/devin) wins over a leftover ~/.config/devin', { skip: process.platform !== 'win32' }, (t) => {
+  const home = mkdtempSync(join(tmpdir(), 'grafly-devin-appdata-'));
+  const appData = join(home, 'AppData', 'Roaming');
+  const saved = process.env.APPDATA;
+  t.after(() => {
+    assert.ok(resolve(home).startsWith(resolve(tmpdir()) + sep));
+    rmSync(home, { recursive: true, force: true });
+    if (saved === undefined) delete process.env.APPDATA; else process.env.APPDATA = saved;
+  });
+  delete process.env.GRAFLY_DEVIN_DIR;
+  process.env.APPDATA = appData;
+  for (const dir of [join(home, '.config', 'devin'), join(appData, 'devin')]) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ hooks: {} }));
+  }
+  installDevinHooks(home);
+  assert.equal(graflyEntries(join(appData, 'devin', 'config.json'), 'UserPromptSubmit').length, 1);
+  assert.equal(graflyEntries(join(home, '.config', 'devin', 'config.json'), 'UserPromptSubmit').length, 0);
+});
