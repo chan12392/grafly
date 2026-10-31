@@ -504,11 +504,12 @@ function reasonText(reason) {
 }
 
 /** Resolved circuit-log path for this context dir, or null when logging is
- * off (GRAFLY_CIRCUIT_LOG=0/off). =path redirects — shared by the judgment
- * writer and the feedback reader so both honor the same switch. */
+ * off (GRAFLY_CIRCUIT_LOG=0/off, or GRAFLY_READONLY=1 — read-only writes
+ * nothing). =path redirects — shared by the judgment writer and the feedback
+ * reader so both honor the same switch. */
 export function circuitLogPath(contextDir) {
     const cfg = process.env.GRAFLY_CIRCUIT_LOG;
-    if (cfg === "0" || cfg === "off")
+    if (cfg === "0" || cfg === "off" || process.env.GRAFLY_READONLY === "1")
         return null;
     return cfg ? resolve(cfg) : join(contextDir, "circuit-log.jsonl");
 }
