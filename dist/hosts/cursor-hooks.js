@@ -23,7 +23,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { hooksShim } from '../claude/shim-template.js';
-import { claudeDistDir } from '../claude/paths.js';
+import { userHooksDistDir } from '../claude/paths.js';
 import { writeOwned, mergeGraftHookEntries, readJsonObject } from './config-write.js';
 /** The Cursor hooks.json schema version graft writes. */
 const CURSOR_HOOKS_VERSION = 1;
@@ -68,7 +68,7 @@ function desiredEntries() {
  */
 export function installCursorHooks(repo) {
     const shimPath = shimPathFor(repo);
-    const shimWrite = writeOwned('cursor-hook-shim', shimPath, hooksShim(claudeDistDir()), 0o755);
+    const shimWrite = writeOwned('cursor-hook-shim', shimPath, hooksShim(userHooksDistDir()), 0o755);
     const cfgPath = configPathFor(repo);
     const skipped = { id: 'cursor-hooks', path: cfgPath, action: 'skipped-unparseable' };
     const loaded = readJsonObject(cfgPath);

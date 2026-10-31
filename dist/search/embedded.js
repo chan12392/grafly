@@ -1,6 +1,6 @@
 // XERJ's real FTS library runs inside the resident Grafly process.
 import { createRequire } from "node:module";
-import { mkdirSync, lstatSync, readdirSync, realpathSync, unlinkSync, rmdirSync } from "node:fs";
+import { existsSync, mkdirSync, lstatSync, readdirSync, realpathSync, unlinkSync, rmdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { CACHE_DIR } from "../context/node-file.js";
@@ -9,6 +9,9 @@ import { safeRoot, sameFile } from "../util/retention.js";
 const require = createRequire(import.meta.url);
 let binding;
 const indexes = new Map();
+/** An open reader memory-maps files under the repository's .grafly, which Windows then refuses to
+ * move or delete; the resident service closes readers it has not used for this long. */
+export const EMBEDDED_IDLE_MS = 5 * 60 * 1000;
 const DIRECTORY = /^grafly-[a-f0-9]{20}-[a-f0-9]{20}-[a-f0-9-]{36}$/;
 const CACHE_FILE = /^(?:ids\.json|grafly\.ftsan|grafly\.(?:name|path|body|scope|test)\.(?:fst|post|meta|norms))$/;
 export function embeddedBinding() {
@@ -23,11 +26,30 @@ function directory(outDir, state) {
 export function openEmbedded(outDir, state) {
     const path = directory(outDir, state);
     const prior = indexes.get(outDir);
-    if (prior?.path === path) return prior.reader;
+    if (prior?.path === path) {
+        prior.used = Date.now();
+        return prior.reader;
+    }
     const reader = new (embeddedBinding().XerjIndex)(path);
-    if (reader.count !== state.nodes) throw new Error("Incomplete embedded XERJ index");
-    indexes.set(outDir, { path, reader });
+    if (reader.count !== state.nodes) {
+        reader.close?.();
+        throw new Error("Incomplete embedded XERJ index");
+    }
+    prior?.reader.close?.();
+    indexes.set(outDir, { path, reader, used: Date.now() });
     return reader;
+}
+/** Close readers idle for `maxIdleMs` or whose index directory is gone; returns how many closed.
+ * A binary built before `close()` existed leaves the release to garbage collection. */
+export function closeIdleEmbedded(maxIdleMs = EMBEDDED_IDLE_MS, now = Date.now()) {
+    let closed = 0;
+    for (const [outDir, entry] of indexes) {
+        if (now - entry.used < maxIdleMs && existsSync(entry.path)) continue;
+        entry.reader.close?.();
+        indexes.delete(outDir);
+        closed++;
+    }
+    return closed;
 }
 export function buildEmbedded(outDir, state, documents, previous) {
     if (previous?.endpoint === "embedded" && previous.index === state.index) {
@@ -38,9 +60,11 @@ export function buildEmbedded(outDir, state, documents, previous) {
     const path = directory(outDir, value);
     mkdirSync(path, { recursive: true });
     embeddedBinding().buildIndex(path, JSON.stringify(documents));
-    // Open and validate before the caller atomically publishes the manifest.
+    // Open and validate before the caller atomically publishes the manifest; searches reopen it.
     const reader = new (embeddedBinding().XerjIndex)(path);
-    if (reader.count !== state.nodes) throw new Error("Incomplete embedded XERJ index");
+    const count = reader.count;
+    reader.close?.();
+    if (count !== state.nodes) throw new Error("Incomplete embedded XERJ index");
     return value.directory;
 }
 

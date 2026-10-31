@@ -15,10 +15,11 @@
  * config is modified — the file carries every Devin setting, not just hooks.
  */
 import { copyFileSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { writeOwned, planOwned, mergeGraftHookEntries, readJsonObject } from './config-write.js';
+import { userHooksDistDir } from '../claude/paths.js';
 function dirExists(p) {
     try {
         return statSync(p).isDirectory();
@@ -59,8 +60,9 @@ const PKG_SCRIPTS = fileURLToPath(new URL('../../scripts', import.meta.url));
 /** The packaged self-contained shim — Codex's session/prompt wiring installs
  *  the same file, so both hosts read one source of truth. */
 export function devinShimSource() {
+    // Same rule as the other user-level shims: follow the global install when there is one.
     return readFileSync(join(PKG_SCRIPTS, 'grafly-devin-hook.cjs'), 'utf8')
-        .replace('const INSTALLED_DIST = null;', `const INSTALLED_DIST = ${JSON.stringify(join(PKG_SCRIPTS, '..', 'dist'))};`);
+        .replace('const INSTALLED_DIST = null;', `const INSTALLED_DIST = ${JSON.stringify(dirname(userHooksDistDir()))};`);
 }
 /** The files installing the Devin hook would touch — pure, no writes. Empty
  * when no Devin config dir exists, mirroring `installDevinHooks`. */

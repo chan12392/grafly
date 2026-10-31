@@ -76,7 +76,9 @@ pub fn build_index(directory: String, documents: String) -> Result<()> {
 
 #[napi]
 pub struct XerjIndex {
-    searcher: FtsSearcher,
+    // None once closed: dropping the searcher releases its memory-mapped segment files, which
+    // Windows otherwise keeps locked (the repository cannot be moved or deleted meanwhile).
+    searcher: Option<FtsSearcher>,
     ids: Vec<String>,
 }
 
@@ -90,7 +92,7 @@ impl XerjIndex {
         .map_err(error)?;
         let reader = FtsIndexReader::open(&directory, "grafly", FIELDS).map_err(error)?;
         Ok(Self {
-            searcher: FtsSearcher::new(Arc::new(reader), Arc::new(AnalyzerRegistry::default())),
+            searcher: Some(FtsSearcher::new(Arc::new(reader), Arc::new(AnalyzerRegistry::default()))),
             ids,
         })
     }
@@ -98,6 +100,12 @@ impl XerjIndex {
     #[napi(getter)]
     pub fn count(&self) -> u32 {
         self.ids.len() as u32
+    }
+
+    /// Release the index files now instead of when the garbage collector finalizes this object.
+    #[napi]
+    pub fn close(&mut self) {
+        self.searcher = None;
     }
 
     #[napi]
@@ -130,6 +138,8 @@ impl XerjIndex {
             q = q.filter(Query::Term(TermQuery::new("test", "true")));
         }
         self.searcher
+            .as_ref()
+            .ok_or_else(|| error("XERJ index is closed"))?
             .search(&Query::Bool(Box::new(q)), limit as usize, false)
             .map_err(error)?
             .into_iter()
