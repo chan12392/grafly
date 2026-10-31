@@ -1,5 +1,7 @@
 // One option contract for the resident entry shim and the full CLI.
 export const residentCommands = ["ask", "grep", "build", "callers"];
+// Request options a service understands; a client never sends them to an older one.
+export const residentFeatures = ["read-only"];
 export function cliOptions(program) {
     return program.option("--dir <path>", "context graph directory (default: <repo>/.grafly)")
         .option("--provider <name>", "LLM wire format: openai | anthropic | litellm | orcarouter (env GRAFLY_PROVIDER)")
