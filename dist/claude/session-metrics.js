@@ -31,9 +31,10 @@ import { readSession, writeSession, sessionDir, listSessionIds } from './state.j
  *  are commands, never tool names, so they belong to the Shell branch, not here.
  *  Compared lower-cased. */
 const SOURCE_TOOLS = new Set(['read', 'grep', 'glob', 'search']);
-/** The host's shell tool, whose `command` we then inspect for a graft invocation. */
+/** The host's shell tool, whose `command` we then inspect for a graft invocation.
+ *  Claude Code on Windows exposes PowerShell beside (or instead of) Bash. */
 function isShellTool(t) {
-    return t === 'bash' || t === 'shell';
+    return t === 'bash' || t === 'shell' || t === 'powershell';
 }
 /** Whether a shell command line invokes the graft CLI (any of its install shapes). */
 export function commandInvokesGraft(command) {

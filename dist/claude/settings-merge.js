@@ -25,7 +25,11 @@ const REPO_HELPERS = '${CLAUDE_PROJECT_DIR:-.}/.claude/helpers';
 function hookCmd(arg, helpers = REPO_HELPERS) {
     return `node "${helpers}/grafly-hooks.cjs" ${arg}`;
 }
-function graftBlocks(helpers) {
+/** `agentShim`, when given, serves SessionStart/UserPromptSubmit instead — the
+ * user-level install uses the devin-hook shim there, as Codex does, because it
+ * also auto-indexes unindexed folders and serves the home workspace. */
+function graftBlocks(helpers, agentShim) {
+    const startCmd = (arg) => agentShim ? `node "${agentShim}" ${arg}` : hookCmd(arg, helpers);
     return {
         PostToolUse: [
             { matcher: 'Write|Edit|MultiEdit', hooks: [{ type: 'command', command: hookCmd('post-edit', helpers), timeout: 10 }] },
@@ -36,7 +40,8 @@ function graftBlocks(helpers) {
             // `graft stats` and the `session_summary` graft-vs-grep ratio. Broad matcher,
             // but the handler no-ops instantly unless there is something to record, so an
             // unrelated Bash or a plain Read costs only a stdin read.
-            { matcher: 'Bash|Read|Grep|Glob', hooks: [{ type: 'command', command: hookCmd('tool-savings', helpers), timeout: 8 }] },
+            // PowerShell is Claude Code's shell tool on Windows.
+            { matcher: 'Bash|PowerShell|Read|Grep|Glob', hooks: [{ type: 'command', command: hookCmd('tool-savings', helpers), timeout: 8 }] },
         ],
         // Longer budget than the other hooks: its `graft ask` is a real query, and a
         // query now brings the graph up to date first (graph/refresh.ts) — usually
@@ -46,8 +51,8 @@ function graftBlocks(helpers) {
         // this bump (8s) keeps a child that fits inside 8s. Changing the number here is
         // therefore safe on its own — but it only reaches an existing repo when someone
         // re-runs `graft init`, since that is the only caller of this function.
-        UserPromptSubmit: [{ hooks: [{ type: 'command', command: hookCmd('prompt', helpers), timeout: 15 }] }],
-        SessionStart: [{ hooks: [{ type: 'command', command: hookCmd('session-start', helpers), timeout: 8 }] }],
+        UserPromptSubmit: [{ hooks: [{ type: 'command', command: startCmd('prompt'), timeout: 15 }] }],
+        SessionStart: [{ hooks: [{ type: 'command', command: startCmd('session-start'), timeout: agentShim ? 10 : 8 }] }],
         Stop: [{ hooks: [{ type: 'command', command: hookCmd('stop', helpers), timeout: 8 }] }],
     };
 }
@@ -150,10 +155,10 @@ export function mergeGraftSettings(existing, opts = {}) {
  * Same idempotent shape as the repo merge: graft's prior entries are dropped before
  * the current set is added, so re-running converges instead of stacking.
  */
-export function mergeGraftHooks(existing, helpers) {
+export function mergeGraftHooks(existing, helpers, agentShim) {
     const merged = { ...(existing ?? {}) };
     merged.hooks = { ...(merged.hooks ?? {}) };
-    for (const [event, blocks] of Object.entries(graftBlocks(helpers))) {
+    for (const [event, blocks] of Object.entries(graftBlocks(helpers, agentShim))) {
         const prior = Array.isArray(merged.hooks[event]) ? merged.hooks[event] : [];
         merged.hooks[event] = mergeGraftHookEntries(prior, preserveTimeouts(blocks, prior));
     }

@@ -34,8 +34,9 @@ export declare function mergeGraftSettings(existing: Json, opts?: {
  *
  * Same idempotent shape as the repo merge: graft's prior entries are dropped before
  * the current set is added, so re-running converges instead of stacking.
+ * `agentShim` (absolute path) serves SessionStart/UserPromptSubmit when given.
  */
-export declare function mergeGraftHooks(existing: Json, helpers: string): {
+export declare function mergeGraftHooks(existing: Json, helpers: string, agentShim?: string): {
     merged: Json;
 };
 export {};
