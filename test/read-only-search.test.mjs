@@ -53,6 +53,12 @@ test('--read-only and GRAFLY_READONLY=1 leave the saved graph directory untouche
         const r = run(args, { GRAFLY_READONLY: '1' });
         assert.equal(r.status, 0, r.stderr);
     }
+    // ...and the --read-only flag, before or after any command.
+    for (const args of [['--read-only', 'callers', 'alphaHandler', '.'], ['callers', 'alphaHandler', '.', '--read-only'],
+        ['skeleton', 'alpha.js', '.', '--read-only'], ['--read-only', 'ask', 'alphaHandler', '.']]) {
+        const r = run(args);
+        assert.equal(r.status, 0, `${args.join(' ')}: ${r.stderr}`);
+    }
     assert.deepEqual(snapshot(ctx), before);
     // Control: the same ask without read-only writes (refresh or answer cache), so the check above is meaningful.
     assert.equal(run(['ask', 'alphaHandler', '.']).status, 0);

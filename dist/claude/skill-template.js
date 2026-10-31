@@ -94,7 +94,7 @@ stale if you have edited that file this turn.
 \`check\` fails when \`.grafly/\` is stale, for CI.
 
 **Read-only work** (audits, investigations that must change nothing): add
-\`--read-only\` to \`ask\` / \`grep\`, or set \`GRAFLY_READONLY=1\` for every tool. It
+\`--read-only\` to any grafly command (\`ask\`, \`grep\`, \`callers\`, \`skeleton\`, …), or set \`GRAFLY_READONLY=1\`. It
 answers from the saved index and writes nothing: no refresh, no answer cache. \`--no-refresh\` alone
 is not read-only: \`ask\` still writes its answer cache. Use grafly this way rather
 than falling back to raw \`grep\` or a temp copy.

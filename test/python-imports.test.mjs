@@ -48,3 +48,25 @@ test("bare calls to from-imported names resolve inside the imported module", asy
     // no import references are emitted for Python imported names
     assert.equal(g.edges.filter((e) => e.relation === "references" && e.source.startsWith("pkg/use_")).length, 0);
 });
+
+test("member calls on a from-imported submodule resolve to that module only", async () => {
+    const d = mkdtempSync(join(tmpdir(), "grafly-pyfrommod-"));
+    const put = (rel, src) => { mkdirSync(join(d, rel, ".."), { recursive: true }); writeFileSync(join(d, rel), src); };
+    put("src/__init__.py", "");
+    put("src/billing/__init__.py", "");
+    put("src/billing/invoice.py", "def total(items):\n    return 1\n");
+    put("src/payments/refund.py", "def total(lines):\n    return 2\n");
+    put("src/jobs/monthly.py", "from src.billing import invoice\n\ndef run():\n    return invoice.total([])\n");
+    put("src/billing/rel.py", "from . import invoice as inv\n\ndef run():\n    return inv.total([])\n");
+    // `config` is a package attribute, not a module file: no edge is guessed.
+    put("src/jobs/attr.py", "from src.billing import config\n\ndef run():\n    return config.total([])\n");
+    put("src/jobs/ext.py", "from os import path\n\ndef run():\n    return path.join('a')\n");
+    put("util.py", "def join(*a):\n    return a\n");
+    await buildGraph(d, {});
+    const g = JSON.parse(readFileSync(join(d, ".grafly", ".graph", "wiring.json"), "utf8"));
+    const calls = (src) => g.edges.filter((e) => e.relation === "calls" && e.source === src).map((e) => e.target).sort();
+    assert.deepEqual(calls("src/jobs/monthly.py#run"), ["src/billing/invoice.py#total"]);
+    assert.deepEqual(calls("src/billing/rel.py#run"), ["src/billing/invoice.py#total"]);
+    assert.deepEqual(calls("src/jobs/attr.py#run"), []);
+    assert.deepEqual(calls("src/jobs/ext.py#run"), []);
+});

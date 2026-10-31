@@ -7,7 +7,14 @@ export function cliOptions(program) {
         .option("--provider <name>", "LLM wire format: openai | anthropic | litellm | orcarouter (env GRAFLY_PROVIDER)")
         .option("--model <id>", "model id for the LLM pass (env GRAFLY_MODEL)")
         .option("--api-key <key>", "provider API key (env GRAFLY_API_KEY)")
-        .option("--base-url <url>", "OpenAI-compatible endpoint URL (env GRAFLY_BASE_URL)");
+        .option("--base-url <url>", "OpenAI-compatible endpoint URL (env GRAFLY_BASE_URL)")
+        // Program options are accepted before or after any subcommand; entry.js turns this into
+        // GRAFLY_READONLY=1 so callers, skeleton and every other command honour it too.
+        .option("--read-only", "write nothing for any command: no refresh, sync, cache or log (env GRAFLY_READONLY=1)");
+}
+/** The program-level --read-only can claim the flag even when it follows `ask`/`grep`. */
+function withReadOnly(program, opts) {
+    return program.opts().readOnly ? { ...opts, readOnly: true } : opts;
 }
 export function searchCommands(program, action) {
     program.command("ask")
@@ -22,7 +29,7 @@ export function searchCommands(program, action) {
         .option("--no-xerj", "use builtin retrieval")
         .option("--no-refresh", "answer from the graph as-is")
         .option("--read-only", "write nothing: no refresh, sync or answer cache (env GRAFLY_READONLY=1)")
-        .action((query, dir, opts) => action("ask", query, dir, opts));
+        .action((query, dir, opts) => action("ask", query, dir, withReadOnly(program, opts)));
     program.command("grep")
         .description("Search indexed source, ranked by graph connectivity")
         .argument("<pattern>").argument("[dir]")
@@ -32,7 +39,7 @@ export function searchCommands(program, action) {
         .option("--json", "output as JSON")
         .option("--no-refresh", "answer from the graph as-is")
         .option("--read-only", "write nothing: no refresh, sync or answer cache (env GRAFLY_READONLY=1)")
-        .action((query, dir, opts) => action("grep", query, dir, opts));
+        .action((query, dir, opts) => action("grep", query, dir, withReadOnly(program, opts)));
 }
 
 export function buildCommand(program) {
