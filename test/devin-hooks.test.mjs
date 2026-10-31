@@ -108,3 +108,26 @@ test('on Windows the config Devin loads (%APPDATA%/devin) wins over a leftover ~
   assert.equal(graflyEntries(join(appData, 'devin', 'config.json'), 'UserPromptSubmit').length, 1);
   assert.equal(graflyEntries(join(home, '.config', 'devin', 'config.json'), 'UserPromptSubmit').length, 0);
 });
+
+test('an alternate home never reaches the account %APPDATA% Devin config', { skip: process.platform !== 'win32' }, (t) => {
+  const account = mkdtempSync(join(tmpdir(), 'grafly-devin-account-'));
+  const home = mkdtempSync(join(tmpdir(), 'grafly-devin-alt-home-'));
+  const saved = process.env.APPDATA;
+  t.after(() => {
+    for (const dir of [account, home]) {
+      assert.ok(resolve(dir).startsWith(resolve(tmpdir()) + sep));
+      rmSync(dir, { recursive: true, force: true });
+    }
+    if (saved === undefined) delete process.env.APPDATA; else process.env.APPDATA = saved;
+  });
+  delete process.env.GRAFLY_DEVIN_DIR;
+  // Stands in for the signed-in user's %APPDATA%: install/retract for another home must not reach it.
+  process.env.APPDATA = account;
+  mkdirSync(join(account, 'devin'), { recursive: true });
+  writeFileSync(join(account, 'devin', 'config.json'), JSON.stringify({ hooks: {} }));
+  mkdirSync(join(home, '.config', 'devin'), { recursive: true });
+  writeFileSync(join(home, '.config', 'devin', 'config.json'), JSON.stringify({ hooks: {} }));
+  assert.ok(devinHookTargets(home).every((target) => !resolve(target.path).startsWith(resolve(account) + sep)));
+  installDevinHooks(home);
+  assert.equal(readFileSync(join(account, 'devin', 'config.json'), 'utf8'), JSON.stringify({ hooks: {} }));
+});
