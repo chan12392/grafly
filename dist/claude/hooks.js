@@ -386,6 +386,9 @@ function handleStop(input, dir) {
         child.unref();
     }
 }
+// Prompts that forbid changes ("파일은 수정하지 마세요", "read-only", "don't modify").
+const NO_CHANGE_REQUEST = /수정\s*(?:하지|없이|금지)|변경\s*(?:하지|없이|금지)|읽기\s*전용|\bread[- ]only\b|\bdo(?:n't| not) (?:modify|change|edit|write)\b/i;
+const READ_ONLY_HINT = '[grafly] no-change request: add --read-only to grafly commands (or set GRAFLY_READONLY=1); otherwise ask writes its .grafly answer cache.';
 export async function main(event) {
     const input = readStdin();
     const dir = projectDir(input);
@@ -462,15 +465,20 @@ export async function main(event) {
         if (scopeHint)
             askArgs.push('--in', scopeHint);
         const ask = graftJson(dir, askArgs, promptAskTimeout(dir));
-        if (!ask)
+        // A request that forbids changes also forbids grafly's own cache writes; say how to avoid them.
+        const hint = NO_CHANGE_REQUEST.test(prompt) ? READ_ONLY_HINT : '';
+        if (!ask) {
+            if (hint)
+                emit('UserPromptSubmit', hint);
             return;
+        }
         const id = input.session_id || 'default';
         const s = readSession(dir, id);
         s.lastQuery = prompt;
         const agent = input?.agent?.name;
         if (agent)
             s.perAgentQuery[agent] = prompt;
-        const txt = relevantRetrieval(ask, s);
+        const txt = [hint, relevantRetrieval(ask, s)].filter(Boolean).join('\n');
         if (txt)
             emit('UserPromptSubmit', txt);
         writeSession(dir, id, s);
