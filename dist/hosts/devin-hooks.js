@@ -30,8 +30,9 @@ function dirExists(p) {
 function devinConfigCandidates(home) {
     const dirs = [join(home, '.config', 'devin')];
     // Devin on Windows loads %APPDATA%/devin/config.json; a leftover ~/.config/devin copy is never read.
+    // An explicit alternate home keeps planning/tests isolated from this account, as codexHomeDir does.
     if (process.platform === 'win32')
-        dirs.unshift(join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'devin'));
+        dirs.unshift(join((home === homedir() && process.env.APPDATA) || join(home, 'AppData', 'Roaming'), 'devin'));
     return dirs;
 }
 export function devinConfigDir(home = homedir()) {
