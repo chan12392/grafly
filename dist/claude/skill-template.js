@@ -93,6 +93,12 @@ stale if you have edited that file this turn.
 \`build\` is for the LLM layer (\`--deep\` adds a concept map; skip unless asked);
 \`check\` fails when \`.grafly/\` is stale, for CI.
 
+**Read-only work** (audits, investigations that must change nothing): add
+\`--read-only\` to \`ask\` / \`grep\`, or set \`GRAFLY_READONLY=1\` for every tool. It
+answers from the saved index and writes nothing: no refresh, no answer cache. \`--no-refresh\` alone
+is not read-only: \`ask\` still writes its answer cache. Use grafly this way rather
+than falling back to raw \`grep\` or a temp copy.
+
 ## Scenarios: the shortest path through a coding task
 
 | When you're… | Reach for | Calls |
