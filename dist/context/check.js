@@ -120,9 +120,12 @@ export function indexFreshness(dir, opts = {}) {
 export function staleBanner(f) {
     if (!f || f.missing === 0)
         return null;
-    return (`⚠ grafly's index may be ahead of your working tree: ${f.missing} of ${f.total} indexed ` +
-        `files are not on disk (branch switch or uncommitted move?). If grafly names a path that ` +
-        `isn't there, don't chase it — \`grafly grep\` the symbol to find where it lives now; run \`grafly build\` to refresh.`);
+    // The count comes from the concept-map manifest, which only a deep build
+    // rewrites — a plain `grafly build` leaves this banner in place.
+    return (`⚠ grafly's concept map lists ${f.missing} of ${f.total} files that are not on disk ` +
+        `(deleted, moved, or a branch switch). If grafly names a path that isn't there, don't ` +
+        `chase it — \`grafly grep\` the symbol to find where it lives now. \`grafly build --deep\` ` +
+        `refreshes the map; a plain \`grafly build\` does not.`);
 }
 /** Render a check result as a human-readable report. */
 export function formatCheckReport(r) {

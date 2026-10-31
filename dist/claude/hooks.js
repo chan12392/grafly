@@ -12,6 +12,7 @@ import { runningVersion } from '../upkeep.js';
 import { flushClosedSessions, summarizeSession } from '../telemetry/sessions.js';
 import { hasSavingsTally, lastAssistantTurn, lastTurnBilling } from './tally.js';
 import { scopeOf, scopesOfGraph } from '../graph/scopes.js';
+import { hasGraflyIndex } from '../graph/root.js';
 import { classifyToolUse, parseSavings, recordToolUse } from './session-metrics.js';
 import { shouldRetrievePrompt } from './prompt-gate.js';
 function readStdin() {
@@ -417,7 +418,10 @@ export async function main(event) {
         return;
     }
     if (event === 'tool-savings') {
-        handleToolUse(input, dir);
+        // The user-level install fires on every Read/Grep in every folder; only
+        // an indexed repo has session stats to record into.
+        if (hasGraflyIndex(dir))
+            handleToolUse(input, dir);
         return;
     }
     if (event === 'cursor-post-tool') {

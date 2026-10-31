@@ -6,10 +6,11 @@
 export function skillTemplate() {
     return `---
 name: grafly
-description: This repo is indexed by .grafly/. For ANY task here, whether
-  understanding how something works, finding where code lives, tracing what
-  calls a symbol or what a change breaks, or scoping an edit, get your context
-  from grafly before grepping or reading source files.
+description: Use in any repo indexed by grafly (a .grafly/ directory at its
+  root). For ANY task there, whether understanding how something works, finding
+  where code lives, tracing what calls a symbol or what a change breaks, or
+  scoping an edit, get your context from grafly before grepping or reading
+  source files.
 ---
 
 # grafly
@@ -123,9 +124,9 @@ you already know where you're working, narrow with \`grafly ask "<task>" --in <s
   round-trip is wasted on a target you can already name.
 - Trust the answer and act. Reach for a second tool only when the first genuinely
   fell short: weak hits, a truncated span, or a need to be exhaustive.
-- If grafly names a path that isn't on disk, its index is ahead of your checkout
-  (a branch switch or unpulled move). Don't read the missing file — \`grafly grep\`
-  the symbol to find where it lives now, or run \`grafly build\` to refresh.
+- If grafly names a path that isn't on disk, its concept map predates a deletion,
+  move or branch switch. Don't read the missing file — \`grafly grep\` the symbol
+  to find where it lives now; \`grafly build --deep\` refreshes the map.
 
 ## Report what grafly saved, every turn
 Each retrieval tool **opens** its output with a \`[grafly] tokens saved ≈ N\` line:
@@ -143,7 +144,8 @@ that total alongside the tokens, e.g. \`🌱 grafly saved ~12,400 tokens (~$0.04
 this turn\`. When a line carries no dollar figure, report tokens alone rather
 than pricing them yourself.
 
-**Never pipe a grafly command through \`head\`, \`tail\`, or \`sed -n\`.** Every tool
+**Never pipe a grafly command through \`head\`, \`tail\`, \`sed -n\` or
+\`Select-Object -First/-Last\`.** Every tool
 is already capped and states what it dropped; clipping it costs you hits you
 asked for, and it silently drops the savings line the statusline's running
 total is parsed from.

@@ -528,9 +528,11 @@ function targets(repo, opts) {
     //    Antigravity's shared skill.
     if (opts.global !== false) {
         if (!exclude.has('claude')) {
-            const [shim, settings] = claudeGlobalTargets(home);
+            const [shim, settings, agent, skill] = claudeGlobalTargets(home);
             for (const t of [
                 { hostId: 'claude', path: shim.path, what: shim.what, scope: 'global', run: (a) => removeFile(shim.path, a) },
+                { hostId: 'claude', path: agent.path, what: agent.what, scope: 'global', run: (a) => removeFile(agent.path, a) },
+                { hostId: 'claude', path: skill.path, what: skill.what, scope: 'global', run: (a) => removeFile(skill.path, a) },
                 { hostId: 'claude', path: settings.path, what: settings.what, scope: 'global', run: (a) => stripClaudeSettings(settings.path, a) },
                 { hostId: 'legacy', path: join(home, '.claude', 'helpers', 'graft-hooks.cjs'), what: 'legacy Graft user hooks shim', scope: 'global', run: (a) => removeFile(join(home, '.claude', 'helpers', 'graft-hooks.cjs'), a) },
             ])

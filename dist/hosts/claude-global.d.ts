@@ -11,9 +11,11 @@ export declare function globalHelpersDir(home: string): string;
  */
 export declare function claudeGlobalTargets(home: string): PlannedWrite[];
 /**
- * Install the user-level copy: the shim and the hook entries that call it.
+ * Install the user-level copy: both shims, the skill, and the hook entries that
+ * call the shims. Session-start/prompt run the devin-hook shim, as on Codex;
+ * PostToolUse/Stop run the generated shim. `apply: false` only plans.
  *
- * The shim is written to `home` and the hook commands name it by absolute path, for
+ * The shims are written to `home` and the hook commands name them by absolute path, for
  * the reason the repo form can't be reused: `${CLAUDE_PROJECT_DIR}/.claude/helpers/`
  * resolves inside whatever project is open, and the whole point is to work in one
  * that has no such file. `hooksShim(claudeDistDir())` bakes in the installed
@@ -22,4 +24,6 @@ export declare function claudeGlobalTargets(home: string): PlannedWrite[];
  * Best-effort by contract, like every other writer here: a failure is reported as an
  * action, never raised, so a bad `~/.claude.json` can't fail a `graft init`.
  */
-export declare function installClaudeGlobal(home: string): GlobalWrite[];
+export declare function installClaudeGlobal(home: string, opts?: {
+    apply?: boolean;
+}): GlobalWrite[];
