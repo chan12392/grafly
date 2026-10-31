@@ -22,7 +22,7 @@
 import { copyFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { hooksShim } from '../claude/shim-template.js';
-import { claudeDistDir } from '../claude/paths.js';
+import { userHooksDistDir } from '../claude/paths.js';
 import { mergeGraftHooks } from '../claude/settings-merge.js';
 import { skillTemplate } from '../claude/skill-template.js';
 import { toPosixPath } from '../util/paths.js';
@@ -78,7 +78,7 @@ function upsertGlobalHooks(id, path, helpers, agentShim, apply) {
  * The shims are written to `home` and the hook commands name them by absolute path, for
  * the reason the repo form can't be reused: `${CLAUDE_PROJECT_DIR}/.claude/helpers/`
  * resolves inside whatever project is open, and the whole point is to work in one
- * that has no such file. `hooksShim(claudeDistDir())` bakes in the installed
+ * that has no such file. `hooksShim(userHooksDistDir())` bakes in the installed
  * package's `dist/`, exactly as the Codex install does.
  *
  * Best-effort by contract, like every other writer here: a failure is reported as an
@@ -88,7 +88,7 @@ export function installClaudeGlobal(home, { apply = true } = {}) {
     const [shim, settings, agent, skill] = claudeGlobalTargets(home);
     const write = apply ? writeOwned : planOwned;
     const out = [];
-    for (const [t, content] of [[shim, () => hooksShim(claudeDistDir())], [agent, devinShimSource]]) {
+    for (const [t, content] of [[shim, () => hooksShim(userHooksDistDir())], [agent, devinShimSource]]) {
         try {
             out.push(write(t.id, t.path, content(), 0o755));
         }

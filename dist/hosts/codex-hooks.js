@@ -9,7 +9,7 @@ import { writeFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { hooksShim } from '../claude/shim-template.js';
-import { claudeDistDir } from '../claude/paths.js';
+import { userHooksDistDir } from '../claude/paths.js';
 import { writeOwned, planOwned, mergeGraftHookEntries, readJsonObject } from './config-write.js';
 import { devinShimSource } from './devin-hooks.js';
 function dirExists(p) {
@@ -78,7 +78,7 @@ export function installCodexHooks(home, { apply = true } = {}) {
         return [];
     const [shimT, agentT, cfgT] = targets;
     const fileWrites = [
-        (apply ? writeOwned : planOwned)(shimT.id, shimT.path, hooksShim(claudeDistDir()), 0o755),
+        (apply ? writeOwned : planOwned)(shimT.id, shimT.path, hooksShim(userHooksDistDir()), 0o755),
         (apply ? writeOwned : planOwned)(agentT.id, agentT.path, devinShimSource(), 0o755),
     ];
     const cfgPath = cfgT.path;

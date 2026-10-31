@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { createInterface } from "node:readline";
-import { embeddedBinding } from "./embedded.js";
+import { closeIdleEmbedded, embeddedBinding } from "./embedded.js";
 import { packageRoot, searchHome, searchEndpoint, searchConfig, serviceRequest, parseResidentRequest, requestEnv } from "./client.js";
 import { residentCommands, residentFeatures } from "./commands.js";
 
@@ -102,8 +102,12 @@ export async function serveSearch({ stdio = false } = {}) {
         });
     });
     let input;
+    // Readers idle for a while are closed so the repositories they map can be moved or deleted.
+    const idleReaders = config.xerjUrl === "embedded" ? setInterval(() => closeIdleEmbedded(), 60000) : null;
+    idleReaders?.unref();
     function shutdown() {
         stopping = true;
+        clearInterval(idleReaders);
         clearTimeout(retry);
         tunnel?.kill();
         input?.close();
