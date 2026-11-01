@@ -459,14 +459,20 @@ export async function main(event) {
         // relevantRetrieval then drops the pack entirely when the prompt barely
         // overlaps the top hit or when every hit was already injected this session.
         const askArgs = withContextDirArg(dir, ['ask', prompt, '.', '--json', '-n', '3']);
+        // A request that forbids changes also forbids grafly's own writes: classify it before
+        // searching so the ask runs read-only (no refresh, sync or answer cache) and the session
+        // state is left alone. The hint tells the agent how to keep its own calls read-only too.
+        const noChange = NO_CHANGE_REQUEST.test(prompt);
+        const readOnly = noChange || process.env.GRAFLY_READONLY === '1';
+        if (readOnly)
+            askArgs.push('--read-only');
+        const hint = noChange ? READ_ONLY_HINT : '';
         // "You're working in backend/, weight it": only fires on a multi-scope
         // repo whose lastFile resolves cleanly to one scope — see lastFileScopeHint.
         const scopeHint = lastFileScopeHint(dir, readStats(dir)?.lastFile);
         if (scopeHint)
             askArgs.push('--in', scopeHint);
         const ask = graftJson(dir, askArgs, promptAskTimeout(dir));
-        // A request that forbids changes also forbids grafly's own cache writes; say how to avoid them.
-        const hint = NO_CHANGE_REQUEST.test(prompt) ? READ_ONLY_HINT : '';
         if (!ask) {
             if (hint)
                 emit('UserPromptSubmit', hint);
@@ -481,6 +487,7 @@ export async function main(event) {
         const txt = [hint, relevantRetrieval(ask, s)].filter(Boolean).join('\n');
         if (txt)
             emit('UserPromptSubmit', txt);
-        writeSession(dir, id, s);
+        if (!readOnly)
+            writeSession(dir, id, s);
     }
 }
