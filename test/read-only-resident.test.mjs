@@ -37,5 +37,14 @@ test('read-only requests skip a resident service that does not advertise read-on
     state(['read-only']);
     assert.equal(await tryResidentSearch(['ask', 'symbol', '.', '--read-only']), true);
     assert.equal(requests, 2);
+
+    // A read-only build is never delivered, even to a service that runs builds and knows read-only.
+    writeFileSync(join(home, 'state.json'), JSON.stringify({ protocol: 1, token: 't', pid: process.pid, packageRoot,
+        commands: ['ask', 'grep', 'build'], features: ['read-only'] }));
+    assert.equal(await tryResidentSearch(['--read-only', 'build', '.']), false);
+    assert.equal(await tryResidentSearch(['build', '.', '--read-only']), false);
+    assert.equal(requests, 2);
+    assert.equal(await tryResidentSearch(['build', '.']), true);  // control
+    assert.equal(requests, 3);
     process.exitCode = 0;
 });

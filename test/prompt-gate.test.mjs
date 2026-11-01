@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -104,6 +104,51 @@ test('a no-change request adds the read-only hint; other prompts do not', (t) =>
     assert.match(context, /^\[grafly\] no-change request: add --read-only/);
     assert.match(context, /src\/graph.js:L1-L3/);
   }
+});
+
+test('a no-change prompt runs the real ask read-only and leaves the index and session untouched', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'grafly-prompt-readonly-'));
+  t.after(() => {
+    assert.equal(dirname(resolve(root)), resolve(tmpdir()));
+    rmSync(root, { recursive: true, force: true });
+  });
+  const repoDir = join(root, 'repo'), service = join(root, 'service');
+  mkdirSync(repoDir); mkdirSync(service);
+  writeFileSync(join(service, 'config.json'), JSON.stringify({ xerjUrl: null }));
+  assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: repoDir, windowsHide: true }).status, 0);
+  writeFileSync(join(repoDir, '.gitignore'), '.grafly/\n');
+  writeFileSync(join(repoDir, 'alpha.js'), 'export function alphaHandler() { return 1; }\n');
+  const env = Object.fromEntries(Object.entries(process.env)
+    .filter(([key]) => !/^(?:GRAFLY|GRAFT)_/i.test(key) && key !== 'CLAUDE_PROJECT_DIR'));
+  Object.assign(env, { HOME: root, USERPROFILE: root, CLAUDE_CONFIG_DIR: join(root, '.claude'),
+    GRAFLY_SEARCH_HOME: service, GRAFLY_NO_SELF_UPDATE: '1' });
+  const built = spawnSync(process.execPath, [join(repo, 'dist/entry.js'), 'build', '.'],
+    { cwd: repoDir, env, encoding: 'utf8', windowsHide: true });
+  assert.equal(built.status, 0, built.stderr);
+  // A stale graph and a cold answer cache: a writing ask would refresh and cache.
+  writeFileSync(join(repoDir, 'alpha.js'), 'export function alphaHandler() { return 2; }\nexport function betaHelper() {}\n');
+  const ctx = join(repoDir, '.grafly');
+  const snapshot = () => Object.fromEntries(readdirSync(ctx, { recursive: true }).map((name) => {
+    const info = statSync(join(ctx, name));
+    return [name, info.isFile() ? `${info.mtimeMs}:${readFileSync(join(ctx, name)).toString('base64')}` : 'dir'];
+  }));
+  const hook = (prompt) => {
+    const payload = JSON.stringify({ cwd: repoDir, session_id: 'readonly-test', prompt });
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e',
+      `const m = await import(${JSON.stringify(pathToFileURL(join(repo, 'dist/claude/hooks.js')).href)}); await m.main('prompt');`],
+      { cwd: repoDir, env: { ...env, GRAFLY_TEST_STDIN: payload }, input: payload, encoding: 'utf8', windowsHide: true, timeout: 60000 });
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout;
+  };
+  const before = snapshot();
+  const quiet = JSON.parse(hook('alphaHandler 위치를 알려 주세요. 파일은 수정하지 마세요.')).hookSpecificOutput.additionalContext;
+  assert.match(quiet, /^\[grafly\] no-change request/);
+  assert.match(quiet, /alpha\.js/);
+  assert.deepEqual(snapshot(), before);
+  // Control: the same lookup without the restriction writes (refresh, cache, session).
+  hook('alphaHandler 위치를 알려 주세요.');
+  assert.notDeepEqual(snapshot(), before);
+  assert.equal(existsSync(join(ctx, '.cache/session/readonly-test.json')), true);
 });
 
 test('Codex/Devin adapter applies the gate and preserves message-field compatibility', (t) => {
