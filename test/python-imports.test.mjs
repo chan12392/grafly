@@ -70,3 +70,30 @@ test("member calls on a from-imported submodule resolve to that module only", as
     assert.deepEqual(calls("src/jobs/attr.py#run"), []);
     assert.deepEqual(calls("src/jobs/ext.py#run"), []);
 });
+
+test("a package __init__ that rebinds a submodule name leaves member calls unresolved", async () => {
+    const d = mkdtempSync(join(tmpdir(), "grafly-pyinit-"));
+    const put = (rel, src) => { mkdirSync(join(d, rel, ".."), { recursive: true }); writeFileSync(join(d, rel), src); };
+    // `from p import x` reads p.x from __init__ first; p/x.py is not what x names here.
+    put("p/__init__.py", "from . import alternate as x\n");
+    put("p/alternate.py", "def total():\n    return 'alternate'\n");
+    put("p/x.py", "def total():\n    return 'x'\n");
+    put("q/__init__.py", "from . import alternate\nx = alternate\n");
+    put("q/alternate.py", "def total():\n    return 'alternate'\n");
+    put("q/x.py", "def total():\n    return 'x'\n");
+    // Importing the same-named submodule in __init__ keeps p.x that submodule.
+    put("r/__init__.py", "from . import x\nfrom .x import total\n");
+    put("r/x.py", "def total():\n    return 'x'\n");
+    put("use_p.py", "from p import x\n\ndef run():\n    return x.total()\n");
+    put("use_q.py", "from q import x\n\ndef run():\n    return x.total()\n");
+    put("use_r.py", "from r import x\n\ndef run():\n    return x.total()\n");
+    // `import p.x` always loads the submodule itself.
+    put("use_p_mod.py", "import p.x as m\n\ndef run():\n    return m.total()\n");
+    await buildGraph(d, {});
+    const g = JSON.parse(readFileSync(join(d, ".grafly", ".graph", "wiring.json"), "utf8"));
+    const calls = (src) => g.edges.filter((e) => e.relation === "calls" && e.source === src).map((e) => e.target).sort();
+    assert.deepEqual(calls("use_p.py#run"), []);
+    assert.deepEqual(calls("use_q.py#run"), []);
+    assert.deepEqual(calls("use_r.py#run"), ["r/x.py#total"]);
+    assert.deepEqual(calls("use_p_mod.py#run"), ["p/x.py#total"]);
+});
