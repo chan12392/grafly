@@ -321,6 +321,11 @@ export function extractFile(rel, source, lang) {
     // when it's actually accidental shared mutable state across the whole walk.
     const minted = new Set([rel]);
     walkNamedChildren(root.namedChildren, ctx, nodes, rawEdges, minted);
+    if (lang === "python" && /(^|[\\/])__init__\.pyi?$/i.test(rel)) {
+        const pyRebinds = pyPackageRebinds(ctx.pyModules.get(root.id), rel);
+        if (pyRebinds.length)
+            rawEdges.push({ source: rel, relation: "imports", file: rel, pyRebinds });
+    }
     // nodes[0] is the file node; the rest are its symbols. Index the module-level
     // residual on the file node so a term outside every symbol still surfaces it.
     nodes[0].body_text = fileResidual(source, nodes.slice(1));
@@ -644,7 +649,7 @@ function walk(node, ctx, out, edges, minted) {
                     ? pyModuleForCall(node, callee.receiver, ctx.pyModules)
                     : null;
                 edges.push(recvType ? { ...callEdge, recvType }
-                    : pyModule ? { ...callEdge, recvModule: pyModule.specifier }
+                    : pyModule ? { ...callEdge, recvModule: pyModule.specifier, ...(pyModule.fromImport ? { recvFromImport: true } : {}) }
                         : callEdge);
             }
         }
@@ -997,7 +1002,7 @@ function collectPyModuleScopes(root, rel) {
                 const local = aliased ? name.childForFieldName("alias")?.text : name.text;
                 if (!local)
                     continue;
-                const binding = from && imported ? { specifier: [...from, imported].join("."), start: node.endIndex } : null;
+                const binding = from && imported ? { specifier: [...from, imported].join("."), start: node.endIndex, fromImport: true } : null;
                 const previous = bindings.get(local);
                 bindings.set(local, !bindings.has(local) ? binding
                     : previous && binding && previous.specifier === binding.specifier ? previous : null);
@@ -1045,6 +1050,20 @@ function pyFromModuleParts(text, rel) {
     if (dots - 1 > pkg.length)
         return null;
     return [...pkg.slice(0, pkg.length - (dots - 1)), ...rest];
+}
+/** Module-scope names a package `__init__` binds to anything but its own same-named
+ * submodule (`from . import alternate as x`, `x = ...`, `def x`). `from p import x` reads
+ * such a package attribute before it would import `p/x.py`. */
+function pyPackageRebinds(bindings, rel) {
+    const pkg = rel.replace(/\\/g, "/").split("/").slice(0, -1).join(".");
+    const out = [];
+    for (const [name, binding] of bindings ?? []) {
+        const own = pkg ? `${pkg}.${name}` : name;
+        const spec = binding?.specifier;
+        if (name !== "*" && !(spec && (spec === own || (spec.includes(".") && own.endsWith(`.${spec}`)))))
+            out.push(name);
+    }
+    return out;
 }
 function pyModuleForCall(node, receiver, scopes) {
     let innerScope = false;

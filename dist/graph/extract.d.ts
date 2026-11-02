@@ -30,6 +30,12 @@ export interface RawEdge {
     recvType?: string;
     /** Python member call on a direct import's module binding. */
     recvModule?: string;
+    /** With recvModule: the binding came from `from P import N`, which reads P's own
+     * `N` attribute before importing submodule P.N. */
+    recvFromImport?: boolean;
+    /** Python package `__init__` only: module-scope names it binds to anything but its
+     * own same-named submodule. Carried on a specifier-less `imports` edge. */
+    pyRebinds?: string[];
     /** calls without viaMember: which kinds the bare-name match may resolve to.
      * Every other language's bare-name call is always a free function, so this
      * is absent for them (resolve.ts defaults to `["function"]`). R (Phase 4) is

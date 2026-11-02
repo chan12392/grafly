@@ -198,6 +198,14 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
     // Module members must be defined at file scope, never a nested function or method.
     const pyModuleMembers = new Set(rawEdges.filter((e) => e.relation === "contains" &&
         e.source === e.file && PY_EXT.test(e.file)).map((e) => e.targetId));
+    // Package dir → names its `__init__` rebinds away from the same-named submodule.
+    const pyPackageRebinds = new Map();
+    for (const e of rawEdges) {
+        if (e.pyRebinds) {
+            const dir = posix.dirname(toPosixPath(e.file));
+            pyPackageRebinds.set(dir, new Set([...(pyPackageRebinds.get(dir) ?? []), ...e.pyRebinds]));
+        }
+    }
     // One specifier→file dispatch for every relation that carries a specifier —
     // an edge that names its module resolves inside that module, whether it is
     // an `imports`, a `references` or a `calls` edge.
@@ -305,6 +313,17 @@ export function resolveEdges(nodes, rawEdges, opts = {}) {
                         if (files.length > 1 && opts.dropped)
                             opts.dropped.push({ source: e.source, name: e.name });
                         continue;
+                    }
+                    // `from p import x` takes p's own `x` binding before submodule p/x.py;
+                    // which object wins depends on import order, so never guess.
+                    if (e.recvFromImport) {
+                        const modulePath = toPosixPath(files[0]).replace(/\/__init__\.pyi?$/i, "");
+                        const name = e.recvModule.split(".").at(-1);
+                        if (pyPackageRebinds.get(posix.dirname(modulePath))?.has(name)) {
+                            if (opts.dropped)
+                                opts.dropped.push({ source: e.source, name: e.name });
+                            continue;
+                        }
                     }
                     const members = (perFileName.get(files[0])?.get(e.name) ?? [])
                         .filter((n) => pyModuleMembers.has(n.id));
