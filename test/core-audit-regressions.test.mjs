@@ -14,7 +14,6 @@ import { buildGraph } from '../dist/graph/build.js';
 import { checkGraph } from '../dist/graph/check.js';
 import { writeCards, writeCovers } from '../dist/graph/cards.js';
 import { readGraph } from '../dist/graph/write.js';
-import { assembleContextGraph } from '../dist/viz/assemble.js';
 import { executeSearch } from '../dist/search/request.js';
 
 function fixture(t) {
@@ -28,7 +27,7 @@ function fixture(t) {
 const emptyGraph = { nodes: [], edges: [] };
 const cli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 
-test('build, metadata readers and viz treat executable frontmatter as data', t => {
+test('build and metadata readers treat executable frontmatter as data', t => {
     const root = fixture(t), index = join(root, '.grafly');
     mkdirSync(index);
     writeFileSync(join(root, 'a.js'), 'export const a = 1;');
@@ -43,9 +42,6 @@ test('build, metadata readers and viz treat executable frontmatter as data', t =
         () => writeCovers(emptyGraph, index),
         () => ask(root, 'audit'),
     ]) assert.throws(read, /Unsupported concept frontmatter language/);
-    const viz = assembleContextGraph(index);
-    assert.equal(viz.meta.skippedFiles, 1);
-    assert.equal(viz.nodes.length, 0);
     const built = spawnSync(process.execPath, [cli, 'build', root], {
         windowsHide: true, encoding: 'utf8', timeout: 30000, env: { ...process.env, GRAFLY_NO_DAEMON: '1' },
     });
@@ -69,8 +65,6 @@ test('safe frontmatter keeps YAML/JSON compatibility and never reparses a card b
     assert.equal(writeCovers(emptyGraph, root), 1);
     assert.equal(parseFrontmatter(readFileSync(card, 'utf8')).content, body);
     assert.equal(existsSync(marker), false);
-    writeFileSync(card, '---\nslug: audit\nsources: [null, {}, {path: a.js}]\n---\nSummary.\n');
-    assert.deepEqual(assembleContextGraph(root).nodes[0].sources, ['a.js']);
 });
 
 test('public full deep regeneration archives retired notes and leaves file cards intact', async t => {

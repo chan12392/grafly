@@ -54,8 +54,7 @@ const CLAUSE_BREAK = /\s(?:\(|—|-\s)|:\s|\s(?:via|and|for|with|using|in|across
  *
  * Concept names are written for a reader with the whole file in front of them, so
  * they run long and some carry a `Concept: ` prefix from the synthesis prompt.
- * "Reciprocal-Rank Fusion for Workspace Federation" is a fine node title in `graft
- * viz` and unreadable inside a circle.
+ * "Reciprocal-Rank Fusion for Workspace Federation" is too long for a diagram node.
  */
 export function shortLabel(label) {
     const bare = label.replace(/^concepts?:\s*/i, "").trim();

@@ -7,7 +7,7 @@ import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { scheduleAutoDeep, runAutoDeepWorker, autoDeepStatus, buildDeepProject } from '../dist/hosts/auto-deep.js';
+import { scheduleAutoDeep, runAutoDeepWorker, autoDeepStatus, buildDeepProject, deepidx } from '../dist/hosts/auto-deep.js';
 import { acquireLockIn, releaseLockIn } from '../dist/util/state.js';
 
 function fixture(t) {
@@ -67,6 +67,45 @@ test('one worker consumes duplicates once; successful projects cool down', async
     assert.equal(autoDeepStatus(f.home).jobs.length, 0);
     scheduleAutoDeep(f.root, { home: f.home, launch: false, now: Date.now() + 3600001 });
     assert.equal(autoDeepStatus(f.home).jobs.length, 1);
+});
+
+test('read-only hooks neither enqueue Deep nor drain previously queued work', async t => {
+    const f = fixture(t); f.configure();
+    const previous = process.env.GRAFLY_READONLY;
+    t.after(() => { if (previous === undefined) delete process.env.GRAFLY_READONLY; else process.env.GRAFLY_READONLY = previous; });
+    delete process.env.GRAFLY_READONLY;
+    assert.equal(scheduleAutoDeep(f.root, { home: f.home, launch: false }), true);
+    process.env.GRAFLY_READONLY = '1';
+    assert.equal(scheduleAutoDeep(f.root, { home: f.home, launch: false, sessionId: 'read-only' }), false);
+    let builds = 0;
+    await runAutoDeepWorker({ home: f.home, build: async () => { builds++; return { status: 'ready' }; } });
+    assert.equal(builds, 0);
+    assert.equal(autoDeepStatus(f.home).jobs.length, 1);
+    assert.equal((await deepidx(f.root, { home: f.home })).status, 'disabled');
+    assert.equal(existsSync(join(f.root, '.grafly/.graph/wiring.json')), false);
+});
+
+test('agent jobs retain the triggering CLI profile when a shared worker belongs to another session', async t => {
+    const f = fixture(t); f.configure({ transport: 'agent' });
+    const old = process.env.CODEX_HOME;
+    t.after(() => { if (old === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = old; });
+    process.env.CODEX_HOME = join(f.dir, 'first-profile');
+    assert.equal(scheduleAutoDeep(f.root, { home: f.home, launch: false, agent: 'codex' }), true);
+    process.env.CODEX_HOME = join(f.dir, 'other-profile');
+    await runAutoDeepWorker({ home: f.home, build: async (root, config) => {
+        assert.equal(root, f.root);
+        assert.deepEqual(config.agentContext, { agent: 'codex', home: join(f.dir, 'first-profile') });
+        assert.equal(config.concurrency, 1);
+        return { status: 'ready' };
+    } });
+    assert.equal(autoDeepStatus(f.home).projects[0].status, 'ready');
+});
+
+test('agent jobs without a caller retain structure and never fall back to the old endpoint', async t => {
+    const f = fixture(t);
+    await assert.rejects(buildDeepProject(f.root, { transport: 'agent', agentContext: null, baseUrl: 'http://127.0.0.1:1/v1' }), /No active Codex or Claude/);
+    assert.ok(existsSync(join(f.root, '.grafly/.graph/wiring.json')));
+    assert.equal(existsSync(join(f.root, '.grafly/.cache/.sync.lock')), false);
 });
 
 test('every new session bypasses cooldown and a session arriving during a build is retained', async t => {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * `grafly` CLI. Commands include build, ask, check, viz, callers, skeleton, grep,
+ * `grafly` CLI. Commands include build, ask, check, callers, skeleton, grep,
  * map, init. The local graph lives in the regenerable `.grafly/` directory. A
  * workspace parent (≥2 git children) federates query commands across children.
  */

@@ -32,7 +32,7 @@ import { readJson, writeJsonAtomic, cacheDir } from './util/state.js';
 import { HOSTS } from './hosts/registry.js';
 import { START } from './hosts/sections.js';
 import { getNpmViewVersion, readCurrentVersion } from './cli-meta.js';
-import { cacheIsStale, markRulesChecked, readLink, readRulesCache } from './brain/link.js';
+import { scheduleLocalBrain } from './brain/local.js';
 import { graftCliPath } from './claude/paths.js';
 /**
  * The version of the graft package this code was loaded from.
@@ -134,44 +134,9 @@ export function maybeRefreshInBackground(home, now = Date.now()) {
         return false; // no spawn (sandbox, ENOMEM) — the nudge just uses the old cache
     }
 }
-/**
- * Refresh the attached brain's rules in a detached child, when they are stale.
- *
- * The same shape as the update check above, and for the same reason: this runs
- * inside session-start hooks, where waiting on the network is a
- * stalled first turn. So nothing here blocks — the child does the fetch and
- * this call returns immediately.
- *
- * Without it a brain is pulled exactly once, at `graft brain connect`, and
- * never again. That was survivable when connecting happened after the brain
- * finished building; it is not survivable now that onboarding connects DURING
- * the build, because the one pull returns an empty rulebook and nothing would
- * ever go back for the real one.
- *
- * The attempt is stamped before spawning, so a brain that is still building
- * costs one request per TTL window rather than one per command.
- */
+/** Schedule opt-in local mining without waiting for the model. */
 export function maybeRefreshBrainRules(repo, now = Date.now()) {
-    try {
-        const link = readLink(repo);
-        // A local brain has nothing to fetch — its rules are notes in the cache.
-        if (!link || link.local)
-            return false;
-        const cache = readRulesCache(repo);
-        if (!cacheIsStale(cache, now))
-            return false;
-        markRulesChecked(repo, now);
-        const child = spawn(process.execPath, [graftCliPath(), '_brain-refresh', repo], {
-            detached: true,
-            stdio: 'ignore',
-            windowsHide: true,
-        });
-        child.unref();
-        return true;
-    }
-    catch {
-        return false; // no spawn, or an unreadable repo — the cached rules still serve
-    }
+    return scheduleLocalBrain(repo, now);
 }
 /** One line, or nothing. Nothing is the common case — don't spend context on
  * "you're up to date". */

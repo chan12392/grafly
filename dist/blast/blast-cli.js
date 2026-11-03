@@ -4,9 +4,7 @@
  * Kept out of cli.ts (argument wiring only) so the diff → seeds → walk → render
  * chain stays unit-testable without shelling out, matching `graph/traverse-cli.ts`.
  */
-import { execFileSync } from "node:child_process";
-import { basename, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { contextDirFor } from "../context/node-file.js";
 import { loadGraphCached } from "../graph/load.js";
 import { blastRadiusIn } from "./blast.js";
@@ -76,8 +74,6 @@ export async function runBlastCommand(dir, opts) {
         const authors = opts.base === undefined ? localIdentity(root) : diffAuthors(root, opts.base);
         attachOwners(root, report, { exclude: [...authors, ...(opts.prAuthor ?? [])] });
     }
-    if (opts.exportViz)
-        await exportRadius(report, contextDir, root, opts.exportViz, opts.title);
     if (format === "json") {
         console.log(JSON.stringify(report, null, 2));
         return;
@@ -102,51 +98,4 @@ async function nameClusters(graph, report, contextDir) {
     const { note } = await nameReport(graph, report, contextDir);
     if (note)
         console.error(`• --name: ${note}`);
-}
-/**
- * What to call the repository in the appbar.
- *
- * `basename(root)` is right for someone running this in their own clone, but CI
- * checks a pull request out into a directory named for the job — ours is literally
- * `pr` — which titled the published page "pr". The origin remote is the repository,
- * so it wins when there is one; a detached tarball checkout still falls back.
- */
-export function repoLabel(root) {
-    try {
-        const url = execFileSync("git", ["-C", root, "remote", "get-url", "origin"], {
-            encoding: "utf8",
-            stdio: ["ignore", "pipe", "ignore"],
-        }).trim();
-        const name = url.replace(/\.git$/, "").split(/[/:]/).pop();
-        if (name)
-            return name;
-    }
-    catch {
-        // No remote, or no git at all: the directory name is the best guess left.
-    }
-    return basename(root);
-}
-/**
- * Write the interactive page for this radius: the same viewer `grafly viz` serves,
- * with the blast graph as its Context tab.
- *
- * Done here rather than in `viz` because the radius is what a reviewer opened the
- * link for, and only `blast` has it — `viz --export` on its own can offer the deep
- * tier's concept map, which a PR build no longer produces.
- */
-async function exportRadius(report, contextDir, root, outDir, subtitle) {
-    const { exportViz } = await import("../viz/export.js");
-    const { blastVizGraph } = await import("./viz.js");
-    const out = exportViz({
-        contextDir,
-        viewerDir: fileURLToPath(new URL("../viewer/", import.meta.url)), // prebuilt, ships in dist
-        outDir: resolve(outDir),
-        repoName: repoLabel(root),
-        subtitle,
-        contextGraph: blastVizGraph(report, { root }),
-        // Context alone: see VizExportOptions.tabs — the other two tabs are about the
-        // repository, and this page is about one pull request.
-        tabs: ["context"],
-    });
-    console.error(`• --export-viz: ${out.file} (${Math.round(out.bytes / 1024)} kB, ${out.contextNodes} areas, ${out.codeNodes} code nodes)`);
 }

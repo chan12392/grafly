@@ -51,8 +51,7 @@ export function runUpkeep(repo, current, opts = {}) {
     }
     catch { /* fail-soft: wiring refresh is never worth breaking a session for */ }
     try {
-        // Rules the attached brain has gained since the last pull. Detached, so it
-        // never delays the session it runs in.
+        // Opt-in local mining runs in a child and never delays this session.
         if (opts.background !== false)
             maybeRefreshBrainRules(repo);
     }

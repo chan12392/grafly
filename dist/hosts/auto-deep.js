@@ -11,6 +11,7 @@ import { contextDirFor } from '../context/node-file.js';
 import { readFingerprint } from '../graph/fingerprint.js';
 import { migrateIndex } from '../context/migrate-index.js';
 import { preferredLocalModel } from '../ai/providers.js';
+import { agentContext, AgentChatModel } from '../ai/llm/agent.js';
 
 const SELF = fileURLToPath(import.meta.url);
 const HOUR = 3600000;
@@ -25,6 +26,7 @@ function write(file, value) {
 function config(home) {
     const c = read(join(home, 'auto-deep.json'));
     if (c?.enabled !== true || !Array.isArray(c.roots) || !c.roots.length) return null;
+    if (c.transport === 'agent' || !c.baseUrl) return { ...c, transport: 'agent', concurrency: 1 };
     // This opt-in uses an existing keyless local proxy; no paid API fallback,
     // credential discovery, SSH provisioning, or remote-service changes.
     try {
@@ -34,6 +36,7 @@ function config(home) {
     return { ...c, baseUrl: c.baseUrl.replace(/\/+$/, ''), concurrency: Math.min(5, Math.max(1, Number(c.concurrency) || 2)) };
 }
 function disabled() {
+    if (process.env.GRAFLY_READONLY === '1') return true;
     return ['GRAFLY_NO_AUTO_INDEX', 'GRAFT_NO_AUTO_INDEX', 'GRAFLY_NO_AUTO_DEEP'].some(k => process.env[k] && !['0', 'false'].includes(process.env[k]));
 }
 function allowed(root, c) {
@@ -59,13 +62,15 @@ function wake(home) {
     });
 }
 /** True means this project is managed, including an already queued/cached job. */
-export function scheduleAutoDeep(root, { home = autoDeepHome(), launch = true, now = Date.now(), sessionId, force = false } = {}) {
+export function scheduleAutoDeep(root, { home = autoDeepHome(), launch = true, now = Date.now(), sessionId, force = false, agent } = {}) {
     if (disabled()) return false;
     const c = config(home);
     if (!c) return false;
     try {
         root = realpathSync(root);
         if (!allowed(root, c)) return false;
+        const context = c.transport === 'agent' ? agentContext(agent) : null;
+        if (c.transport === 'agent' && !context) return false;
         const p = paths(home, root);
         const previous = read(p.state);
         const session = sessionId ? createHash('sha256').update(String(sessionId)).digest('hex').slice(0, 24) : null;
@@ -76,7 +81,7 @@ export function scheduleAutoDeep(root, { home = autoDeepHome(), launch = true, n
         // Publish a complete record exclusively, so a worker cannot consume a
         // half-written job when two host hooks enqueue simultaneously.
         const temp = `${p.job}.${randomUUID()}.tmp`;
-        writeFileSync(temp, JSON.stringify({ root, queuedAt: now, session }));
+        writeFileSync(temp, JSON.stringify({ root, queuedAt: now, session, agentContext: context }));
         try { linkSync(temp, p.job); }
         catch (error) { if (error.code !== 'EEXIST') throw error; }
         finally { unlinkSync(temp); }
@@ -117,10 +122,11 @@ export async function buildDeepProject(root, c, progress = () => {}) {
         // Keep a usable structural index even when the endpoint is unavailable.
         progress({ phase: 'structure' });
         const structural = await buildGraph(root, { contextDir, graphOnly: true, onlyDirs });
+        const chatModel = c.transport === 'agent' ? new AgentChatModel(Object.hasOwn(c, 'agentContext') ? c.agentContext : agentContext()) : null;
         // Independent of query-refresh fingerprints: a query may have refreshed
         // structure since the last successful Deep pass. Hash the concept scope too.
-        const identity = () => createHash('sha256').update(JSON.stringify({ version: 1,
-            model: c.model, baseUrl: c.baseUrl, onlyDirs, fingerprint: readFingerprint(contextDir)?.extractor,
+        const identity = () => createHash('sha256').update(JSON.stringify({ version: 2,
+            model: chatModel?.label || c.model, baseUrl: chatModel ? undefined : c.baseUrl, onlyDirs, fingerprint: readFingerprint(contextDir)?.extractor,
             files: listContextFiles(root, contextDir, CODE_EXTENSIONS, onlyDirs).sort().map(file =>
                 [relative(root, file), createHash('sha256').update(readFileSync(file)).digest('hex')]),
         })).digest('hex');
@@ -131,8 +137,8 @@ export async function buildDeepProject(root, c, progress = () => {}) {
         if (prior?.identity === before && manifest && manifest.nodes.every(n => existsSync(join(contextDir, `${n.slug}.md`))) &&
             !structural.errors.length && !structural.meaning.pending && !structural.meaning.stale)
             return { ...prior.result, cached: true };
-        const model = await localModel(c);
-        const engine = new Grafly({ provider: 'openai', apiKey: 'local', baseUrl: c.baseUrl, model, contextDir });
+        const model = chatModel?.label || await localModel(c);
+        const engine = new Grafly(chatModel ? { chatModel, contextDir } : { provider: 'openai', apiKey: 'local', baseUrl: c.baseUrl, model, contextDir });
         progress({ phase: 'concepts', model });
         const concepts = await buildContext(root, {
             contextDir, model, concurrency: c.concurrency, onlyDirs,
@@ -177,7 +183,7 @@ export async function runAutoDeepWorker({ home = autoDeepHome(), build = buildDe
                 const base = { root: job.root, startedAt, workerPid: process.pid, completedSessions };
                 write(p.state, { ...base, status: 'running', phase: 'starting' });
                 let result;
-                try { result = await build(job.root, c, update => write(p.state, { ...base, status: 'running', ...update })); }
+                try { result = await build(job.root, { ...c, agentContext: job.agentContext || null }, update => write(p.state, { ...base, status: 'running', ...update })); }
                 catch (error) { result = { status: 'failed', error: error.message }; }
                 const finishedAt = Date.now();
                 if (result.status !== 'busy' && job.session) base.completedSessions = [...new Set([...completedSessions, job.session])].slice(-128);
@@ -192,12 +198,12 @@ export async function runAutoDeepWorker({ home = autoDeepHome(), build = buildDe
         try { if (readdirSync(join(dir, 'queue')).some(f => f.endsWith('.json'))) wake(home); } catch {}
     }
 }
-/** Explicit CLI path, using the same configured local-only endpoint and root boundary. */
+/** Explicit CLI path, using the same opted-in runner and root boundary. */
 export async function deepidx(root, { background = false, sessionId, home = autoDeepHome() } = {}) {
     root = realpathSync(resolve(root));
     const c = config(home);
     if (disabled() || !c || !allowed(root, c))
-        return { status: 'disabled', error: 'Enable .grafly/auto-deep.json with an allowed Git root and existing localhost endpoint.' };
+        return { status: 'disabled', error: 'Enable .grafly/auto-deep.json with an allowed Git root; run from Codex or Claude, or set GRAFLY_AGENT_HOST.' };
     if (background) return { status: scheduleAutoDeep(root, { home, sessionId, force: true }) ? 'queued' : 'failed' };
     return buildDeepProject(root, c);
 }

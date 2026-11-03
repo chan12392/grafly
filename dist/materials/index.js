@@ -239,19 +239,3 @@ export function materialConcepts(outDir) {
         }));
     });
 }
-
-export function materialViz(outDir) {
-    const nodes = [], edges = [], known = new Set();
-    for (const concept of materialConcepts(outDir)) {
-        nodes.push({ id: concept.slug, name: concept.name, type: concept.kind, summary: concept.snippet, sources: [concept.pointer] });
-        for (const ref of concept.references) {
-            const id = `code:${ref.target}`;
-            if (!known.has(id)) {
-                nodes.push({ id, name: ref.pointer, type: "code", summary: "Referenced code; verify the source before editing.", sources: [ref.pointer] });
-                known.add(id);
-            }
-            edges.push({ source: concept.slug, target: id, relation: "mentions", description: `${ref.confidence}: ${ref.evidence}` });
-        }
-    }
-    return { nodes, edges };
-}

@@ -45,23 +45,7 @@ export declare function needsRefresh(cache: UpdateCache | null, now?: number): b
  * — never from a hook, which reads the cache and nothing else.
  */
 export declare function maybeRefreshInBackground(home?: string, now?: number): boolean;
-/**
- * Refresh the attached brain's rules in a detached child, when they are stale.
- *
- * The same shape as the update check above, and for the same reason: this runs
- * inside session-start hooks, where waiting on the network is a
- * stalled first turn. So nothing here blocks — the child does the fetch and
- * this call returns immediately.
- *
- * Without it a brain is pulled exactly once, at `graft brain connect`, and
- * never again. That was survivable when connecting happened after the brain
- * finished building; it is not survivable now that onboarding connects DURING
- * the build, because the one pull returns an empty rulebook and nothing would
- * ever go back for the real one.
- *
- * The attempt is stamped before spawning, so a brain that is still building
- * costs one request per TTL window rather than one per command.
- */
+/** Schedule opt-in local mining without waiting for the model. */
 export declare function maybeRefreshBrainRules(repo: string, now?: number): boolean;
 /** One line, or nothing. Nothing is the common case — don't spend context on
  * "you're up to date". */

@@ -13,9 +13,9 @@ const gitEnv={GIT_CONFIG_COUNT:"2",GIT_CONFIG_KEY_0:"commit.gpgsign",GIT_CONFIG_
 // explicit external-runtime opt-ins; test fixtures set their own other flags.
 const optIns=new Set(["GRAFLY_TEST_CODEX","GRAFLY_TEST_PYTHON","GRAFLY_TEST_MC_SOURCE"]);
 const testEnv=Object.fromEntries(Object.entries(process.env).filter(([key])=>
-    !/^(?:GRAFLY|GRAFT|MC)_/i.test(key)||optIns.has(key.toUpperCase())));
+    !/^(?:(?:GRAFLY|GRAFT|MC)_|CODEX_THREAD_ID$|CLAUDECODE$)/i.test(key)||optIns.has(key.toUpperCase())));
 const hasTs=files.some((f)=>f.endsWith(".ts"));
-const args=[...(hasTs?["--import","tsx"]:[]),"--test",...files];
+const args=[...(hasTs?["--import","tsx"]:[]),"--test","--test-reporter=tap",...files];
 // Fixtures must never feed observations into the user's enabled local learner.
 const learningHome=mkdtempSync(join(tmpdir(),"grafly-test-learning-"));
 let result;

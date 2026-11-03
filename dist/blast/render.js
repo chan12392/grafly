@@ -27,12 +27,8 @@ function depthLabel(depth) {
     return Number.isFinite(depth) ? `depth ${depth}` : "full closure";
 }
 /**
- * Node colours, taken from `grafly viz`'s own palette (viewer/style.css) so the two
- * pictures of the same graph read as one thing: teal is "depends on your change"
- * (`--k-method`), grey is the overflow circle (`--edge`). One hue for one kind of
- * thing, now that the diff itself is not drawn. Fill AND text colour are set
- * explicitly, because a GitHub comment renders in either theme and a node that
- * inherits one of them is illegible in the other.
+ * Set fill and text colours explicitly so Mermaid nodes stay readable in both
+ * GitHub themes. Teal marks dependents; grey marks the overflow circle.
  */
 const VIZ = {
     reachedFill: "#D9EDF3", reachedStroke: "#3AA7C9", reachedInk: "#0E313C",

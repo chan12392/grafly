@@ -9,7 +9,7 @@ import { ask, askAsync, hitFiles } from '../dist/ask/ask.js';
 import { readGraph, wiringPath } from '../dist/graph/write.js';
 import { ensureFreshGraph } from '../dist/graph/refresh.js';
 import { probeDrift } from '../dist/graph/fingerprint.js';
-import { readMaterials, materialsPath, materialViz } from '../dist/materials/index.js';
+import { readMaterials, materialsPath } from '../dist/materials/index.js';
 import { stampFiles, indexDeps, verify } from '../dist/ask/answer-cache.js';
 import { OpenAIChatModel } from '../dist/ai/llm/openai.js';
 import { AnthropicChatModel } from '../dist/ai/llm/anthropic.js';
@@ -68,7 +68,6 @@ test('normal build retrieves documents, PDF pages and explicit code references w
     assert.ok(symbol.related.some(p => p.startsWith('docs/orders.md:')));
     const graph = readGraph(wiringPath(f.out));
     assert.ok(!graph.nodes.some(n => n.path.startsWith('docs/')));
-    assert.ok(materialViz(f.out).edges.every(e => e.relation === 'mentions'));
     const saved = readMaterials(f.out);
     assert.equal(saved.files.find(x => x.kind === 'image').status, 'pending');
     const again = await buildGraph(f.root);

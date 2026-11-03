@@ -1,0 +1,8 @@
+Grafly's graph/query engine derives from @nanonets/graft 0.18.0.
+Published source revision: de8456e892bad5aeee11403e47fb2227773eb27e
+Source: https://github.com/trailhq/Trail-Code
+Original license: MIT; the original copyright and permission text are preserved
+in the repository-root LICENSE.
+
+Grafly is independently maintained at https://github.com/chan12392/grafly.
+This attribution does not create an upstream synchronization or support channel.

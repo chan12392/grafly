@@ -34,21 +34,20 @@ preserve the retirement context and point to command output handling.
 
 The GitHub App webhook server (`dist/app/main.js` and its review/page/queue
 modules) was removed: nothing in this checkout deployed or invoked it. The
-local brain path (`grafly brain push`) keeps the digest readers in
+local brain path (`grafly brain mine`) keeps the digest readers in
 `dist/app/history.js` and `dist/app/sources.js`.
 
-## Outstanding dependency advisory
+## Dependency and release checks
 
-`npm audit` currently reports four moderate entries along the single
-`gray-matter → js-yaml → argparse → sprintf-js` chain. The underlying
-[sprintf-js advisory](https://github.com/advisories/GHSA-hp3w-g68c-fv3c)
-lists no patched version. Grafly uses gray-matter for local frontmatter handling.
+Run `npm ci` and `npm audit` against the lockfile, not just an existing
+`node_modules` directory. The Node-gyp dependency now locks Undici 6.29.1,
+which includes the [upstream security fixes](https://github.com/nodejs/undici/security/advisories/GHSA-2m5v-pch6-74hx).
+Do not apply major-version overrides or `npm audit fix --force` without testing.
+See [release preparation](OPEN_SOURCE.md) for package and disclosure boundaries.
 
-Do not use `npm audit fix --force`: the reported fix downgrades gray-matter to
-2.0.1 across a major-version boundary. A major override of js-yaml/argparse also
-changes their APIs and needs separate compatibility work. Retain the current
-dependency until a compatible fix or a verified parser migration is available;
-the warning is not suppressed.
+Historical validation reports contain machine-private evidence, not downloadable
+fixtures. `C:/Users/example` paths are redacted examples. Reproduce supported
+behavior with the checked-in tests; those reports do not prove a new release.
 
 ## Development utilities
 
@@ -60,13 +59,10 @@ These scripts are manual tools, so they need no import from the runtime:
   transcripts for reported token savings. It recognizes Grafly and legacy Graft
   footers; the JSON field `graft_turns` is retained for compatibility.
 
-`scripts/build-viewer.mjs` is an obsolete build recipe whose original
-`viewer/` and `src/` inputs are absent. Grafly ships `dist/viewer/` directly;
-there is no viewer rebuild step. The recipe now exits before writing anything
-when those inputs are missing. The direct `esbuild`, `d3-force` and
-`@types/d3-force` development dependencies are no longer needed. `tsx` still
-uses esbuild transitively for the test runner's TypeScript support.
+The browser viewer, bundled D3 and obsolete viewer build recipe have been removed.
+`grafly viz` (including `--export`) and `blast --export-viz` are no longer available.
+`blast` still supports text, JSON, Markdown and Mermaid reports without D3.
 
 `scripts/hermes-route.py` is a legacy standalone adapter. Current installations
-use `scripts/hermes-grafly/`. Both legacy files remain in the repository for
-provenance and are excluded from npm packages.
+use `scripts/hermes-grafly/`. The legacy file remains in the repository for
+provenance and is excluded from npm packages.

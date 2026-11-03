@@ -1,6 +1,6 @@
 # Grafly telemetry
 
-Telemetry is disabled by default in this private fork.
+Telemetry is disabled by default.
 
 Grafly ships no baked PostHog key and the postinstall hook never sends an install
 event. Network telemetry is possible only when an ingestion key is supplied

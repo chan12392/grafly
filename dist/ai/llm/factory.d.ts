@@ -1,0 +1,27 @@
+/**
+ * One place that turns resolved config into a {@link ChatModel}. `provider` names
+ * the WIRE FORMAT, not a vendor: `openai` speaks the OpenAI-compatible API (point
+ * `baseUrl` at OpenRouter, Fireworks, a LiteLLM proxy, Groq, a local server, …),
+ * `anthropic` speaks the native Messages API. Adding a vendor is a base URL, not
+ * a code change; adding a wire format is one new adapter here.
+ *
+ * `litellm` is a convenience over `openai`: same wire format, but pointed at a
+ * LiteLLM proxy by default and paired with `/v1/models` auto-discovery
+ * (see litellm.ts), so one endpoint reaches 100+ providers.
+ *
+ * `orcarouter` is the same kind of convenience over `openai`, pointed at the
+ * OrcaRouter AI gateway by default (see orcarouter.ts) so its users get the
+ * gateway's routing, failover, and guardrails behind a named provider instead
+ * of a bare custom base URL.
+ */
+import type { ChatModel } from "./types.js";
+export type ProviderKind = "openai" | "anthropic" | "litellm" | "orcarouter";
+export interface ChatModelConfig {
+    provider: ProviderKind;
+    apiKey: string;
+    model: string;
+    baseUrl?: string;
+    /** Extra default headers for OpenAI-compatible endpoints (e.g. OpenRouter `X-Title`). */
+    headers?: Record<string, string>;
+}
+export declare function createChatModel(cfg: ChatModelConfig): ChatModel;

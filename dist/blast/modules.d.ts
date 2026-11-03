@@ -22,8 +22,7 @@ export declare function moduleIndex(contextDir: string): ModuleIndex;
  *
  * Concept names are written for a reader with the whole file in front of them, so
  * they run long and some carry a `Concept: ` prefix from the synthesis prompt.
- * "Reciprocal-Rank Fusion for Workspace Federation" is a fine node title in `graft
- * viz` and unreadable inside a circle.
+ * "Reciprocal-Rank Fusion for Workspace Federation" is too long for a diagram node.
  */
 export declare function shortLabel(label: string): string;
 /** The parent directory of a directory label, or "" at the top level. */

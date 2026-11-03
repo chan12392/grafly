@@ -40,7 +40,7 @@ export function formatInitEpilogue(opts) {
         },
         {
             label: "explore by hand",
-            command: 'grafly ask "where is auth handled?" · grafly callers <fn> · grafly viz',
+            command: 'grafly ask "where is auth handled?" · grafly callers <fn>',
         },
     ];
     const indent = "  ";

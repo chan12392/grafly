@@ -1,4 +1,16 @@
-import type { Evidence } from "../viz/assemble.js";
+export interface EvidenceLine {
+    /** Post-image line number; a deleted line has none. */
+    n: number | null;
+    sign: "+" | "-" | " ";
+    text: string;
+}
+export interface Evidence {
+    label: string;
+    note?: string;
+    lines: EvidenceLine[];
+    /** Lines omitted by the evidence cap. */
+    more?: number;
+}
 import type { Impacted, Seed } from "./blast.js";
 import type { ChangedFile } from "./diff.js";
 /** Symbols given their own snippet per node. Past this the panel is a file listing

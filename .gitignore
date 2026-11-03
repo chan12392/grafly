@@ -1,5 +1,15 @@
 node_modules/
 
+# Local credentials and service data never belong in source control.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+/brain-data/
+/backups/
+*.tgz
+
 # Grafly's local graph cache — regenerable, not committed (run `grafly build`).
 /grafly/
 
@@ -24,3 +34,6 @@ __pycache__/
 # Native XERJ build output; source and lockfile are committed.
 /native/target/
 /dist/search/native/*.node
+
+# Obsolete source maps refer to TypeScript sources not present in this project.
+/dist/**/*.map

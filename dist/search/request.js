@@ -12,6 +12,7 @@ import { grepGraph } from "./grep.js";
 import { formatGrepResult, zeroHitNote } from "./grep-cli.js";
 import { syncXerj, xerjStatus, xerjStatePath } from "./xerj.js";
 import { searchConfig } from "./client.js";
+import { scheduleLocalBrain } from "../brain/local.js";
 const syncRetryAfter = new Map();
 
 // The CLI and resident service use the same refresh, cache and rendering path.
@@ -84,5 +85,7 @@ export async function executeSearch({ command, query, dir, cwd = process.cwd(), 
         return { stdout, stderr, exitCode: 0, root, hit: !!r.hits.length };
     } catch (error) {
         return { stdout: "", stderr: stderr + `✗ ${error.message}\n`, exitCode: 1, root };
+    } finally {
+        if (!readOnly) scheduleLocalBrain(root);
     }
 }

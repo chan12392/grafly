@@ -1,6 +1,5 @@
 import type { GraphV1 } from "../graph/types.js";
 import type { ChatModel } from "../ai/llm/types.js";
-import type { VizNode, VizEdge } from "../viz/assemble.js";
 export interface MaterialReference {
     target: string;
     pointer: string;
@@ -57,4 +56,3 @@ export declare function materialConcepts(outDir: string): Array<{
     snippet: string; text: string; related: string[]; references: MaterialReference[];
     extractedText: string; material: MaterialProvenance;
 }>;
-export declare function materialViz(outDir: string): { nodes: VizNode[]; edges: VizEdge[] };

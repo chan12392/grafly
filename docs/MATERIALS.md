@@ -8,7 +8,6 @@ required.
 grafly build
 grafly ask "fulfillment policy" --in docs --source
 grafly ask "shipOrder" --source
-grafly viz --export ./graph-page
 ```
 
 The default build reads `.md`, `.mdx`, `.txt`, `.rst` and PDF text locally.

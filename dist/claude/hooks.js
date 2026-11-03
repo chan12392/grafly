@@ -394,7 +394,7 @@ export async function main(event) {
     const dir = projectDir(input);
     if (event === 'session-start') {
         const { scheduleAutoDeep } = await import('../hosts/auto-deep.js');
-        scheduleAutoDeep(dir, { sessionId: input.session_id || input.thread_id || process.env.CODEX_THREAD_ID, force: true });
+        scheduleAutoDeep(dir, { agent: 'claude', sessionId: input.session_id || input.thread_id || process.env.CODEX_THREAD_ID, force: true });
         // Before anything is emitted: refresh this repo's wiring if it was written by
         // an older graft, and pick up any cached "newer version on npm" answer.
         // background:false — a hook must never touch the network; the CLI
