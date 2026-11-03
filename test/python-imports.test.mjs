@@ -97,3 +97,33 @@ test("a package __init__ that rebinds a submodule name leaves member calls unres
     assert.deepEqual(calls("use_r.py#run"), ["r/x.py#total"]);
     assert.deepEqual(calls("use_p_mod.py#run"), ["p/x.py#total"]);
 });
+
+test("an annotation-only package __init__ declaration does not rebind the submodule name", async () => {
+    const d = mkdtempSync(join(tmpdir(), "grafly-pyinit-ann-"));
+    const put = (rel, src) => { mkdirSync(join(d, rel, ".."), { recursive: true }); writeFileSync(join(d, rel), src); };
+    // `x: object` creates no package attribute, so `from p import x` still imports p/x.py.
+    put("p/__init__.py", "x: object\n");
+    put("p/x.py", "def total():\n    return 'x'\n");
+    // An annotated assignment does bind the attribute; the submodule no longer wins.
+    put("q/__init__.py", "x: object = None\n");
+    put("q/x.py", "def total():\n    return 'x'\n");
+    // A real alias/assignment still rebinds the name.
+    put("r/__init__.py", "from . import alternate\nx = alternate\n");
+    put("r/alternate.py", "def total():\n    return 'alternate'\n");
+    put("r/x.py", "def total():\n    return 'x'\n");
+    put("s/__init__.py", "from . import alternate as x\nx: object\n");
+    put("s/alternate.py", "def total():\n    return 'alternate'\n");
+    put("s/x.py", "def total():\n    return 'x'\n");
+    for (const p of ["p", "q", "r", "s"])
+        put(`use_${p}.py`, `from ${p} import x\n\ndef run():\n    return x.total()\n`);
+    // Inside a function an annotation makes the name local, so it still masks the import.
+    put("use_local.py", "from p import x\n\ndef run():\n    x: object\n    return x.total()\n");
+    await buildGraph(d, {});
+    const g = JSON.parse(readFileSync(join(d, ".grafly", ".graph", "wiring.json"), "utf8"));
+    const calls = (src) => g.edges.filter((e) => e.relation === "calls" && e.source === src).map((e) => e.target).sort();
+    assert.deepEqual(calls("use_p.py#run"), ["p/x.py#total"]);
+    assert.deepEqual(calls("use_q.py#run"), []);
+    assert.deepEqual(calls("use_r.py#run"), []);
+    assert.deepEqual(calls("use_s.py#run"), []);
+    assert.deepEqual(calls("use_local.py#run"), []);
+});

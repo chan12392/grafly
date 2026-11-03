@@ -1011,7 +1011,15 @@ function collectPyModuleScopes(root, rel) {
                 bindings.set("*", null);
             return;
         }
-        if (["assignment", "augmented_assignment", "for_statement", "for_in_clause"].includes(node.type))
+        if (node.type === "assignment" && !node.childForFieldName("right")) {
+            // `x: T` binds no value; only inside a function does it make `x` local.
+            let owner = node.parent;
+            while (owner && !scopeTypes.has(owner.type))
+                owner = owner.parent;
+            if (owner?.type === "function_definition")
+                bindTargets(node.childForFieldName("left"), bindings);
+        }
+        else if (["assignment", "augmented_assignment", "for_statement", "for_in_clause"].includes(node.type))
             bindTargets(node.childForFieldName("left"), bindings);
         else if (node.type === "named_expression") {
             // A comprehension's walrus target belongs to its enclosing lexical scope.
