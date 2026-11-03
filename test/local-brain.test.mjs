@@ -150,7 +150,8 @@ test('real background CLI mines through the user model, records completion, and 
     });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
-    const enabled = run(['brain', 'enable', f.root], { GRAFLY_PROVIDER: 'openai', GRAFLY_API_KEY: 'fixture', GRAFLY_MODEL: 'fixture-model',
+    const enabled = run(['brain', 'enable', f.root], { HOME: f.home, USERPROFILE: f.home, CODEX_HOME: join(f.home, '.codex'),
+        GRAFLY_PROVIDER: 'openai', GRAFLY_API_KEY: 'fixture', GRAFLY_MODEL: 'fixture-model',
         GRAFLY_BASE_URL: `http://127.0.0.1:${server.address().port}/v1` });
     assert.equal(enabled.status, 0, enabled.stderr);
     const complete = await waitFor(f.root, 'complete');
