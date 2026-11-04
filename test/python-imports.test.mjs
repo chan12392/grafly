@@ -127,3 +127,41 @@ test("an annotation-only package __init__ declaration does not rebind the submod
     assert.deepEqual(calls("use_s.py#run"), []);
     assert.deepEqual(calls("use_local.py#run"), []);
 });
+
+test("function-local bindings shadow a from-imported name; lazy imports rebind it", async () => {
+    const d = mkdtempSync(join(tmpdir(), "grafly-pyshadow-"));
+    const put = (rel, src) => { mkdirSync(join(d, rel, ".."), { recursive: true }); writeFileSync(join(d, rel), src); };
+    // `foo` is ambiguous repo-wide, so only an import specifier can pick b.py or c.py
+    put("b.py", "def foo():\n    return 'b'\n");
+    put("c.py", "def foo():\n    return 'c'\n");
+    put("use.py", [
+        "from b import foo",
+        "",
+        "def plain():\n    return foo()",
+        "def param(foo):\n    return foo()",
+        "def assigned():\n    foo = print\n    return foo()",
+        "def nested():\n    def foo():\n        return 1\n    return foo()",
+        "def outer(foo):\n    def inner():\n        return foo()\n    return inner",
+        "def lazy():\n    from c import foo\n    return foo()",
+        "def rebinds_global():\n    global foo\n    foo = print\n    return foo()",
+        "def sibling_param():\n    def helper(foo):\n        return foo\n    return foo()",
+        "class K:\n    foo = print\n    def method(self):\n        return foo()",
+        "",
+    ].join("\n"));
+    await buildGraph(d, {});
+    const g = JSON.parse(readFileSync(join(d, ".grafly", ".graph", "wiring.json"), "utf8"));
+    const calls = (src) => g.edges.filter((e) => e.relation === "calls" && e.source === src).map((e) => e.target).sort();
+    assert.deepEqual(calls("use.py#plain"), ["b.py#foo"]);
+    assert.ok(!calls("use.py#param").includes("b.py#foo"), "parameter shadows the import");
+    assert.ok(!calls("use.py#assigned").includes("b.py#foo"), "local assignment shadows the import");
+    assert.ok(!calls("use.py#nested").includes("b.py#foo"), "nested def shadows the import");
+    const inner = g.nodes.find((n) => n.name === "inner")?.id;
+    assert.ok(inner && !calls(inner).includes("b.py#foo"), "enclosing parameter shadows the import");
+    assert.deepEqual(calls("use.py#lazy"), ["c.py#foo"]);
+    assert.ok(!calls("use.py#rebinds_global").includes("b.py#foo"), "global reassignment is not the import");
+    // a nested function's own parameter does not leak into the enclosing scope
+    assert.ok(calls("use.py#sibling_param").includes("b.py#foo"));
+    // class attributes are not visible inside methods
+    const method = g.nodes.find((n) => n.name === "method")?.id;
+    assert.deepEqual(calls(method), ["b.py#foo"]);
+});

@@ -603,7 +603,9 @@ function walk(node, ctx, out, edges, minted) {
             // file only, which also rescues names that are ambiguous repo-wide
             // but unique inside the imported module.
             if (!callee.viaMember) {
-                const imported = ctx.importedSymbols.get(callee.name);
+                const imported = ctx.pyModules
+                    ? pyImportedForCall(node, callee.name, ctx)
+                    : ctx.importedSymbols.get(callee.name);
                 if (imported) {
                     callEdge.name = imported.name;
                     callEdge.specifier = imported.specifier;
@@ -1002,7 +1004,11 @@ function collectPyModuleScopes(root, rel) {
                 const local = aliased ? name.childForFieldName("alias")?.text : name.text;
                 if (!local)
                     continue;
-                const binding = from && imported ? { specifier: [...from, imported].join("."), start: node.endIndex, fromImport: true } : null;
+                const binding = from && imported ? {
+                    specifier: [...from, imported].join("."), start: node.endIndex, fromImport: true,
+                    // the exported name and raw module text, as collectPyImportedSymbols stamps them
+                    importedName: imported, fromModule: node.childForFieldName("module_name")?.text,
+                } : null;
                 const previous = bindings.get(local);
                 bindings.set(local, !bindings.has(local) ? binding
                     : previous && binding && previous.specifier === binding.specifier ? previous : null);
@@ -1072,6 +1078,30 @@ function pyPackageRebinds(bindings, rel) {
             out.push(name);
     }
     return out;
+}
+/** The import a bare Python call `name()` reaches, or null. A function, lambda or
+ * comprehension binding of `name` (parameter, assignment, nested def, `global`/`nonlocal`
+ * declaration) masks the module import; a function-local `from M import name` rebinds it.
+ * Class attributes are not visible from nested scopes, mirroring pyModuleForCall. */
+function pyImportedForCall(node, name, ctx) {
+    let innerScope = false;
+    for (let current = node; current; current = current.parent) {
+        const bindings = ctx.pyModules.get(current.id);
+        if (!bindings)
+            continue;
+        if (current.type === "module")
+            break;
+        if (innerScope && current.type === "class_definition")
+            continue;
+        innerScope = true;
+        if (bindings.has(name)) {
+            const binding = bindings.get(name);
+            return binding?.importedName && binding.fromModule
+                ? { name: binding.importedName, specifier: binding.fromModule }
+                : null;
+        }
+    }
+    return ctx.importedSymbols.get(name);
 }
 function pyModuleForCall(node, receiver, scopes) {
     let innerScope = false;
