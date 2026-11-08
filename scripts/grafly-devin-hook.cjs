@@ -159,19 +159,25 @@ function emit(context) {
 }
 
 // Runtime, config and package-cache directories are not user projects: a
-// session opened under AppData, a hidden (.foo) folder or a dependency cache
-// gains nothing from a background index, so stay silent there. The OS temp
-// dir stays allowed — tests and scratch work legitimately live under it.
+// session opened under AppData, a home dot-dir (~/.codex, ~/.config) or a
+// dependency cache gains nothing from a background index, so stay silent
+// there. The OS temp dir stays allowed — tests and scratch work legitimately
+// live under it. The dot rule applies only to the first segment under home:
+// deeper hidden dirs like <repo>/.claude/worktrees/<name> are real worktrees.
 const RUNTIME_DIRS = new Set(['appdata', 'application data', 'local settings',
   'programdata', 'program files', 'program files (x86)', 'node_modules',
   'site-packages', 'bower_components', 'jspm_packages']);
-function runtimeDir(root) {
+function runtimeDir(root, home = homedir()) {
   const resolved = path.resolve(root);
   const tmp = path.resolve(tmpdir());
   if (resolved === tmp || resolved.startsWith(tmp + path.sep)) return false;
   for (const part of resolved.split(/[\\/]+/)) {
-    const p = part.toLowerCase();
-    if ((p.length > 1 && p.startsWith('.')) || RUNTIME_DIRS.has(p)) return true;
+    if (RUNTIME_DIRS.has(part.toLowerCase())) return true;
+  }
+  const rel = path.relative(path.resolve(home).toLowerCase(), resolved.toLowerCase());
+  if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+    const first = rel.split(/[\\/]+/)[0];
+    if (first.length > 1 && first.startsWith('.')) return true;
   }
   return false;
 }
@@ -183,10 +189,10 @@ function runtimeDir(root) {
 // stay silent.
 function autoBuildRoot(start, home = homedir()) {
   const git = findUp(start, (d) => fs.existsSync(path.join(d, '.git')));
-  if (git && !samePath(git, home)) return runtimeDir(git) ? null : git;
+  if (git && !samePath(git, home)) return runtimeDir(git, home) ? null : git;
   const root = path.resolve(start);
   if (samePath(root, home) || path.dirname(root) === root) return null;
-  return runtimeDir(root) ? null : root;
+  return runtimeDir(root, home) ? null : root;
 }
 
 // Kick one detached `grafly build` per directory; the stamp debounces retries.

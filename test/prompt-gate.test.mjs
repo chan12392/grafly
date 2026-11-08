@@ -323,20 +323,24 @@ test('runtime, config and package-cache directories never auto-index', (t) => {
   // Pure path checks: these need no filesystem — the denylist matches components.
   for (const dir of [
     join('C:\\', 'Users', 'x', 'AppData', 'Local', 'Beakho', 'harness'), // the observed counterexample
-    join('C:\\', 'Users', 'x', '.config', 'tool'),
     join('C:\\', 'proj', 'node_modules', 'dep'),
     join('C:\\', 'ProgramData', 'svc'),
-    join('/', 'home', 'x', '.cache', 'y'),
   ]) assert.equal(runtimeDir(dir), true, dir);
+  // The dot rule applies only to the first segment under home.
+  assert.equal(runtimeDir(join('C:\\', 'Users', 'x', '.config', 'tool'), join('C:\\', 'Users', 'x')), true);
+  assert.equal(runtimeDir(join('/', 'home', 'x', '.cache', 'y'), join('/', 'home', 'x')), true);
+  assert.equal(runtimeDir(join('C:\\', 'Users', 'x', '.config', 'tool'), 'C:\\nonexistent-home'), false);
+  // Hidden worktree dirs inside a project are legitimate working trees.
+  assert.equal(runtimeDir(join('C:\\', 'Users', 'x', 'proj', '.claude', 'worktrees', 'w'), join('C:\\', 'Users', 'x')), false);
   // The OS temp dir stays allowed: tests and scratch work legitimately live there.
   assert.equal(runtimeDir(tmpdir()), false);
   assert.equal(runtimeDir(join(f.root, 'AppData', 'x')), false, 'fixture dirs sit under tmpdir');
   // autoBuildRoot returns null for each of them — no stamp, no spawn, no hint.
   for (const dir of [
     join('C:\\', 'Users', 'x', 'AppData', 'Local', 'Beakho', 'harness'),
-    join('C:\\', 'Users', 'x', '.config', 'tool'),
     join('C:\\', 'proj', 'node_modules', 'dep'),
   ]) assert.equal(autoBuildRoot(dir, 'C:\\nonexistent-home'), null, dir);
+  assert.equal(autoBuildRoot(join('C:\\', 'Users', 'x', '.config', 'tool'), join('C:\\', 'Users', 'x')), null);
   const realRuntime = join(homedir(), 'AppData', 'Local', 'Beakho', 'harness');
   assert.equal(autoBuildRoot(realRuntime), null);
   // End-to-end on a real excluded dir outside any index (Windows: ProgramData is writable).
@@ -348,6 +352,18 @@ test('runtime, config and package-cache directories never auto-index', (t) => {
     assert.equal(existsSync(join(dir, 'grafly', '.cache', 'auto-build.stamp')), false);
     assert.equal(existsSync(join(dir, '.grafly')), false);
   }
+});
+
+test('hidden worktree dirs inside a project auto-index; home dot-dirs do not', (t) => {
+  const home = homedir();
+  const base = join(home, 'grafly-h14-wt');
+  const wt = join(base, '.claude', 'worktrees', 'x');
+  mkdirSync(wt, { recursive: true });
+  writeFileSync(join(wt, '.git'), 'gitdir: ..\n'); // worktree pointer file, not a dir
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  assert.equal(autoBuildRoot(wt), wt, '<repo>/.claude/worktrees/<name> git root stays indexable');
+  assert.equal(runtimeDir(join(home, '.codex', 'x')), true);
+  assert.equal(autoBuildRoot(join(home, '.codex', 'x')), null);
 });
 
 test('home indexes remain isolated from unindexed projects and unrelated directories', (t) => {
