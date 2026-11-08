@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -10,7 +10,7 @@ import { shouldRetrievePrompt, codeTermsOf, hitAnchoredToTerms } from '../dist/c
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const shim = join(repo, 'scripts', 'grafly-devin-hook.cjs');
-const { findIndex, autoBuildRoot } = createRequire(import.meta.url)(shim);
+const { findIndex, autoBuildRoot, runtimeDir } = createRequire(import.meta.url)(shim);
 
 test('clear conversation and tool-usage questions skip retrieval (18 examples)', () => {
   for (const prompt of [
@@ -316,6 +316,38 @@ test('auto-build root prefers the git checkout, falls back to the session folder
   assert.equal(autoBuildRoot(resolve(sep), f.root), null, 'filesystem root stays silent');
   mkdirSync(join(f.root, '.git'));
   assert.equal(autoBuildRoot(loose, f.root), loose, 'a home checkout must not swallow $HOME');
+});
+
+test('runtime, config and package-cache directories never auto-index', (t) => {
+  const f = fixture(t);
+  // Pure path checks: these need no filesystem — the denylist matches components.
+  for (const dir of [
+    join('C:\\', 'Users', 'x', 'AppData', 'Local', 'Beakho', 'harness'), // the observed counterexample
+    join('C:\\', 'Users', 'x', '.config', 'tool'),
+    join('C:\\', 'proj', 'node_modules', 'dep'),
+    join('C:\\', 'ProgramData', 'svc'),
+    join('/', 'home', 'x', '.cache', 'y'),
+  ]) assert.equal(runtimeDir(dir), true, dir);
+  // The OS temp dir stays allowed: tests and scratch work legitimately live there.
+  assert.equal(runtimeDir(tmpdir()), false);
+  assert.equal(runtimeDir(join(f.root, 'AppData', 'x')), false, 'fixture dirs sit under tmpdir');
+  // autoBuildRoot returns null for each of them — no stamp, no spawn, no hint.
+  for (const dir of [
+    join('C:\\', 'Users', 'x', 'AppData', 'Local', 'Beakho', 'harness'),
+    join('C:\\', 'Users', 'x', '.config', 'tool'),
+    join('C:\\', 'proj', 'node_modules', 'dep'),
+  ]) assert.equal(autoBuildRoot(dir, 'C:\\nonexistent-home'), null, dir);
+  const realRuntime = join(homedir(), 'AppData', 'Local', 'Beakho', 'harness');
+  assert.equal(autoBuildRoot(realRuntime), null);
+  // End-to-end on a real excluded dir outside any index (Windows: ProgramData is writable).
+  if (process.platform === 'win32') {
+    const dir = join(process.env.ProgramData || 'C:\\ProgramData', 'grafly-h14-test');
+    mkdirSync(dir, { recursive: true });
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    assert.equal(f.run('fix loadGraph callers', { adapter: true, cwd: dir }), '');
+    assert.equal(existsSync(join(dir, 'grafly', '.cache', 'auto-build.stamp')), false);
+    assert.equal(existsSync(join(dir, '.grafly')), false);
+  }
 });
 
 test('home indexes remain isolated from unindexed projects and unrelated directories', (t) => {

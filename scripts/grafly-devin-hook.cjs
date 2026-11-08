@@ -11,7 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const { homedir } = require('os');
+const { homedir, tmpdir } = require('os');
 const { execSync } = require('child_process');
 const { createHash } = require('crypto');
 
@@ -158,16 +158,35 @@ function emit(context) {
   }));
 }
 
+// Runtime, config and package-cache directories are not user projects: a
+// session opened under AppData, a hidden (.foo) folder or a dependency cache
+// gains nothing from a background index, so stay silent there. The OS temp
+// dir stays allowed — tests and scratch work legitimately live under it.
+const RUNTIME_DIRS = new Set(['appdata', 'application data', 'local settings',
+  'programdata', 'program files', 'program files (x86)', 'node_modules',
+  'site-packages', 'bower_components', 'jspm_packages']);
+function runtimeDir(root) {
+  const resolved = path.resolve(root);
+  const tmp = path.resolve(tmpdir());
+  if (resolved === tmp || resolved.startsWith(tmp + path.sep)) return false;
+  for (const part of resolved.split(/[\\/]+/)) {
+    const p = part.toLowerCase();
+    if ((p.length > 1 && p.startsWith('.')) || RUNTIME_DIRS.has(p)) return true;
+  }
+  return false;
+}
+
 // Pick what a background build indexes: the enclosing git checkout's root, or
 // the session folder itself when no checkout wraps it. A checkout rooted at
 // the home directory (dotfiles style) must not swallow all of $HOME, and
-// sessions opened at home or a filesystem root stay silent.
+// sessions opened at home, a filesystem root, or a runtime/config directory
+// stay silent.
 function autoBuildRoot(start, home = homedir()) {
   const git = findUp(start, (d) => fs.existsSync(path.join(d, '.git')));
-  if (git && !samePath(git, home)) return git;
+  if (git && !samePath(git, home)) return runtimeDir(git) ? null : git;
   const root = path.resolve(start);
   if (samePath(root, home) || path.dirname(root) === root) return null;
-  return root;
+  return runtimeDir(root) ? null : root;
 }
 
 // Kick one detached `grafly build` per directory; the stamp debounces retries.
@@ -217,7 +236,7 @@ function maybeSelfUpgrade() {
 
 async function tryAutoDeep(start, input = {}) {
   const root = findUp(start, d => fs.existsSync(path.join(d, '.git')));
-  if (!root) return false;
+  if (!root || runtimeDir(root)) return false;
   try {
     const { scheduleAutoDeep } = await import(pathToFileURL(path.join(PKG, 'hosts', 'auto-deep.js')).href);
     return scheduleAutoDeep(root, { sessionId: EVENT === 'session-start' ? (input.session_id || input.thread_id || process.env.CODEX_THREAD_ID) : undefined, force: EVENT === 'session-start' });
@@ -313,5 +332,5 @@ async function main() {
   await m.main(EVENT);
 }
 
-module.exports = { findIndex, claimStartup, autoBuildRoot, selfUpgradeDue };
+module.exports = { findIndex, claimStartup, autoBuildRoot, runtimeDir, selfUpgradeDue };
 if (require.main === module) main().catch(() => { /* fail-open: never block the user's prompt */ });
