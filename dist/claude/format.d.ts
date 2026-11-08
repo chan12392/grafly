@@ -59,5 +59,5 @@ export declare function weakMatchNudge(s: SessionState, strong: number): string 
  * dropped; if none remain, the pack is skipped.
  */
 export declare function relevantRetrieval(ask: AskJson, s: SessionState, cap?: number): string | null;
-export declare function formatOrientation(indexMd: string, budgetBytes?: number, staleNote?: string): string;
+export declare function formatOrientation(staleNote?: string): string;
 export declare function renderSubagent(agentName: string, session: SessionState | null): string;

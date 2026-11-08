@@ -230,9 +230,13 @@ async function homeWorkspace(root, input) {
   const workspace = JSON.parse(fs.readFileSync(path.join(indexDir(root), 'workspace.json'), 'utf8'));
   if (workspace.version !== 1 || !Array.isArray(workspace.children)) return;
   if (EVENT === 'session-start') {
-    const context = `[grafly] Home workspace: ${workspace.children.length} project indexes.\n` +
-      `Projects: ${workspace.children.join(', ')}\n` +
-      'grafly ask "<q>" . --source --no-refresh or grafly grep "<pat>" . --no-refresh over saved indexes; verify source before editing.';
+    // One stable line: identical bytes every session keep the prompt cache
+    // warm. The project list earns its chars only when short — a long list is
+    // noise the agent can pull on demand with `grafly ask`/`grafly map`.
+    const list = workspace.children.join(', ');
+    const context = `[grafly] Home workspace: ${workspace.children.length} project indexes.` +
+      (list && list.length <= 100 ? ` Projects: ${list}.` : '') +
+      ' grafly ask "<q>" . --source --no-refresh or grafly grep "<pat>" . --no-refresh over saved indexes; verify source before editing.';
     if (claimStartup(root, input, context)) emit(context);
     return;
   }
@@ -244,11 +248,15 @@ async function homeWorkspace(root, input) {
     emit(`[grafly home] grafly grep ${JSON.stringify(prompt)} . --fixed --no-refresh — every indexed occurrence.`);
     return;
   }
-  const [{ federateAsk }, { relevantRetrieval }, { readSession, writeSession }] = await Promise.all([
+  const [{ hasCodeTerms }, { federateAsk }, { relevantRetrieval }, { readSession, writeSession }] = await Promise.all([
+    import(pathToFileURL(path.join(PKG, 'claude', 'prompt-gate.js')).href),
     import(pathToFileURL(path.join(PKG, 'graph', 'workspace.js')).href),
     import(pathToFileURL(path.join(PKG, 'claude', 'format.js')).href),
     import(pathToFileURL(path.join(PKG, 'claude', 'state.js')).href),
   ]);
+  // A prose prompt ranks against every child graph at once and injects
+  // cross-repo noise; only code-shaped terms federate here.
+  if (!hasCodeTerms(prompt)) return;
   const id = input.session_id || input.thread_id || process.env.CODEX_THREAD_ID || 'default';
   const session = readSession(root, id);
   const result = federateAsk(root, undefined, prompt, { limit: 3 });

@@ -32,7 +32,7 @@ async function retrieve(raw) {
   const input = JSON.parse(raw);
   if (input?.hook_event_name !== 'pre_llm_call' || typeof input.cwd !== 'string' ||
       typeof input.extra?.user_message !== 'string') return;
-  const { shouldRetrievePrompt } = await import('../dist/claude/prompt-gate.js');
+  const { shouldRetrievePrompt, hasCodeTerms } = await import('../dist/claude/prompt-gate.js');
   if (!shouldRetrievePrompt(input.extra.user_message)) return;
   const index = findIndex(input.cwd);
   if (!index) return;
@@ -42,6 +42,9 @@ async function retrieve(raw) {
         !workspace.children.every(child => typeof child === 'string' && child &&
           !path.posix.isAbsolute(child) && !path.win32.isAbsolute(child) &&
           !child.includes(':') && !child.split(/[\\\\/]/).some(part => part === '..' || part === '.'))) return;
+    // Federated prose ranks against every child graph at once and injects
+    // cross-repo noise; only code-shaped terms retrieve here.
+    if (!hasCodeTerms(input.extra.user_message)) return;
   }
   const session = input.session_id;
   const turn = input.extra.turn_id;

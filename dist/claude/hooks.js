@@ -403,16 +403,16 @@ export async function main(event) {
         // Roll up any session that ended since we were last here. Queue-only — the
         // hook still touches no network; the CLI sends it later.
         flushClosedSessions(dir);
-        try {
-            const idx = readFileSync(join(resolveContextDir(dir), 'INDEX.md'), 'utf8');
-            const banner = staleBanner(indexFreshness(dir)) ?? undefined;
-            const orientation = formatOrientation(idx, undefined, banner);
+        // INDEX.md's presence is the "indexed here" signal; its content no
+        // longer ships — the orientation is one stable line (format.js), so a
+        // rebuilt map can't churn the session's cache prefix. An unindexed
+        // folder still gets any upkeep nudge on its own.
+        if (existsSync(join(resolveContextDir(dir), 'INDEX.md'))) {
+            const orientation = formatOrientation(staleBanner(indexFreshness(dir)) ?? undefined);
             emit('SessionStart', upkeep.length ? `${upkeep.join('\n')}\n\n${orientation}` : orientation);
         }
-        catch {
-            // No INDEX.md (never built here). An upgrade nudge is still worth saying.
-            if (upkeep.length)
-                emit('SessionStart', upkeep.join('\n'));
+        else if (upkeep.length) {
+            emit('SessionStart', upkeep.join('\n'));
         }
         return;
     }

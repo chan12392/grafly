@@ -12,11 +12,24 @@ const TOOL_CHAT = [
     /^grafly를\s*(?:쓰면|사용하면)\s*(?:tool\s*calls?|토큰)(?:이|가)?\s*(?:얼마나\s*)?줄어들(?:까|겠네|긴할텐데)$/i,
 ];
 
+/** True when the prompt carries code-shaped terms (call, path, file
+ * extension, error literal, or identifier). Stricter than
+ * {@link shouldRetrievePrompt}: that gate only skips recognizable
+ * conversation, so a plain-prose prompt still passes it — fine inside one
+ * indexed repo where the score gate decides, but at a multi-project home
+ * workspace a prose prompt ranks against every child graph at once and the
+ * "starting points" it injects are cross-repo noise. Home/workspace callers
+ * require this on top of shouldRetrievePrompt; repo callers do not. */
+export function hasCodeTerms(value) {
+    const prompt = String(value ?? '').trim();
+    return CODE_ANCHOR.test(prompt) || IDENTIFIER.test(prompt);
+}
+
 export function shouldRetrievePrompt(value) {
     const prompt = String(value ?? '').trim();
     if (!prompt) return false;
     // Preserve short identifiers and mixed requests such as "Thanks, fix foo()".
-    if (CODE_ANCHOR.test(prompt) || IDENTIFIER.test(prompt)) return true;
+    if (hasCodeTerms(prompt)) return true;
     const clauses = prompt.split(/[.!?。！？\r\n]+/u).map(part => part.trim()).filter(Boolean);
     return !clauses.length || !clauses.every(clause =>
         CHAT_ONLY.test(clause) || TOOL_CHAT.some(pattern => pattern.test(clause)));

@@ -164,7 +164,7 @@ for (const workspace of [false, true]) {
       globalThis.fetch = forbidden;
       require('node:module').syncBuiltinESMExports();`);
     const env = { NODE_OPTIONS: '--require="' + guard.split(String.fromCharCode(92)).join('/') + '"' };
-    const query = 'authentication policy';
+    const query = 'authentication_policy';
     const metadata = { slug: 'authentication', name: 'Authentication policy', sources: [{ path: 'auth.js' }], links: [{ to: 'tokens' }] };
     const body = '# Authentication\nAuthentication policy validates tokens.\n';
     for (const [label, data] of [['', 'slug: authentication\nname: Authentication policy\nsources:\n  - path: auth.js\nlinks:\n  - to: tokens'], ['yaml', 'name: Authentication policy\nsources: [{path: auth.js}]\nlinks: [{to: tokens}]'], ['json', JSON.stringify(metadata)]]) {

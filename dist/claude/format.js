@@ -46,8 +46,12 @@ export function renderStatusline(stats, session, ctx) {
     return lines;
 }
 function nodeIdsInFile(w, filePath) {
+    // Host edit tools hand back absolute paths; on Windows those arrive with
+    // backslash separators, which never matched the graph's forward-slash
+    // node paths and left the blast radius silently dead. Normalize first.
+    const fp = filePath.replace(/\\/g, '/');
     const nodes = w.nodes ?? [];
-    return new Set(nodes.filter((n) => n.path && (filePath === n.path || filePath.endsWith(`/${n.path}`)))
+    return new Set(nodes.filter((n) => n.path && (fp === n.path || fp.endsWith(`/${n.path}`)))
         .map((n) => n.id));
 }
 export function incomingEdges(w, filePath) {
@@ -174,23 +178,17 @@ export function relevantRetrieval(ask, s, cap = 3) {
         .slice(-INJECTED_POINTERS_CAP);
     return txt;
 }
-export function formatOrientation(indexMd, budgetBytes = 1500, staleNote) {
-    // Always-on directive (cached, seen turn 0) so the agent reaches for grafly's
-    // commands without waiting for the discretionary skill to load. This is the
-    // reliable steering channel (fires every session, unlike the discretionary
-    // skill): it carries a one-line description of each tool AND the call-discipline
-    // that keeps the agent from over-tooling. Positive only, names the tools,
-    // forbids nothing.
-    const directive = `[grafly] This repo is indexed — query the prebuilt graph (exact file:line) before grep/read. Pick ONE tool, act on its answer, don't re-ask reworded:\n` +
-        `  • grafly ask "<task>" --source — locate + understand; ranked hits with code inlined (--full = whole span)\n` +
-        `  • grafly grep "<literal>" — every occurrence, grouped by enclosing symbol\n` +
-        `  • grafly skeleton <file> — a file's whole API in ~200 tokens\n` +
-        `  • grafly callers <sym> [--direction out] [--depth N|all] — who calls it / what it calls; --depth all before renames or multi-file edits\n` +
-        `  • grafly map — repo orientation: clusters, hubs, hotspots\n` +
-        `  Monorepo: add --in <path>/ to ask/grep/callers. Know the file or symbol already? grep it and edit the span directly.\n` +
-        `Each output opens with a "[grafly] tokens saved ≈ N" line, sometimes with $; close your reply with a one-line tally (e.g. 🌱 grafly saved ~12k tokens (~$0.04) this turn, 3 calls). Never pipe through head/tail — it drops that line.\n`;
+/** Session-start orientation: one stable line, identical bytes every session.
+ * The previous shape — a multi-line directive plus a ~1.5 KB INDEX.md repo-map
+ * dump — cost fresh input tokens every session and churned the cache prefix
+ * whenever the map changed. A fixed line keeps the same steering signal (the
+ * commands, the pick-one discipline, the tally reminder) cache-identical;
+ * `grafly map` stays the pull path for repo shape. The discretionary skill
+ * carries the full guidance once loaded. */
+const ORIENTATION_LINE = `[grafly] This repo is indexed — query the graph before grep/read; pick ONE tool, act, don't re-ask reworded: grafly ask "<task>" --source · grafly grep "<literal>" · grafly skeleton <file> · grafly callers <sym> [--depth N|all] · grafly map (monorepo: add --in <path>/). Outputs open with "[grafly] tokens saved ≈ N" — close replies with a one-line 🌱 tally; never pipe through head/tail.`;
+export function formatOrientation(staleNote) {
     const banner = staleNote ? `${staleNote}\n\n` : "";
-    return `${banner}${directive}\nrepo map (.grafly/INDEX.md):\n${indexMd.slice(0, budgetBytes)}`;
+    return `${banner}${ORIENTATION_LINE}`;
 }
 export function renderSubagent(agentName, session) {
     const q = session?.perAgentQuery?.[agentName];

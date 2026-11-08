@@ -173,7 +173,20 @@ test('home adapter gates before federation while retaining orientation and exact
   assert.match(orientation.hookSpecificOutput.additionalContext, /Home workspace: 0/);
   const exact = JSON.parse(f.run('loadGraph', { adapter: true }));
   assert.match(exact.hookSpecificOutput.additionalContext, /grafly grep "loadGraph"/);
-  assert.equal(f.run('Find the module handling authentication', { adapter: true }), '');
+  assert.equal(f.run('Find the auth_module', { adapter: true }), '');
+  assert.equal(existsSync(join(f.root, 'grafly/.cache/session/gate-test.json')), true);
+});
+
+test('home workspace skips federated retrieval for prose prompts without code terms', (t) => {
+  const f = fixture(t);
+  mkdirSync(join(f.root, 'grafly'));
+  writeFileSync(join(f.root, 'grafly/workspace.json'), JSON.stringify({ version: 1, children: [] }));
+  // Passes the conversation gate but carries no code-shaped term: no emit, no session write.
+  assert.equal(f.run('이번 주 작업 내용 정리해줘', { adapter: true }), '');
+  assert.equal(f.run('summarize what this workspace holds', { adapter: true }), '');
+  assert.equal(existsSync(join(f.root, 'grafly/.cache/session/gate-test.json')), false);
+  // A code-shaped prompt still federates (session file proves the path ran).
+  assert.equal(f.run('check loadGraph()', { adapter: true }), '');
   assert.equal(existsSync(join(f.root, 'grafly/.cache/session/gate-test.json')), true);
 });
 
@@ -227,7 +240,7 @@ test('home adapter honors thread_id session isolation without a session_id', (t)
   for (const thread of ['thread-a', 'thread-b']) {
     const result = spawnSync(process.execPath, [shim, 'prompt'], { cwd: f.root,
       env: { ...process.env, USERPROFILE: f.root, HOME: f.root, GRAFLY_NO_AUTO_INDEX: '1', GRAFLY_NO_SELF_UPDATE: '1' },
-      input: JSON.stringify({ cwd: f.root, thread_id: thread, prompt: 'Inspect request scheduling.' }),
+      input: JSON.stringify({ cwd: f.root, thread_id: thread, prompt: 'Inspect request_scheduling.' }),
       encoding: 'utf8', windowsHide: true, timeout: 15000 });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(existsSync(join(f.root, `grafly/.cache/session/${thread}.json`)), true);
