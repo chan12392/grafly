@@ -76,9 +76,14 @@ export function hitAnchoredToTerms(hit, terms) {
     return false;
 }
 
+// A turn that is nothing but host notifications carries no user query; the
+// paths and file names their bodies quote must not trigger retrieval.
+const NOTIFICATION_ONLY = /^(?:\s*<task-notification>(?:(?!<\/?task-notification>)[\s\S])*<\/task-notification>)+\s*$/;
+
 export function shouldRetrievePrompt(value) {
     const prompt = String(value ?? '').trim();
     if (!prompt) return false;
+    if (NOTIFICATION_ONLY.test(prompt)) return false;
     // Preserve short identifiers and mixed requests such as "Thanks, fix foo()".
     if (hasCodeTerms(prompt)) return true;
     const clauses = prompt.split(/[.!?。！？\r\n]+/u).map(part => part.trim()).filter(Boolean);
