@@ -12,13 +12,14 @@ const TOOL_CHAT = [
     /^grafly를\s*(?:쓰면|사용하면)\s*(?:tool\s*calls?|토큰)(?:이|가)?\s*(?:얼마나\s*)?줄어들(?:까|겠네|긴할텐데)$/i,
 ];
 
+// A turn that is nothing but host notifications carries no user query; the
+// paths and file names their bodies quote must not trigger retrieval.
+const NOTIFICATION_ONLY = /^(?:\s*<task-notification>(?:(?!<\/?task-notification>)[\s\S])*<\/task-notification>)+\s*$/;
+
 export function shouldRetrievePrompt(value) {
-    const raw = String(value ?? '');
-    const prompt = raw.trim();
+    const prompt = String(value ?? '').trim();
     if (!prompt) return false;
-    // Host-generated notifications carry no user query; the paths and file
-    // names their bodies quote must not trigger retrieval.
-    if (prompt.startsWith('<task-notification>') || raw.slice(0, 300).includes('[SYSTEM NOTIFICATION - NOT USER INPUT]')) return false;
+    if (NOTIFICATION_ONLY.test(prompt)) return false;
     // Preserve short identifiers and mixed requests such as "Thanks, fix foo()".
     if (CODE_ANCHOR.test(prompt) || IDENTIFIER.test(prompt)) return true;
     const clauses = prompt.split(/[.!?。！？\r\n]+/u).map(part => part.trim()).filter(Boolean);
