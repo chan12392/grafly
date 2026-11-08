@@ -29,19 +29,26 @@ const TERM_PATTERNS = [
     /\b[a-z][a-z\d]*[A-Z][A-Za-z\d]*\b/g, // camelCase identifier
     /\b[A-Za-z$][\w$]*_[\w$]+\b/g, // snake_case identifier
     /\b[\w$]+(?=\s*\()/g, // call target: foo(
-    /\b[\w.-]+\.(?:[cm]?[jt]sx?|py|rs|go|java|cs|cpp|h|json|toml|ya?ml|md|sql|sh|ps1|cjs)\b/g, // file.ext
+    /\b(?:[\w.@-]+[\\/])*[\w.@-]+\.(?:[cm]?[jt]sx?|py|rs|go|java|cs|cpp|h|json|toml|ya?ml|md|sql|sh|ps1|cjs)\b/g, // file.ext, keeping its path prefix so the anchor check can require a directory suffix
     /\b(?:[A-Z][A-Za-z]*Error|E[A-Z]{3,})\b/g, // error literals
 ];
 /** The code-shaped terms a prompt names — identifiers, call targets, file
  * names, error literals. Plain prose words never qualify: they collide with
  * every corpus (a directive like "run `orca … check --run run_x`" names only
- * `run_x`, not `run`/`check`). */
+ * `run_x`, not `run`/`check`). A backticked span that is itself one identifier
+ * (`login`) counts — the user explicitly code-quoted it — but words inside a
+ * multi-word command span do not. */
 export function codeTermsOf(value) {
     const prompt = String(value ?? '');
     const terms = new Set();
     for (const re of TERM_PATTERNS)
         for (const m of prompt.matchAll(re))
             terms.add(m[0]);
+    for (const m of prompt.matchAll(/`([^`]+)`/g)) {
+        const inner = m[1].trim();
+        if (/^[A-Za-z_$][\w$]*$/.test(inner))
+            terms.add(inner);
+    }
     return terms;
 }
 
@@ -62,7 +69,8 @@ export function hitAnchoredToTerms(hit, terms) {
         const nt = termNorm(t);
         if (nt && (nt === symbol || nt === baseNorm || nt === stemNorm))
             return true;
-        if (t.includes('/') && pointer.toLowerCase().endsWith(`/${t.toLowerCase()}`))
+        const pathTerm = t.replace(/\\/g, '/');
+        if (pathTerm.includes('/') && pointer.toLowerCase().endsWith(`/${pathTerm.toLowerCase()}`))
             return true;
     }
     return false;

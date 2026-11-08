@@ -218,6 +218,9 @@ test('home workspace injects only hits a prompt code term literally names', (t) 
 test('anchor terms keep only hits the prompt literally names', () => {
   const terms = codeTermsOf('You have 1 orchestration message. Run `orca orchestration check --run run_12a39a18c069`.');
   assert.deepEqual([...terms], ['run_12a39a18c069']);
+  // A backticked single identifier is an anchor; words inside a command span are not.
+  assert.deepEqual([...codeTermsOf('`login` 설명해줘')], ['login']);
+  assert.deepEqual([...codeTermsOf('fix `src/auth.js` please')].sort(), ['src/auth.js']);
   for (const hit of [
     { title: 'checkSize · method', pointer: 'proj/IO/ProjectStore.swift:L235-L240' },
     { title: 'Check · function', pointer: 'proj/src/ui/OptionsBar.tsx:L30-L32' },
@@ -225,6 +228,9 @@ test('anchor terms keep only hits the prompt literally names', () => {
     { title: 'loadGraphImpl · function', pointer: 'p/g.js:L1-L2' },
     { title: 'LiveMaskGraph · enum', pointer: 'p/m.swift:L3-L20' },
   ]) assert.equal(hitAnchoredToTerms(hit, new Set([...terms, 'loadGraph'])), false, hit.title);
+  // A path term requires a directory-suffix match: same-basename files in other projects don't anchor.
+  assert.equal(hitAnchoredToTerms({ title: 'x · file', pointer: 'other/lib/auth.js' }, new Set(['src/auth.js'])), false);
+  assert.equal(hitAnchoredToTerms({ title: 'x · file', pointer: 'proj/src/auth.js:L1-L2' }, new Set(['src/auth.js'])), true);
   for (const [hit, termSet] of [
     [{ title: 'authenticateUser · function', pointer: 'p/auth.js:L1-L3' }, ['authenticateUser']],
     [{ title: 'Authentication policy', pointer: 'p/auth.js' }, ['authentication_policy']],
