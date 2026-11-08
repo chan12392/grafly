@@ -248,7 +248,7 @@ async function homeWorkspace(root, input) {
     emit(`[grafly home] grafly grep ${JSON.stringify(prompt)} . --fixed --no-refresh — every indexed occurrence.`);
     return;
   }
-  const [{ hasCodeTerms }, { federateAsk }, { relevantRetrieval }, { readSession, writeSession }] = await Promise.all([
+  const [{ hasCodeTerms, codeTermsOf, hitAnchoredToTerms }, { federateAsk }, { relevantRetrieval }, { readSession, writeSession }] = await Promise.all([
     import(pathToFileURL(path.join(PKG, 'claude', 'prompt-gate.js')).href),
     import(pathToFileURL(path.join(PKG, 'graph', 'workspace.js')).href),
     import(pathToFileURL(path.join(PKG, 'claude', 'format.js')).href),
@@ -260,6 +260,13 @@ async function homeWorkspace(root, input) {
   const id = input.session_id || input.thread_id || process.env.CODEX_THREAD_ID || 'default';
   const session = readSession(root, id);
   const result = federateAsk(root, undefined, prompt, { limit: 3 });
+  // Anchor rule: a federated hit must literally BE a term the prompt named
+  // (its symbol or path). Federated ranking has no coverage score to gate on,
+  // so fuzzy neighbours — 'checkSize' for `run_x`, 'LiveMaskGraph' for
+  // 'loadGraph' — would otherwise inject as cross-repo noise.
+  const terms = codeTermsOf(prompt);
+  result.hits = (result.hits ?? []).filter((h) => hitAnchoredToTerms(h, terms));
+  if (!result.hits.length) return;
   const context = relevantRetrieval(result, session, 3);
   if (context) emit('[grafly home] Saved indexes — add --no-refresh; verify freshness before editing.\n' + context);
   writeSession(root, id, session);

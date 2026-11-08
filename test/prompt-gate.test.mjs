@@ -6,7 +6,7 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { shouldRetrievePrompt } from '../dist/claude/prompt-gate.js';
+import { shouldRetrievePrompt, codeTermsOf, hitAnchoredToTerms } from '../dist/claude/prompt-gate.js';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const shim = join(repo, 'scripts', 'grafly-devin-hook.cjs');
@@ -173,8 +173,9 @@ test('home adapter gates before federation while retaining orientation and exact
   assert.match(orientation.hookSpecificOutput.additionalContext, /Home workspace: 0/);
   const exact = JSON.parse(f.run('loadGraph', { adapter: true }));
   assert.match(exact.hookSpecificOutput.additionalContext, /grafly grep "loadGraph"/);
+  // Code term, but no indexed hit is literally `auth_module`: the unanchored pack injects nothing and leaves no session.
   assert.equal(f.run('Find the auth_module', { adapter: true }), '');
-  assert.equal(existsSync(join(f.root, 'grafly/.cache/session/gate-test.json')), true);
+  assert.equal(existsSync(join(f.root, 'grafly/.cache/session/gate-test.json')), false);
 });
 
 test('home workspace skips federated retrieval for prose prompts without code terms', (t) => {
@@ -185,9 +186,52 @@ test('home workspace skips federated retrieval for prose prompts without code te
   assert.equal(f.run('이번 주 작업 내용 정리해줘', { adapter: true }), '');
   assert.equal(f.run('summarize what this workspace holds', { adapter: true }), '');
   assert.equal(existsSync(join(f.root, 'grafly/.cache/session/gate-test.json')), false);
-  // A code-shaped prompt still federates (session file proves the path ran).
+  // A code-shaped prompt passes the term gate, but with no anchored hit it
+  // still emits nothing and writes nothing (empty workspace).
   assert.equal(f.run('check loadGraph()', { adapter: true }), '');
-  assert.equal(existsSync(join(f.root, 'grafly/.cache/session/gate-test.json')), true);
+  assert.equal(existsSync(join(f.root, 'grafly/.cache/session/gate-test.json')), false);
+});
+
+test('home workspace injects only hits a prompt code term literally names', (t) => {
+  const f = fixture(t);
+  mkdirSync(join(f.root, 'grafly'));
+  const child = join(f.root, 'project');
+  mkdirSync(join(child, 'grafly/.graph'), { recursive: true });
+  writeFileSync(join(child, 'grafly/.graph/wiring.json'), JSON.stringify({
+    version: 1, meta: {}, nodes: [
+      { id: 'file:auth.js', kind: 'file', name: 'auth.js', path: 'auth.js', chars: 2000 },
+      { id: 'fn:authenticateUser', kind: 'function', name: 'authenticateUser', path: 'auth.js', span: 'L1-L3', signature: 'authenticateUser(token)', summary: 'Authenticate user token' },
+      { id: 'fn:checkSize', kind: 'function', name: 'checkSize', path: 'io.js', span: 'L5-L9', summary: 'Bounds a check' },
+      { id: 'fn:run', kind: 'function', name: 'run', path: 'cli.js', span: 'L2-L8', summary: 'Runs the cli' },
+    ], edges: [],
+  }));
+  writeFileSync(join(f.root, 'grafly/workspace.json'), JSON.stringify({ version: 1, children: ['project'] }));
+  // Tool directive: the only code term is `run_12a39a18c069`; fuzzy hits like
+  // checkSize/run are not the named thing, so nothing injects and no session is written.
+  assert.equal(f.run('You have 1 orchestration message. Run `orca orchestration check --run run_12a39a18c069`.', { adapter: true }), '');
+  assert.equal(existsSync(join(f.root, 'grafly/.cache/session/gate-test.json')), false);
+  // A named symbol that IS indexed still injects.
+  const hit = JSON.parse(f.run('where does authenticateUser validate tokens', { adapter: true }));
+  assert.match(hit.hookSpecificOutput.additionalContext, /authenticateUser/);
+});
+
+test('anchor terms keep only hits the prompt literally names', () => {
+  const terms = codeTermsOf('You have 1 orchestration message. Run `orca orchestration check --run run_12a39a18c069`.');
+  assert.deepEqual([...terms], ['run_12a39a18c069']);
+  for (const hit of [
+    { title: 'checkSize · method', pointer: 'proj/IO/ProjectStore.swift:L235-L240' },
+    { title: 'Check · function', pointer: 'proj/src/ui/OptionsBar.tsx:L30-L32' },
+    { title: 'run · function', pointer: 'proj/src-tauri/src/lib.rs:L32-L55' },
+    { title: 'loadGraphImpl · function', pointer: 'p/g.js:L1-L2' },
+    { title: 'LiveMaskGraph · enum', pointer: 'p/m.swift:L3-L20' },
+  ]) assert.equal(hitAnchoredToTerms(hit, new Set([...terms, 'loadGraph'])), false, hit.title);
+  for (const [hit, termSet] of [
+    [{ title: 'authenticateUser · function', pointer: 'p/auth.js:L1-L3' }, ['authenticateUser']],
+    [{ title: 'Authentication policy', pointer: 'p/auth.js' }, ['authentication_policy']],
+    [{ title: 'x · file', pointer: 'p/src/auth.js:L1-L2' }, ['auth.js']],
+    [{ title: 'x · file', pointer: 'p/src/auth.js' }, ['src/auth.js']],
+    [{ title: 'run_12a39a18c069 · function', pointer: 'p/cli.js:L2-L8' }, ['run_12a39a18c069']],
+  ]) assert.equal(hitAnchoredToTerms(hit, new Set(termSet)), true, JSON.stringify(hit));
 });
 
 test('conversation cannot start an automatic build in an unindexed Git repository', (t) => {
@@ -236,7 +280,14 @@ test('chat cannot mutate session state; duplicate suppression stays isolated acr
 test('home adapter honors thread_id session isolation without a session_id', (t) => {
   const f = fixture(t);
   mkdirSync(join(f.root, 'grafly'));
-  writeFileSync(join(f.root, 'grafly/workspace.json'), JSON.stringify({ version: 1, children: [] }));
+  const child = join(f.root, 'project');
+  mkdirSync(join(child, 'grafly/.graph'), { recursive: true });
+  writeFileSync(join(child, 'grafly/.graph/wiring.json'), JSON.stringify({
+    version: 1, meta: {}, nodes: [
+      { id: 'fn:request_scheduling', kind: 'function', name: 'request_scheduling', path: 'sched.js', span: 'L1-L5', summary: 'Queues a request' },
+    ], edges: [],
+  }));
+  writeFileSync(join(f.root, 'grafly/workspace.json'), JSON.stringify({ version: 1, children: ['project'] }));
   for (const thread of ['thread-a', 'thread-b']) {
     const result = spawnSync(process.execPath, [shim, 'prompt'], { cwd: f.root,
       env: { ...process.env, USERPROFILE: f.root, HOME: f.root, GRAFLY_NO_AUTO_INDEX: '1', GRAFLY_NO_SELF_UPDATE: '1' },

@@ -25,6 +25,49 @@ export function hasCodeTerms(value) {
     return CODE_ANCHOR.test(prompt) || IDENTIFIER.test(prompt);
 }
 
+const TERM_PATTERNS = [
+    /\b[a-z][a-z\d]*[A-Z][A-Za-z\d]*\b/g, // camelCase identifier
+    /\b[A-Za-z$][\w$]*_[\w$]+\b/g, // snake_case identifier
+    /\b[\w$]+(?=\s*\()/g, // call target: foo(
+    /\b[\w.-]+\.(?:[cm]?[jt]sx?|py|rs|go|java|cs|cpp|h|json|toml|ya?ml|md|sql|sh|ps1|cjs)\b/g, // file.ext
+    /\b(?:[A-Z][A-Za-z]*Error|E[A-Z]{3,})\b/g, // error literals
+];
+/** The code-shaped terms a prompt names — identifiers, call targets, file
+ * names, error literals. Plain prose words never qualify: they collide with
+ * every corpus (a directive like "run `orca … check --run run_x`" names only
+ * `run_x`, not `run`/`check`). */
+export function codeTermsOf(value) {
+    const prompt = String(value ?? '');
+    const terms = new Set();
+    for (const re of TERM_PATTERNS)
+        for (const m of prompt.matchAll(re))
+            terms.add(m[0]);
+    return terms;
+}
+
+const termNorm = (s) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+/** True when the hit's symbol name or file path IS one of the prompt's code
+ * terms (normalized: case and separators ignored). A slash-carrying term may
+ * also match a pointer suffix ('src/auth.js' → 'project/src/auth.js'). This is
+ * the workspace anchor rule: a federated pack earns its injection only when a
+ * hit is literally the thing the prompt named — fuzzy neighbours like
+ * `checkSize` for `run_x` or `LiveMaskGraph` for `loadGraph` don't count. */
+export function hitAnchoredToTerms(hit, terms) {
+    const head = String(hit?.name ?? String(hit?.title ?? '').split('·')[0]).trim();
+    const symbol = termNorm(head.split(':')[0]);
+    const pointer = String(hit?.pointer ?? '').replace(/\\/g, '/').replace(/:L?\d+(?:-L?\d+)?(?:,.*)?$/, '');
+    const base = pointer.split('/').pop() ?? '';
+    const baseNorm = termNorm(base), stemNorm = termNorm(base.replace(/\.[^.]+$/, ''));
+    for (const t of terms) {
+        const nt = termNorm(t);
+        if (nt && (nt === symbol || nt === baseNorm || nt === stemNorm))
+            return true;
+        if (t.includes('/') && pointer.toLowerCase().endsWith(`/${t.toLowerCase()}`))
+            return true;
+    }
+    return false;
+}
+
 export function shouldRetrievePrompt(value) {
     const prompt = String(value ?? '').trim();
     if (!prompt) return false;

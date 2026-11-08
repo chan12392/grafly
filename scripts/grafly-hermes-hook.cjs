@@ -32,7 +32,7 @@ async function retrieve(raw) {
   const input = JSON.parse(raw);
   if (input?.hook_event_name !== 'pre_llm_call' || typeof input.cwd !== 'string' ||
       typeof input.extra?.user_message !== 'string') return;
-  const { shouldRetrievePrompt, hasCodeTerms } = await import('../dist/claude/prompt-gate.js');
+  const { shouldRetrievePrompt, hasCodeTerms, codeTermsOf, hitAnchoredToTerms } = await import('../dist/claude/prompt-gate.js');
   if (!shouldRetrievePrompt(input.extra.user_message)) return;
   const index = findIndex(input.cwd);
   if (!index) return;
@@ -61,6 +61,10 @@ async function retrieve(raw) {
   if (index.workspace) {
     const { federateAsk } = await import('../dist/graph/workspace.js');
     result = federateAsk(index.root, index.contextDir, input.extra.user_message, { limit: 3 });
+    // Workspace anchor rule: keep only hits literally named by a prompt code
+    // term — federated hits carry no coverage score to gate on otherwise.
+    const terms = codeTermsOf(input.extra.user_message);
+    result.hits = (result.hits ?? []).filter((h) => hitAnchoredToTerms(h, terms));
   } else {
     const { ask } = await import('../dist/ask/ask.js');
     result = ask(index.root, input.extra.user_message, { limit: 3, contextDir: index.contextDir });
