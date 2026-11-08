@@ -39,17 +39,27 @@ test('code anchors, mixed requests and uncertain substantive prompts keep retrie
   ]) assert.equal(shouldRetrievePrompt(prompt), true, prompt);
 });
 
-test('host-generated notifications skip retrieval; the marker late in a user prompt does not', () => {
+test('prompts that are only host notifications skip retrieval', () => {
   // Notification bodies quote real paths and file names, so the code-term
   // check would otherwise pass them; the gate must fire before it.
   for (const prompt of [
-    '<task-notification>\nnpm test finished; fix dist/claude/prompt-gate.js',
-    '   <task-notification>\nfix src/hooks.js now',
+    '<task-notification>\nnpm test finished; fix dist/claude/prompt-gate.js\n</task-notification>',
+    '<task-notification>job A done: edit src/hooks.js</task-notification>\n<task-notification>rerun foo()</task-notification>',
+    '  \n <task-notification>\nfix src/hooks.js now\n</task-notification>\t ',
+  ]) assert.equal(shouldRetrievePrompt(prompt), false, prompt);
+});
+
+test('a notification attached to a real request keeps the existing verdict', () => {
+  for (const prompt of [
+    '<task-notification>job done</task-notification>\nfix src/hooks.js',
+    'fix src/hooks.js\n<task-notification>job done</task-notification>',
+    '<task-notification>a</task-notification> fix src/hooks.js <task-notification>b</task-notification>',
     '[SYSTEM NOTIFICATION - NOT USER INPUT] job done: edit src/hooks.js',
     'queued event. [SYSTEM NOTIFICATION - NOT USER INPUT] rerun foo()',
-  ]) assert.equal(shouldRetrievePrompt(prompt), false, prompt);
-  // The same literal outside the 300-char window keeps the existing verdict.
-  assert.equal(shouldRetrievePrompt('check loadGraph(). ' + 'x'.repeat(300) + ' [SYSTEM NOTIFICATION - NOT USER INPUT]'), true);
+    '<task-notification>\nnpm test finished; fix dist/claude/prompt-gate.js',
+  ]) assert.equal(shouldRetrievePrompt(prompt), true, prompt);
+  // An ordinary conversational prompt keeps the existing skip verdict.
+  assert.equal(shouldRetrievePrompt('Thanks for the explanation!'), false);
 });
 
 function fixture(t) {
@@ -92,6 +102,13 @@ test('repository hook skips child retrieval and session writes for conversation'
     assert.equal(f.run(prompt), '');
   assert.deepEqual(f.calls(), []);
   assert.equal(existsSync(join(f.root, 'grafly')), false);
+});
+
+test('repository hook emits no output for a notification-only prompt', (t) => {
+  const f = fixture(t);
+  const notice = '<task-notification>\nnpm test finished; fix dist/claude/prompt-gate.js\n</task-notification>';
+  assert.equal(f.run(notice), '');
+  assert.deepEqual(f.calls(), []);
 });
 
 test('repository hook retrieves short code queries and retains pointer deduplication', (t) => {
