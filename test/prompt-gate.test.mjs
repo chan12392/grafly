@@ -39,6 +39,19 @@ test('code anchors, mixed requests and uncertain substantive prompts keep retrie
   ]) assert.equal(shouldRetrievePrompt(prompt), true, prompt);
 });
 
+test('host-generated notifications skip retrieval; the marker late in a user prompt does not', () => {
+  // Notification bodies quote real paths and file names, so the code-term
+  // check would otherwise pass them; the gate must fire before it.
+  for (const prompt of [
+    '<task-notification>\nnpm test finished; fix dist/claude/prompt-gate.js',
+    '   <task-notification>\nfix src/hooks.js now',
+    '[SYSTEM NOTIFICATION - NOT USER INPUT] job done: edit src/hooks.js',
+    'queued event. [SYSTEM NOTIFICATION - NOT USER INPUT] rerun foo()',
+  ]) assert.equal(shouldRetrievePrompt(prompt), false, prompt);
+  // The same literal outside the 300-char window keeps the existing verdict.
+  assert.equal(shouldRetrievePrompt('check loadGraph(). ' + 'x'.repeat(300) + ' [SYSTEM NOTIFICATION - NOT USER INPUT]'), true);
+});
+
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'grafly-prompt-gate-'));
   t.after(() => {

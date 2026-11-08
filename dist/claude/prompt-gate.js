@@ -13,8 +13,12 @@ const TOOL_CHAT = [
 ];
 
 export function shouldRetrievePrompt(value) {
-    const prompt = String(value ?? '').trim();
+    const raw = String(value ?? '');
+    const prompt = raw.trim();
     if (!prompt) return false;
+    // Host-generated notifications carry no user query; the paths and file
+    // names their bodies quote must not trigger retrieval.
+    if (prompt.startsWith('<task-notification>') || raw.slice(0, 300).includes('[SYSTEM NOTIFICATION - NOT USER INPUT]')) return false;
     // Preserve short identifiers and mixed requests such as "Thanks, fix foo()".
     if (CODE_ANCHOR.test(prompt) || IDENTIFIER.test(prompt)) return true;
     const clauses = prompt.split(/[.!?。！？\r\n]+/u).map(part => part.trim()).filter(Boolean);
