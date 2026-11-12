@@ -2,6 +2,7 @@
 import { commandName, lines, readOutput } from "./runner.js";
 import { conditionalRead, commitRead } from "./conditional.js";
 import { observeComparison } from "../mc-runtime/comparison.js";
+import { isSensitivePath } from "../util/sensitive-path.js";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -128,7 +129,7 @@ export function readPath(pathArg, options = {}) {
     if (text.includes("\0")) throw new Error("binary file (NUL byte); use a binary-aware tool");
     const source = lines(text);
     const observed = result => {
-        if (!/(?:^|[\\/])(?:\.env(?:\..*)?|auth\.json|credentials(?:\.[^\\/]+)?|\.npmrc|\.pypirc|\.ssh|\.aws|model-access)(?:[\\/]|$)/i.test(full))
+        if (!isSensitivePath(full))
             void observeComparison({ task: 'document_suitability', items: [{ id: full.length <= 128 ? full : 'read-document',
                 text: result, protected: false, constraint_status: 'unknown' }] },
                 { sessionId: options.sessionId, cwd: options.cwd, env: options.comparisonEnv });
@@ -233,7 +234,9 @@ export function serveReadCommand(command, args = [], { cwd = process.cwd(), sess
     const inv = readInvocation(command, args);
     if (!inv) return null;
     const full = resolve(cwd, inv.path);
-    if (!statSync(full).isFile()) return null;
+    const stat = statSync(full);
+    if (!stat.isFile()) return null;
+    if (stat.size > READ_FILE_LIMIT) throw new Error(`file exceeds ${READ_FILE_LIMIT} bytes; use a narrower source tool`);
     if (inv.opts.tail !== undefined) { // tail: read to locate the start line; output stays budgeted
         const total = lines(new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(full))).length;
         return readPath(full, { start: String(Math.max(1, total - inv.opts.tail + 1)), count: String(inv.opts.tail), sessionId });

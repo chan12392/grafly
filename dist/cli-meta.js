@@ -5,7 +5,7 @@
  * injected results instead of hitting the network from tests.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "./util/subprocess.js";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { toPosixPath } from "./util/paths.js";
@@ -156,7 +156,7 @@ export function runUpgrade(moduleUrl, { spawn = spawnSync } = {}) {
         if (isRunningViaNpx(moduleUrl))
             return { ran: false, ok: true, oldVersion };
         const revBefore = gitRev(root);
-        const res = spawn("git", ["-C", root, "pull", "--ff-only"], {
+        const res = spawn("git", ["-c", "core.hooksPath=/dev/null", "-C", root, "pull", "--ff-only"], {
             encoding: "utf8", timeout: 120000, windowsHide: true,
         });
         if (res.error || (res.status ?? 1) !== 0) {

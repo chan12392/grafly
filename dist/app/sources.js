@@ -12,7 +12,7 @@
  */
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../util/subprocess.js";
 /** Per-file and total caps, so one enormous doc cannot crowd out everything. */
 const MAX_FILE_CHARS = 24_000;
 const MAX_TOTAL_CHARS = 300_000;

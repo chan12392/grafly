@@ -6,6 +6,13 @@ import { join, resolve } from 'node:path';
 import { spawnSync, spawn } from 'node:child_process';
 
 const hook = resolve('scripts/grafly-hermes-hook.cjs');
+test('Python adapters ignore cwd executables even when cwd appears on PATH', t => {
+  const python = process.env.GRAFLY_TEST_PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
+  const result = spawnSync(python, [resolve('test/hermes-executable.test.py')], { encoding: 'utf8', windowsHide: true, timeout: 10000 });
+  if (result.error?.code === 'ENOENT') { t.skip('Python is not installed'); return; }
+  assert.equal(result.status, 0, result.stderr || result.error?.message);
+  assert.match(result.stdout, /boundaries: passed/);
+});
 function fixture(t, indexed = true) {
   const root = mkdtempSync(join(process.env.TMPDIR || tmpdir(), 'grafly-hermes-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));

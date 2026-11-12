@@ -26,7 +26,7 @@ test('runUpgrade pulls when the package root is a git checkout', (t) => {
   assert.equal(result.ok, true);
   assert.equal(result.source, 'git');
   assert.equal(result.pulled, false);
-  assert.deepEqual(seen[0].slice(1), ['-C', f.dir, 'pull', '--ff-only']);
+  assert.deepEqual(seen[0].slice(1), ['-c', 'core.hooksPath=/dev/null', '-C', f.dir, 'pull', '--ff-only']);
   assert.match(formatUpgradeReport(result), /already up to date/);
 });
 

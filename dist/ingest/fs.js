@@ -1,7 +1,7 @@
 /**
  * Filesystem walking used by `init`/`check` to enumerate a repo's source files.
  */
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../util/subprocess.js";
 import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { materialKind, MAX_MATERIAL_BYTES } from "./material-types.js";
@@ -284,12 +284,17 @@ function skippedPath(path, includes) {
 }
 function walkFilesystem(dir, includes) {
     const out = [];
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        const full = join(dir, entry.name);
+    const pending = [dir];
+    while (pending.length) {
+      const current = pending.pop();
+      let entries;
+      try { entries = readdirSync(current, { withFileTypes: true }); } catch { continue; }
+      for (const entry of entries) {
+        const full = join(current, entry.name);
         if (entry.isDirectory()) {
             if (shouldSkipDir(entry.name, includes))
                 continue;
-            out.push(...walkFilesystem(full, includes));
+            pending.push(full);
         }
         else if (entry.isFile()) {
             if (entry.name.startsWith("."))
@@ -303,6 +308,7 @@ function walkFilesystem(dir, includes) {
             }
             out.push(full);
         }
+      }
     }
     return out;
 }

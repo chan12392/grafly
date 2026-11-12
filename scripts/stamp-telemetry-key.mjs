@@ -7,7 +7,8 @@
  * `npm run build` all produce a graft whose telemetry module short-circuits on
  * the very first check.
  *
- * Runs from `prepublishOnly`, after `npm run build`. Without GRAFT_POSTHOG_KEY
+ * Legacy manual utility, not an install/publish hook. Grafly has no build step.
+ * Without GRAFT_POSTHOG_KEY
  * in the environment it prints a warning and changes nothing — publishing a
  * telemetry-less build is a valid thing to do, and it must never be a hard
  * failure at the moment someone is trying to ship.

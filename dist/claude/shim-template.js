@@ -5,7 +5,7 @@
 // Candidates, cheapest first (no subprocess for 1–3):
 //   1. `bakedDir`   — the absolute `dist/claude` Grafly was running from at init time.
 //                     Correct with zero guesswork for whoever ran `grafly init`.
-//   2. repo node_modules — a local dev-dep install.
+//   2. Only installation-side candidates; opened repositories are untrusted.
 //   3. `execDir/../lib`  — the cheap legacy guess (covers nvm / classic prefix layout).
 //   4. `npm root -g`     — authoritative global dir, layout-agnostic. Only shelled out to
 //                     when 1–3 all miss; queried on demand — no on-disk cache, which on a
@@ -24,7 +24,6 @@ const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
 const { execFileSync } = require('child_process');
-const dir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const BAKED = ${JSON.stringify(bakedDir)};
 
 // The dist/claude dir of grafly resolved from a base whose node_modules is searched.
@@ -38,7 +37,10 @@ function fromPkg(base) {
 // The global node_modules dir per npm (handles Homebrew/Windows/volta). Queried on demand.
 function globalRoot() {
   try {
-    const root = execFileSync('npm', ['root', '-g'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], shell: process.platform === 'win32' }).trim();
+    const npmCli = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+    const command = process.platform === 'win32' ? process.execPath : 'npm';
+    const args = process.platform === 'win32' ? [npmCli, 'root', '-g'] : ['root', '-g'];
+    const root = execFileSync(command, args, { cwd: path.dirname(process.execPath), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).trim();
     return root || null;
   } catch { return null; /* npm unavailable */ }
 }
@@ -76,16 +78,17 @@ function best(dirs, name) {
 
 function entry(name) {
   // Cheap candidates first, and only shell out to npm when every one of them misses.
-  const cheap = [BAKED, fromPkg(dir), fromPkg(path.join(path.dirname(process.execPath), '..', 'lib'))];
+  const cheap = [BAKED, fromPkg(path.join(path.dirname(process.execPath), '..', 'lib'))];
   const hit = best(cheap, name);
   if (hit) return path.join(hit, name);
   const gr = globalRoot();
   const global = gr && path.join(gr, 'grafly', 'dist', 'claude');
   if (global && fs.existsSync(path.join(global, name))) return path.join(global, name);
-  return path.join(dir, 'dist', 'claude', name); // last-ditch; import will no-op if absent
+  return null; // An opened repository cannot select code for a user-level hook.
 }
 
-import(pathToFileURL(entry(${JSON.stringify(entryFile)})).href).then((m) => ${call}).catch(() => { /* Grafly unavailable — no-op */ });
+const file = entry(${JSON.stringify(entryFile)});
+if (file) import(pathToFileURL(file).href).then((m) => ${call}).catch(() => { /* Grafly unavailable — no-op */ });
 `;
 }
 export function statuslineShim(bakedDir) { return shim('statusline.js', 'm.main()', bakedDir); }

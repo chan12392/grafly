@@ -9,7 +9,7 @@ const read = path => {
     if (statSync(path).size > 65536) throw new Error('comparison_configuration_size');
     return JSON.parse(readFileSync(path, 'utf8'));
 };
-const privateText = text => /(?:["']?(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|password)["']?\s*[:=]\s*["']?(?:Bearer\s+)?\S{8,}|["']--?(?:password|api-key|token|secret)["']\s*,|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:sk-|eyJ)[\w.-]{24,})/i.test(text);
+const privateText = text => /(?:["']?(?:authorization|api[_-]?key|(?:access|refresh|oauth)[_-]?token|password|client[_-]key[_-]data)["']?\s*[:=]\s*["']?(?:Bearer\s+)?\S{8,}|["']--?(?:password|api-key|token|secret)["']\s*,|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:sk-|eyJ)[\w.-]{24,}|\bpassword\s+\S{8,}|https?:\/\/[^\s/@]+:[^\s/@]+@)/i.test(text);
 
 export async function observeComparison(event, { cwd = process.cwd(), sessionId, env = process.env } = {}) {
     if (env.GRAFLY_JUDGMENT_CONFIG === '0') return { status: 'disabled' };
@@ -47,7 +47,7 @@ export async function observeComparison(event, { cwd = process.cwd(), sessionId,
             throw new Error('comparison_broker_unavailable');
         const argv = ['--root', config.state_root, 'compare', 'observe', '--cwd', resolve(cwd), '--session-id', identity, '--request-stdin'];
         const body = JSON.stringify({ argv, stdin: JSON.stringify({ ...event, source: 'grafly' }),
-            cwd: resolve(cwd), source, python: config.python, environment: env });
+            cwd: resolve(cwd), source, python: config.python });
         return await new Promise(complete => {
             let finished = false;
             const done = result => { if (!finished) { finished = true; clearTimeout(deadline); complete(save(result)); } };

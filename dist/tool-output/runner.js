@@ -245,7 +245,7 @@ export async function runCommand(command, args = [], options = {}) {
     const kill = (signal = "SIGTERM") => {
         if (!child.pid) return;
         if (process.platform === "win32") {
-            spawnSync("taskkill.exe", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+            spawnSync(join(process.env.SystemRoot || "C:\\Windows", "System32", "taskkill.exe"), ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
             return;
         }
         try { process.kill(-child.pid, signal); } catch { /* exited meanwhile */ }

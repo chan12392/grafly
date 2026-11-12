@@ -6,7 +6,8 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { residentCommands, cliOptions, searchCommands, buildCommand, callersCommand } from "./commands.js";
 
-export const requestEnv = /^(GRAFLY_|GRAFT_|OPENROUTER_|ORCAROUTER_|CODEX_(?:HOME|THREAD_ID)$|CLAUDECODE$|CLAUDE_CONFIG_DIR$|MC_(?:LEARNING_HOME|MODEL_HOME|MODEL_DISABLED|ROOT|PYTHON)$|DO_NOT_TRACK$|PATH$|PATHEXT$)/i;
+// Per-query data and tuning only; executable lookup and runtime identity belong to the service.
+export const requestEnv = /^(?:(?:GRAFLY|GRAFT)_(?:DIR|READONLY|NO_REFRESH|NO_XERJ|NO_MC|MC|MC_TIMEOUT_MS|MC_MAX_SITES|MC_DEADLINE_MS|MC_CACHE|WEIGHTS|CIRCUIT_LOG|JUDGMENT|NO_DAEMON|DEBUG|AGENT_HOST|PROVIDER|API_KEY|BASE_URL|MODEL|OPENROUTER_MODEL|AMBIENT_URL|LLM_RETRIES)|(?:OPENROUTER|ORCAROUTER|OPENAI|ANTHROPIC)_(?:API_KEY|BASE_URL|MODEL|AUTH_TOKEN)|CODEX_(?:HOME|THREAD_ID)|CLAUDECODE|CLAUDE_CONFIG_DIR|MC_(?:LEARNING_HOME|MODEL_HOME|MODEL_DISABLED)|DO_NOT_TRACK)$/i;
 
 export const searchHome = () => resolve(process.env.GRAFLY_SEARCH_HOME || join(homedir(), ".grafly", "search-service"));
 export const searchEndpoint = () => process.platform === "win32"

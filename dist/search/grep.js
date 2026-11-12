@@ -11,6 +11,7 @@
  */
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { realpathSync } from "node:fs";
+import { Worker } from "node:worker_threads";
 import { WALK_RELATIONS } from "../graph/relations.js";
 import { assertPrefixIndexed, pathUnderPrefix } from "../graph/scopes.js";
 import { normalizePathPrefix } from "../util/paths.js";
@@ -78,6 +79,7 @@ function toSymbolRef(n) {
     return { id: n.id, name: hash >= 0 ? n.id.slice(hash + 1) : n.name, kind: n.kind, path: n.path, span: n.span };
 }
 export function grepGraph(graph, repoRoot, pattern, opts = {}) {
+    if (pattern.length > 4096) throw new Error("Search pattern exceeds 4096 characters");
     const maxHits = opts.maxHits ?? DEFAULT_MAX_HITS;
     const source = opts.fixed ? escapeRegExp(pattern) : pattern;
     const regex = new RegExp(source, opts.ignoreCase ? "i" : "");
@@ -99,6 +101,13 @@ export function grepGraph(graph, repoRoot, pattern, opts = {}) {
         base = realpathSync(repoRoot);
     }
     catch { } // unreadable root: every file below counts as unreadable
+    const control = new Int32Array(new SharedArrayBuffer(4));
+    const worker = opts.fixed ? null : new Worker(new URL("./grep-worker.js", import.meta.url), {
+        execArgv: [], workerData: { source, flags: regex.flags, control }, resourceLimits: { maxOldGenerationSizeMb: 128 },
+    });
+    worker?.on("error", () => {}); // A failed worker is bounded by the same deadline.
+    let remaining = 2000;
+    try {
     for (const file of fileNodes) {
         let text;
         try {
@@ -124,9 +133,20 @@ export function grepGraph(graph, repoRoot, pattern, opts = {}) {
         }
         const symbols = symbolsByPath.get(file.path) ?? [];
         const lines = text.split(/\r?\n/);
+        let matches;
+        if (worker) {
+            const started = performance.now();
+            matches = new Uint8Array(new SharedArrayBuffer(lines.length));
+            Atomics.store(control, 0, 0);
+            worker.postMessage({ lines, matches: matches.buffer });
+            const waited = Atomics.wait(control, 0, 0, remaining);
+            remaining -= performance.now() - started;
+            if (waited === "timed-out" || Atomics.load(control, 0) !== 1)
+                throw new Error("Regular expression search exceeded its time budget; use --fixed or a simpler pattern");
+        }
         for (let i = 0; i < lines.length; i++) {
             const raw = lines[i];
-            if (!regex.test(raw))
+            if (!(matches ? matches[i] : regex.test(raw)))
                 continue;
             if (collected >= maxHits) {
                 truncatedHits++;
@@ -150,6 +170,7 @@ export function grepGraph(graph, repoRoot, pattern, opts = {}) {
             group.hits.push({ line: lineNo, text: trimmed.length > MAX_HIT_TEXT ? trimmed.slice(0, MAX_HIT_TEXT) : trimmed });
         }
     }
+    } finally { void worker?.terminate(); }
     const sortedGroups = [...groups.values()].sort((a, b) => b.inDegree - a.inDegree || a.path.localeCompare(b.path));
     return {
         pattern,

@@ -12,6 +12,8 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
 import location from '../context/location.cjs';
+import safePath from './safe-path.cjs';
+import { randomUUID } from 'node:crypto';
 export const LOCK_STALE_MS = 300000;
 export function emptyStats() {
     return { nodeCount: 0, edgeCount: 0, languages: [], totalCount: 0, readyCount: 0,
@@ -36,14 +38,14 @@ const LOCK_FILE = '.sync.lock';
  */
 export function resolveContextDir(projectDir) {
     const override = process.env.GRAFLY_DIR ?? process.env.GRAFT_DIR;
-    if (override)
-        return isAbsolute(override) ? override : join(projectDir, override);
-    return location.indexDir(projectDir);
+    return location.indexDir(projectDir, override);
 }
 export function cacheDir(projectDir) { return join(resolveContextDir(projectDir), '.cache'); }
 function statsPath(d) { return join(cacheDir(d), 'stats.json'); }
 export function readJson(p) {
     try {
+        safePath.assertNoSymlinks(p);
+        if (statSync(p).size > 64 * 1024 * 1024) return null;
         return JSON.parse(readFileSync(p, 'utf8'));
     }
     catch {
@@ -53,22 +55,23 @@ export function readJson(p) {
 /**
  * Write JSON to `p` via a scratch file and a rename, so a concurrent reader sees
  * either the whole old file or the whole new one — never a truncated prefix. The
- * pid in the temp name keeps two concurrent writers off each other's scratch file.
+ * Exclusive random scratch names isolate concurrent writers.
  *
  * `compact` drops the indentation, for the caches only a machine ever opens —
  * it's ~30% of the bytes on a big, deep object.
  *
- * A failed write takes its scratch file with it. Every CLI invocation is a new pid,
+ * A failed write takes its scratch file with it. Each attempt uses a new random name,
  * so the names never collide and never get reused: leaving them behind means a repo
  * that fails this write repeatedly (ENOSPC, or a Windows indexer holding the target
  * open) accumulates one full-size file per attempt, and nothing in graft ever lists
  * `.cache/` to clean them up.
  */
 export function writeJsonAtomic(p, value, compact = false) {
+    safePath.assertNoSymlinks(p);
     mkdirSync(dirname(p), { recursive: true });
-    const tmp = `${p}.${process.pid}.tmp`;
+    const tmp = `${p}.${randomUUID()}.tmp`;
     try {
-        writeFileSync(tmp, compact ? JSON.stringify(value) : JSON.stringify(value, null, 2));
+        writeFileSync(tmp, compact ? JSON.stringify(value) : JSON.stringify(value, null, 2), { flag: 'wx' });
         renameSync(tmp, p);
     }
     catch (e) {
@@ -94,6 +97,7 @@ function legacyBuildConfigPath(d) { return join(d, LEGACY_BUILD_CONFIG_DIR, 'con
  * generated graph directory. Best-effort, matching graph-cache ignore setup. */
 function ensureBuildConfigIgnored(d) {
     const path = join(d, '.gitignore');
+    safePath.assertNoSymlinks(path, d);
     let current = '';
     try {
         current = readFileSync(path, 'utf8');
@@ -161,6 +165,7 @@ export function releaseLock(d) {
  * is actually writing, and the two must collide so they can't rebuild at once.
  */
 export function acquireLockIn(cache) {
+    safePath.assertNoSymlinks(cache);
     const p = join(cache, LOCK_FILE);
     mkdirSync(cache, { recursive: true });
     const payload = JSON.stringify({ pid: process.pid, at: new Date().toISOString() });

@@ -231,7 +231,7 @@ export async function ensureFreshChildren(root, children, opts = {}) {
         // one, each child would build into that single shared dir in turn, the last
         // clobbering the rest.) A child's graph always lives in its own `<child>/graft`,
         // which is exactly how `loadWorkspaceGraphs` reads them back.
-        const r = await ensureFreshGraph(resolve(root, child), { disabled: opts.disabled });
+        const r = await ensureFreshGraph(workspaceChildPath(root, child), { disabled: opts.disabled });
         if (r.refreshed) {
             refreshedIn.push(child);
             files += r.drift ? driftCount(r.drift) : 0;
@@ -260,3 +260,4 @@ export function refreshNote(r) {
     // where a graph came from in a directory the user knows they never built.
     return r.note ? `[grafly] ${built} — ${r.note}` : `[grafly] ${built}`;
 }
+import { workspaceChildPath } from "../util/paths.js";

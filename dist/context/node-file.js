@@ -30,6 +30,8 @@ import { relPosix, stripTrailingSlashes } from "../util/paths.js";
 // Value-only import of a constant; `write.ts` pulls in nothing from here, so no cycle.
 import { GRAPH_DIR } from "../graph/write.js";
 import location from './location.cjs';
+import safePath from '../util/safe-path.cjs';
+import { readSourceFile } from "../util/source.js";
 export const MANIFEST_VERSION = 1;
 const GEN_START = "<!-- context:generated:start -->";
 const GEN_END = "<!-- context:generated:end -->";
@@ -63,7 +65,7 @@ export function digestSources(sources) {
 /** Hidden index, with read compatibility for an identified legacy index. */
 export function contextDirFor(root, override) {
     if (override)
-        return override;
+        return safePath.assertNoSymlinks(override);
     return location.indexDir(root);
 }
 /**
@@ -88,6 +90,7 @@ export function ensureGitignored(root, contextDir) {
     // repo-relative here, so a leading `/` is always safe (incl. a `--dir` subpath).
     const entry = `/${bare}/`;
     const path = join(root, ".gitignore");
+    safePath.assertNoSymlinks(path, root);
     let current = "";
     try {
         current = readFileSync(path, "utf8");
@@ -140,6 +143,7 @@ export function ensureSearchable(root, contextDir) {
     if (dir === '.grafly') return;
     const entry = `!${dir}/`;
     const path = join(root, ".ignore");
+    safePath.assertNoSymlinks(path, root);
     let current = "";
     try {
         current = readFileSync(path, "utf8");
@@ -207,8 +211,10 @@ function preserveHuman(existingContent) {
  * path written.
  */
 export function writeNode(dir, node) {
+    safePath.assertNoSymlinks(dir);
     mkdirSync(dir, { recursive: true });
     const path = join(dir, `${node.slug}.md`);
+    safePath.assertNoSymlinks(path, dir);
     if (existsSync(path)) {
         const parsed = parseFrontmatter(readFileSync(path, "utf8"));
         node = { ...node, human: preserveHuman(parsed.content) };
@@ -281,7 +287,16 @@ export function readNodes(dir) {
     for (const entry of readdirSync(dir)) {
         if (!entry.endsWith(".md") || entry === "INDEX.md")
             continue;
-        const parsed = parseFrontmatter(readFileSync(join(dir, entry), "utf8"));
+        let parsed;
+        try {
+            const path = safePath.assertNoSymlinks(join(dir, entry), dir);
+            const text = readSourceFile(path);
+            if (text === null) throw new Error("oversize");
+            parsed = parseFrontmatter(text);
+        } catch {
+            console.warn(`Skipping invalid Grafly card: ${entry}`);
+            continue;
+        }
         const fm = parsed.data;
         const fallbackSlug = entry.replace(/\.md$/, "");
         if (isRootFileCard(fallbackSlug, fm, parsed.content, fileCardStems))
@@ -308,6 +323,7 @@ export function existingNodeSlugs(dir) {
         .map((e) => e.replace(/\.md$/, "")));
 }
 export function writeManifest(dir, manifest) {
+    safePath.assertNoSymlinks(join(dir, MANIFEST_FILE));
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, MANIFEST_FILE), JSON.stringify(manifest, null, 2) + "\n");
 }

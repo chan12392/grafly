@@ -6,7 +6,7 @@
  * a server that is missing, slow, or errors degrades to "no enrichment", never a
  * crash — the AST graph stands on its own.
  */
-import { spawn } from "node:child_process";
+import { spawn } from "../../util/subprocess.js";
 import { pathToFileURL } from "node:url";
 import { readFileSync } from "node:fs";
 import { createMessageConnection, StreamMessageReader, StreamMessageWriter, } from "vscode-jsonrpc/node.js";

@@ -15,6 +15,7 @@ import { scopeOf, scopesOfGraph } from '../graph/scopes.js';
 import { hasGraflyIndex } from '../graph/root.js';
 import { classifyToolUse, parseSavings, recordToolUse } from './session-metrics.js';
 import { shouldRetrievePrompt } from './prompt-gate.js';
+import { readStdinText } from '../util/stdin.js';
 function readStdin() {
     const seam = process.env.GRAFLY_TEST_STDIN ?? process.env.GRAFT_TEST_STDIN;
     const raw = seam !== undefined ? seam : safeReadFd0();
@@ -26,7 +27,7 @@ function readStdin() {
     }
 }
 function safeReadFd0() { try {
-    return readFileSync(0, 'utf8');
+    return readStdinText();
 }
 catch {
     return '';

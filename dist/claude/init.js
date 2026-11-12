@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync, chmodSync } from 'node:fs';
+import safePath from '../util/safe-path.cjs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -46,6 +47,7 @@ export function buildGraphIfMissing(dir, opts) {
 export function runInit(dir, opts = {}) {
     // Same list `--dry-run` and the picker report, so the two can't drift apart.
     const [settings, statusline, hooks, skill] = claudeTargets(dir).map((t) => t.path);
+    for (const target of [settings, statusline, hooks, skill]) safePath.assertNoSymlinks(target, dir);
     const settingsPath = settings;
     const loaded = readJsonObject(settingsPath);
     if (loaded === 'unparseable')

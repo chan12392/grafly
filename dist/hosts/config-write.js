@@ -8,6 +8,7 @@
  * event shapes differ per host, while owned-handler replacement is shared.
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, statSync } from 'node:fs';
+import safePath from '../util/safe-path.cjs';
 import { dirname } from 'node:path';
 /**
  * Write a graft-owned file, idempotently: unchanged when the content already
@@ -16,6 +17,7 @@ import { dirname } from 'node:path';
  * the caller's expectations.
  */
 export function writeOwned(id, path, content, mode) {
+    safePath.assertNoSymlinks(path);
     const existed = existsSync(path);
     if (existed && readFileSync(path, 'utf8') === content) {
         if (mode !== undefined && (statSync(path).mode & 0o777) !== mode)
@@ -84,10 +86,12 @@ export function mergeGraftHookEntries(prior, replacement = []) {
  * clobber a hand-edited broken `hooks.json`.
  */
 export function readJsonObject(path) {
+    safePath.assertNoSymlinks(path);
     if (!existsSync(path))
         return { root: {}, existed: false };
     let root;
     try {
+        if (statSync(path).size > 1024 * 1024) return 'unparseable';
         root = JSON.parse(readFileSync(path, 'utf8'));
     }
     catch {

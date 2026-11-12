@@ -3,7 +3,7 @@ import { createHash, createPublicKey, verify, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, lstatSync, readFileSync, writeFileSync, renameSync, readdirSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve, isAbsolute } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../util/subprocess.js';
 import { pathToFileURL } from 'node:url';
 import { acquireProcessLock } from '../util/process-lock.js';
 

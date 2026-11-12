@@ -1,40 +1,4 @@
-/**
- * The wired-up version of `./upkeep.ts` — one call every entry point makes.
- *
- * Split from `upkeep.ts` so that module stays pure and unit-testable (no init
- * writes, no spawning): this file is the only place that knows how to actually
- * re-run the wiring, and it is deliberately thin.
- */
-import { runInit } from './claude/init.js';
-import { runHostsInit } from './hosts/init.js';
-import { graftCliPath } from './claude/paths.js';
-import { formatUpdateNudge, formatWiringRefresh, maybeRefreshBrainRules, maybeRefreshInBackground, readUpdateCache, reconcileWiring, } from './upkeep.js';
-/**
- * Re-write the wiring for exactly the hosts a previous `init` chose here, with
- * exactly the flags it was given.
- *
- * `build: false` matters: this runs at session start, and a graph
- * build there would stall the agent's first turn.
- *
- * The out-of-repo writes (`~/.codex/hooks.json`, `~/.codex/config.toml`) ARE
- * included, because nothing else would ever refresh them: no skill or rule file
- * tells an agent to run `graft init`, so leaving them out means a
- * Codex user upgrades the binary and keeps the old hook config forever. They're
- * safe to replay — `installCodexHooks` no-ops when `~/.codex` is absent, rewrites
- * only its own entry (matched on `graft-hooks.cjs`), and reports `unchanged` when
- * the bytes match. A user who declined them at init time is honoured via
- * `opts.global`/`opts.hooks`, replayed from the stamp.
- */
-function rewriteWiring(repo, hosts, opts) {
-    // `opts.global` reaches the claude layer for the same reason `opts.statusline` does:
-    // its `~/.claude` writes (hosts/claude-global.ts) are out-of-repo, and a user who
-    // declined those at init time must keep declining them on every replay.
-    if (hosts.includes('claude'))
-        runInit(repo, { build: false, cliPath: graftCliPath(), statusline: opts.statusline, global: opts.global });
-    const others = hosts.filter((h) => h !== 'claude');
-    if (others.length)
-        runHostsInit(repo, { agents: others, global: opts.global, hooks: opts.hooks });
-}
+import { formatUpdateNudge, maybeRefreshBrainRules, maybeRefreshInBackground, readUpdateCache } from './upkeep.js';
 /**
  * @param repo    the project dir
  * @param current the running graft's version
@@ -43,13 +7,8 @@ function rewriteWiring(repo, hosts, opts) {
  */
 export function runUpkeep(repo, current, opts = {}) {
     const lines = [];
-    try {
-        const refreshed = reconcileWiring(repo, current, { rewrite: rewriteWiring });
-        const refreshLine = formatWiringRefresh(refreshed);
-        if (refreshLine)
-            lines.push(refreshLine);
-    }
-    catch { /* fail-soft: wiring refresh is never worth breaking a session for */ }
+    // Repository markers are not consent to rewrite user-level host settings.
+    // Wiring is refreshed only by an explicit init/hooks invocation.
     try {
         // Opt-in local mining runs in a child and never delays this session.
         if (opts.background !== false)

@@ -14,13 +14,15 @@
  * `summary` when present (after `grafly build --deep`), else its deterministic
  * `signature`, so cards are useful even in a $0 structure-only build.
  */
-import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { relPosix } from "../util/paths.js";
 import matter from "gray-matter";
 import { parseFrontmatter } from "../context/frontmatter.js";
 import { CACHE_DIR, readNodes } from "../context/node-file.js";
 import { GRAPH_DIR } from "./write.js";
+import safePath from "../util/safe-path.cjs";
+import { readSourceFile } from "../util/source.js";
 const INDEX_FILE = "INDEX.md";
 /** Where a root-level file card goes when `grafly/<stem>.md` is already a concept
  * node (same stem as a slug — Laravel `server.php` vs a "Server" concept). */
@@ -32,11 +34,14 @@ function isConceptNodeFile(path) {
     if (!existsSync(path))
         return false;
     try {
-        const fm = parseFrontmatter(readFileSync(path, "utf8")).data;
+        safePath.assertNoSymlinks(path);
+        const text = readSourceFile(path);
+        if (text === null) return true;
+        const fm = parseFrontmatter(text).data;
         return fm.slug != null && String(fm.slug).length > 0;
     }
     catch {
-        return false;
+        return true; // An unreadable/malformed note must not be overwritten by a file card.
     }
 }
 /** Card name for a source path: swap the extension for .md. */
@@ -108,7 +113,9 @@ const SYMBOL_LINE = /^- .+ · \S+ · L\d+-L\d+(?: — .*)?$/;
  * summary, then only symbol lines (or the no-symbols marker). Concept nodes
  * (frontmatter) and hand-placed notes are never matched, so never pruned. */
 function isRootCard(path, name) {
-    const lines = readFileSync(path, "utf8").split(/\r?\n/);
+    const text = readSourceFile(path);
+    if (text === null) return false;
+    const lines = text.split(/\r?\n/);
     while (lines.length && lines[lines.length - 1] === "")
         lines.pop();
     const m = /^# ([^/]+?)(?: · \[\[.*\]\])?$/.exec(lines[0] ?? "");
@@ -177,6 +184,7 @@ function pruneEmptyDirs(outDir) {
  * and prune cards whose source no longer exists. Returns what changed.
  */
 export function writeCards(graph, outDir) {
+    safePath.assertNoSymlinks(outDir);
     const byPath = new Map();
     for (const n of graph.nodes) {
         const list = byPath.get(n.path) ?? [];
@@ -195,6 +203,7 @@ export function writeCards(graph, outDir) {
         const fileNode = group.find((n) => n.kind === "file");
         const symbols = group.filter((n) => n.kind !== "file");
         const cardPath = cardPathFor(outDir, sourcePath, stemCount.get(cardStem(sourcePath)) > 1);
+        safePath.assertNoSymlinks(cardPath, outDir);
         mkdirSync(dirname(cardPath), { recursive: true });
         writeFileSync(cardPath, renderCard(sourcePath, fileNode, symbols, concepts.get(sourcePath) ?? []));
         written.add(cardPath);
@@ -246,7 +255,7 @@ export function writeIndex(outDir, files) {
         lines.push(`${files.length} per-file wiring cards mirror the source tree under \`grafly/\` ` +
             `(${withSymbols} carry extracted symbols). They are deliberately not enumerated here —`, "`grep` a symbol or `find`/`ls` a filename under `grafly/` to land on the card for that file.", "");
     }
-    writeFileSync(join(outDir, INDEX_FILE), lines.join("\n"));
+    writeFileSync(safePath.assertNoSymlinks(join(outDir, INDEX_FILE)), lines.join("\n"));
 }
 /**
  * Backfill each concept node's frontmatter with a `covers:` list — the symbols
@@ -281,7 +290,13 @@ export function writeCovers(graph, outDir) {
         if (!entry.endsWith(".md") || entry === INDEX_FILE)
             continue;
         const full = join(outDir, entry);
-        const parsed = parseFrontmatter(readFileSync(full, "utf8"));
+        let parsed;
+        try {
+            safePath.assertNoSymlinks(full);
+            const text = readSourceFile(full);
+            if (text === null) throw new Error("oversize");
+            parsed = parseFrontmatter(text);
+        } catch { console.warn(`Skipping invalid Grafly card: ${entry}`); continue; }
         // Root-level file cards have no concept slug; stamping `covers: []` onto
         // them made readNodes treat them as concept nodes (#261).
         if (parsed.data.slug == null || String(parsed.data.slug).length === 0)
@@ -290,7 +305,7 @@ export function writeCovers(graph, outDir) {
             ? parsed.data.sources
             : [];
         const covers = [];
-        for (const path of [...new Set(sources.map((s) => s.path ?? ""))].sort()) {
+        for (const path of [...new Set(sources.map((s) => s?.path ?? ""))].sort()) {
             for (const n of symbolsByPath.get(path) ?? []) {
                 covers.push({ symbol: n.name, kind: n.kind, at: `${n.path}:${n.span}` });
             }

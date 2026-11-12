@@ -6,6 +6,8 @@ import { materialKind } from "../ingest/material-types.js";
 import { filterByOnlyDirs } from "../graph/source-files.js";
 import { contentHash } from "../util/id.js";
 import { relPosix } from "../util/paths.js";
+import { isSensitivePath } from "../util/sensitive-path.js";
+import { openPdf } from "./pdf.js";
 import { readFollowNestedRepos, readFollowSubmodules, readIncludeDirs, readJson, writeJsonAtomic } from "../util/state.js";
 
 const VERSION = 1;
@@ -24,7 +26,7 @@ export function readMaterials(outDir) {
         && ["document", "pdf", "image"].includes(f.kind) && ["ready", "pending", "partial", "error"].includes(f.status)
         && f.chunks.every(c => c && typeof c.id === "string" && typeof c.text === "string" && typeof c.pointer === "string"
             && Array.isArray(c.references) && c.references.every(r => r && typeof r.pointer === "string" && typeof r.target === "string")))) return undefined;
-    return data;
+    return { ...data, files: data.files.filter(file => !isSensitivePath(file.path)) };
 }
 export function listMaterialStats(root, outDir, repoFiles, onlyDirs) {
     const files = repoFiles ?? walkDir(root, readIncludeDirs(root), {
@@ -109,24 +111,18 @@ async function extract(file, kind, bytes, vision, gate) {
         const text = await describeImage(vision, bytes, MIME[extname(file.rel).toLowerCase()], file.rel, gate);
         return { chunks: chunks(text, file.rel, "vision"), status: "ready", model: vision.label };
     }
-    const { getDocumentProxy, renderPageAsImage } = await import("unpdf");
-    const pdf = await getDocumentProxy(new Uint8Array(bytes), { isEvalSupported: false, useSystemFonts: false, verbosity: 0 });
+    const pdf = await openPdf(bytes);
     const result = [], failures = [];
     let pending = false, chars = 0, complete = pdf.numPages <= MAX_PAGES;
     try {
         for (let page = 1; page <= Math.min(pdf.numPages, MAX_PAGES); page++) {
             try {
-                const p = await pdf.getPage(page);
-                const content = await p.getTextContent();
-                let text = content.items.map(item => "str" in item ? item.str + (item.hasEOL ? "\n" : " ") : "").join("");
+                let { text, png } = await pdf.readPage(page, Boolean(vision && !gate.stopped));
                 let method = "pdf-text";
                 if (!text.trim()) {
                     if (!vision) { pending = true; continue; }
                     if (gate.stopped) throw new Error(gate.fatal);
-                    const viewport = p.getViewport({ scale: 1 });
-                    const scale = Math.min(1.5, 2000 / Math.max(viewport.width, viewport.height));
-                    const png = await renderPageAsImage(pdf, page, { scale, canvasImport: () => import("@napi-rs/canvas") });
-                    text = await describeImage(vision, png, "image/png", `${file.rel}#page=${page}`, gate);
+                    text = await describeImage(vision, Buffer.from(png), "image/png", `${file.rel}#page=${page}`, gate);
                     method = "vision";
                 }
                 const remaining = MAX_TEXT_CHARS - chars;
@@ -141,7 +137,7 @@ async function extract(file, kind, bytes, vision, gate) {
         return { chunks: result, status: failures.length ? "error" : pending || !complete ? "partial" : "ready", pages: pdf.numPages,
             ...(failures.length ? { error: failures.join("; ") } : {}),
             ...(vision && result.some(c => c.method === "vision") ? { model: vision.label } : {}) };
-    } finally { await pdf.loadingTask.destroy(); }
+    } finally { await pdf.close(); }
 }
 
 function codeLookup(graph) {

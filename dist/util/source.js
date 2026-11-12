@@ -1,7 +1,8 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 /** Read source text, decoding Windows tooling's common UTF-16LE output. UTF-16BE
  * is rare and unsupported by Node's built-in decoders, so callers silently skip it. */
 export function readSourceFile(path) {
+    if (statSync(path).size > 1024 * 1024) return null;
     const bytes = readFileSync(path);
     if (bytes[0] === 0xfe && bytes[1] === 0xff)
         return null;

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import "dotenv/config";
 import { tryResidentSearch } from "./search/client.js";
 // `--read-only` anywhere on the command line is the same switch as GRAFLY_READONLY=1, which every
 // command and the resident service (it forwards GRAFLY_* env) already honour.

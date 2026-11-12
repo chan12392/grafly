@@ -26,3 +26,5 @@ export declare function stripTrailingSlashes(path: string): string;
  * `--in server\src\gpu`, so both separators have to reduce to the same prefix.
  */
 export declare function normalizePathPrefix(p: string): string;
+/** Validate a workspace child at the filesystem trust boundary. */
+export declare function workspaceChildPath(root: string, child: string): string;

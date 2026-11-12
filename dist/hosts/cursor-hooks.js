@@ -85,7 +85,7 @@ export function installCursorHooks(repo) {
         if (hooks[d.event] !== undefined && !Array.isArray(hooks[d.event]))
             return [shimWrite, skipped];
         const prior = Array.isArray(hooks[d.event]) ? hooks[d.event] : [];
-        const command = `node "${shimPath}" ${d.sub}`;
+        const command = `node ${quoteHookPath(shimPath)} ${d.sub}`;
         const entry = d.matcher ? { matcher: d.matcher, command } : { command };
         hooks[d.event] = mergeGraftHookEntries(prior, [entry]);
     }
@@ -94,3 +94,4 @@ export function installCursorHooks(repo) {
     writeFileSync(cfgPath, `${JSON.stringify(root, null, 2)}\n`);
     return [shimWrite, { id: 'cursor-hooks', path: cfgPath, action: existed ? 'updated' : 'created' }];
 }
+import { quoteHookPath } from './quote-hook-path.js';

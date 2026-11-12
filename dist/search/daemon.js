@@ -1,7 +1,7 @@
 import { connect, createServer } from "node:net";
 import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, openSync, closeSync, lstatSync, unlinkSync, writeFileSync } from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn } from "../util/subprocess.js";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
@@ -125,7 +125,7 @@ export async function serveSearch({ stdio = false } = {}) {
         const reconnect = () => {
             tunnel = spawn("ssh", ["-N", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ExitOnForwardFailure=yes",
                 "-o", "ConnectTimeout=10", "-o", "ForwardAgent=no", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
-                "-L", `127.0.0.1:${config.xerjPort}:127.0.0.1:${config.xerjPort}`, config.oracleHost],
+                "-L", `127.0.0.1:${config.xerjPort}:127.0.0.1:${config.xerjPort}`, "--", config.oracleHost],
                 { windowsHide: true, stdio: ["ignore", log, log] });
             tunnel.on("error", (error) => console.error("Search tunnel:", error.message));
             tunnel.once("close", () => { if (!stopping) retry = setTimeout(reconnect, 5000); });

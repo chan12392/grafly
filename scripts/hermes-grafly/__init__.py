@@ -6,18 +6,28 @@ import shutil
 import subprocess
 
 
+def _trusted_which(name):
+    for directory in os.get_exec_path():
+        if not os.path.isabs(directory) or Path(directory).resolve() == Path.cwd().resolve():
+            continue
+        found = shutil.which(os.path.join(directory, name))
+        if found:
+            return found
+    return None
+
+
 def grafly_context(session_id="", user_message="", is_first_turn=False, **_kwargs):
     # Hermes desktop can serve several project sessions in one process. Never
     # infer their repository from the backend's process working directory.
     from agent.runtime_cwd import resolve_agent_cwd
 
-    node = shutil.which("node")
+    node = _trusted_which("node")
     if not node:
         return None
     if os.name == "nt":
         package = Path(os.environ.get("APPDATA", "")) / "npm/node_modules/grafly"
     else:
-        cli = shutil.which("grafly")
+        cli = _trusted_which("grafly")
         if not cli:
             return None
         package = Path(cli).resolve().parent.parent
@@ -51,13 +61,13 @@ def grafly_route(tool_name="", args=None, session_id="", **_kwargs):
     from tools.terminal_tool import _get_env_config
     if _get_env_config().get("env_type") != "local":
         return None
-    node = shutil.which("node")
+    node = _trusted_which("node")
     if not node:
         return None
     if os.name == "nt":
         package = Path(os.environ.get("APPDATA", "")) / "npm/node_modules/grafly"
     else:
-        cli = shutil.which("grafly")
+        cli = _trusted_which("grafly")
         if not cli:
             return None
         package = Path(cli).resolve().parent.parent

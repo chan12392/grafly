@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn } from '../../util/subprocess.js';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';

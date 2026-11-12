@@ -65,7 +65,7 @@ function upsertGlobalHooks(id, path, helpers, agentShim, apply) {
         mkdirSync(dirname(path), { recursive: true });
         // The file carries every Claude Code setting, not just hooks.
         if (existed)
-            copyFileSync(path, `${path}.grafly-bak`);
+            copyFileSync(path, safePath.assertNoSymlinks(`${path}.grafly-bak`));
         writeFileSync(path, `${JSON.stringify(merged, null, 2)}\n`);
     }
     return { id, path, action: existed ? 'updated' : 'created' };
@@ -121,3 +121,4 @@ export function installClaudeGlobal(home, { apply = true } = {}) {
     }
     return out;
 }
+import safePath from '../util/safe-path.cjs';
