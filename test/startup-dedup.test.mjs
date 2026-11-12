@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, utimesSync, statSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, utimesSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
@@ -46,6 +46,16 @@ test('later startup and inaccessible cache fail open', t => {
   const blocked = join(root, 'not-a-directory');
   writeFileSync(blocked, 'original');
   assert.equal(claimStartup(blocked, { session_id: 'one' }, 'orientation'), true);
+});
+
+test('startup cache rejects redirected descendants without blocking orientation', t => {
+  const root = fixture(t), outside = join(root, 'outside');
+  mkdirSync(outside);
+  writeFileSync(join(outside, 'original'), 'keep');
+  mkdirSync(join(root, 'grafly/.cache'));
+  symlinkSync(outside, join(root, 'grafly/.cache/hook-startup'), process.platform === 'win32' ? 'junction' : 'dir');
+  assert.equal(claimStartup(root, { session_id: 'one' }, 'orientation'), true);
+  assert.deepEqual(readdirSync(outside), ['original']);
 });
 
 test('real adapter deduplicates two concurrent registrations without changing orientation', async t => {

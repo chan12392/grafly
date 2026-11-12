@@ -83,8 +83,9 @@ function claimStartup(root, input, context, now = Date.now()) {
   const id = input.session_id || input.thread_id || process.env.CODEX_THREAD_ID;
   if (!id || (input.source && input.source !== 'startup')) return true;
   const key = createHash('sha256').update(JSON.stringify([id, context])).digest('hex');
-  const file = path.join(indexDir(root), '.cache', 'hook-startup', `${key}.stamp`);
   try {
+    const file = path.join(indexDir(root), '.cache', 'hook-startup', `${key}.stamp`);
+    require(path.join(PKG, 'util', 'safe-path.cjs')).assertNoSymlinks(file);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     try {
       // NTFS and the Windows coarse wall clock can differ by a few milliseconds.
