@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readStdinText } from '../util/stdin.js';
 import { renderStatusline, renderSubagent } from './format.js';
 import { readStats, readSession, emptyStats } from './state.js';
 import { readWiring, computeStats } from './stats.js';
@@ -24,7 +24,7 @@ export function resolveStats(dir) {
 export function main() {
     let input = {};
     try {
-        input = JSON.parse(readFileSync(0, 'utf8'));
+        input = JSON.parse(readStdinText());
     }
     catch { /* no/invalid stdin */ }
     const dir = process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd();

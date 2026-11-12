@@ -9,19 +9,29 @@ import shutil
 import subprocess
 
 
+def _trusted_which(name):
+    for directory in os.get_exec_path():
+        if not os.path.isabs(directory) or Path(directory).resolve() == Path.cwd().resolve():
+            continue
+        found = shutil.which(os.path.join(directory, name))
+        if found:
+            return found
+    return None
+
+
 def grafly_route(tool_name="", args=None, session_id="", **_kwargs):
     if tool_name != "terminal" or not isinstance(args, dict):
         return None
     from tools.terminal_tool import _get_env_config
     if _get_env_config().get("env_type") != "local":
         return None
-    node = shutil.which("node")
+    node = _trusted_which("node")
     if not node:
         return None
     if os.name == "nt":
         package = Path(os.environ.get("APPDATA", "")) / "npm/node_modules/grafly"
     else:
-        cli = shutil.which("grafly")
+        cli = _trusted_which("grafly")
         if not cli:
             return None
         package = Path(cli).resolve().parent.parent

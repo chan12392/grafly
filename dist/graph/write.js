@@ -8,8 +8,11 @@
  * timestamps, so rebuilding an unchanged repo produces a byte-identical file and
  * git diffs stay minimal.
  */
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { readJson } from "../util/state.js";
+import safePath from "../util/safe-path.cjs";
 /** Hidden subdir under the context dir that holds machine-only graph artifacts. */
 export const GRAPH_DIR = ".graph";
 export const GRAPH_FILE = "wiring.json";
@@ -30,7 +33,10 @@ export function traversePath(outDir) {
  */
 export function readGraph(path) {
     try {
-        return JSON.parse(readFileSync(path, "utf8"));
+        const graph = readJson(path);
+        return graph && Array.isArray(graph.nodes) && Array.isArray(graph.edges)
+            && graph.nodes.every(n => n && typeof n.id === "string" && typeof n.kind === "string" && typeof n.path === "string")
+            && graph.edges.every(e => e && typeof e.source === "string" && typeof e.target === "string" && typeof e.relation === "string") ? graph : null;
     }
     catch {
         return null;
@@ -43,20 +49,21 @@ export function writeGraph(graph, outDir) {
         edges: [...graph.edges].sort(edgeOrder),
     };
     const path = wiringPath(outDir);
+    safePath.assertNoSymlinks(path);
     mkdirSync(dirname(path), { recursive: true });
     // Atomic write (temp + rename): the crux pass now checkpoints wiring.json
     // periodically (#128), and a --deep run is exactly what gets killed mid-flush
     // (SIGTERM/CI timeout/laptop sleep). A partial writeFileSync would leave a
     // truncated, unparseable graph; rename swaps it in atomically on the same fs.
     //
-    // pid in the temp name, and removed when the write fails — the same discipline
+    // Exclusive random scratch names, removed on failure — the same discipline
     // `writeJsonAtomic` (util/state.ts) documents: a fixed name lets a concurrent
     // build (a manual `graft build` racing the refresh child) write the same scratch
     // file and hand the loser a corrupt graph, and a failed rename would otherwise
     // leave a full-size orphan behind that nothing ever cleans up.
-    const tmp = `${path}.${process.pid}.tmp`;
+    const tmp = `${path}.${randomUUID()}.tmp`;
     try {
-        writeFileSync(tmp, JSON.stringify(sorted, null, 2) + "\n");
+        writeFileSync(tmp, JSON.stringify(sorted, null, 2) + "\n", { flag: 'wx' });
         renameSync(tmp, path);
         writeTraverseAtomic(sorted, traversePath(outDir));
     }
@@ -82,14 +89,15 @@ function traverseNode(n) {
 /** Same temp+rename discipline as the wiring write above — a killed --deep
  * checkpoint must not leave a half-written sidecar behind. */
 function writeTraverseAtomic(sorted, path) {
+    safePath.assertNoSymlinks(path);
     const slim = {
         nodes: sorted.nodes.map(traverseNode),
         edges: sorted.edges.map((e) => ({ source: e.source, relation: e.relation, target: e.target })),
         ...(sorted.ambiguousCalls ? { ambiguousCalls: sorted.ambiguousCalls } : {}),
     };
-    const tmp = `${path}.${process.pid}.tmp`;
+    const tmp = `${path}.${randomUUID()}.tmp`;
     try {
-        writeFileSync(tmp, JSON.stringify(slim, null, 2) + "\n");
+        writeFileSync(tmp, JSON.stringify(slim, null, 2) + "\n", { flag: 'wx' });
         renameSync(tmp, path);
     }
     catch (e) {

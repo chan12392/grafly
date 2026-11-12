@@ -7,7 +7,7 @@
  * this feeds already has git — and `--unified=0` gives exactly the post-image
  * line ranges we need, with no context lines to subtract back out.
  */
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../util/subprocess.js";
 import { resolve } from "node:path";
 const HUNK_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
 /** Text kept per hunk, and per file. A regenerated lockfile is one hunk of 40,000

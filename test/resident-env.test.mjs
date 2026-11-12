@@ -9,7 +9,7 @@ import { once } from 'node:events';
 import { readGraph, wiringPath } from '../dist/graph/write.js';
 import { symbolModel, installConsumerModel } from './fixtures/mc-model.mjs';
 
-test('stdio requests inherit executable lookup, accept overrides and restore it for the next request', t => {
+test('stdio requests preserve service executable lookup even when a request tries to override it', t => {
     const root = mkdtempSync(join(tmpdir(), 'grafly-resident-env-'));
     t.after(() => {
         assert.equal(dirname(resolve(root)), resolve(tmpdir()));
@@ -43,7 +43,7 @@ test('stdio requests inherit executable lookup, accept overrides and restore it 
         const response = responses.find(row => row.id === i + 1);
         assert.equal(response?.exitCode, 0, JSON.stringify(response));
         const paths = [...new Set(readGraph(wiringPath(join(repos[i], '.grafly'))).nodes.map(n => n.path))].sort();
-        assert.deepEqual(paths, i === 1 ? ['private.js', 'public.js'] : ['public.js']);
+        assert.deepEqual(paths, ['public.js']);
     }
 });
 

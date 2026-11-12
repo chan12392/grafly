@@ -264,18 +264,18 @@ test('home adapter honors thread_id session isolation without a session_id', (t)
   }
 });
 
-test('auto-build root prefers the git checkout, falls back to the session folder, skips home', (t) => {
+test('auto-build root accepts git checkouts and leaves loose directories and home alone', (t) => {
   const f = fixture(t);
   const loose = join(f.root, 'loose');
   const repo = join(f.root, 'repo');
   mkdirSync(loose);
   mkdirSync(join(repo, '.git'), { recursive: true });
   assert.equal(autoBuildRoot(join(repo, 'pkg', 'src'), f.root), repo);
-  assert.equal(autoBuildRoot(loose, f.root), loose);
+  assert.equal(autoBuildRoot(loose, f.root), null);
   assert.equal(autoBuildRoot(f.root, f.root), null, 'home stays silent');
   assert.equal(autoBuildRoot(resolve(sep), f.root), null, 'filesystem root stays silent');
   mkdirSync(join(f.root, '.git'));
-  assert.equal(autoBuildRoot(loose, f.root), loose, 'a home checkout must not swallow $HOME');
+  assert.equal(autoBuildRoot(loose, f.root), null, 'a home checkout must not swallow $HOME');
 });
 
 test('home indexes remain isolated from unindexed projects and unrelated directories', (t) => {

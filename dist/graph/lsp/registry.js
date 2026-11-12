@@ -3,7 +3,8 @@
  * Only servers whose binary is actually on PATH are eligible; a missing binary
  * simply means that language gets no LSP enrichment (the AST graph stands alone).
  */
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import commands from "../../util/executable.cjs";
 /** First-match-wins; ordering is priority. Extend by adding a row. */
 export const LSP_SERVERS = [
     { languages: ["rust"], command: "rust-analyzer", args: [], languageId: "rust" },
@@ -22,7 +23,8 @@ function resolveCommand(cmd) {
         return resolved.get(cmd);
     let abs = null;
     try {
-        abs = execSync(`command -v ${cmd}`, { encoding: "utf8" }).trim() || null;
+        abs = process.platform === "win32" ? commands.executable(cmd)
+            : execFileSync("/bin/sh", ["-c", 'command -v "$1"', "grafly-lsp", cmd], { encoding: "utf8", windowsHide: true }).trim() || null;
     }
     catch {
         abs = null;

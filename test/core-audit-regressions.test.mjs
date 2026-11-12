@@ -35,18 +35,18 @@ test('build and metadata readers treat executable frontmatter as data', t => {
     const code = `(() => { require('node:fs').appendFileSync(${JSON.stringify(marker)}, 'executed'); return {slug:'audit',sources:[],links:[]}; })()`;
     const hostile = `\uFEFF---javascript\r\n${code}\r\n---\r\nAudit.\n`;
     writeFileSync(card, hostile);
+    assert.throws(() => writeNode(index, { slug: 'audit' }), /Unsupported concept frontmatter language/);
     for (const read of [
-        () => readNodes(index),
-        () => writeNode(index, { slug: 'audit' }),
         () => writeCards(emptyGraph, index),
         () => writeCovers(emptyGraph, index),
-        () => ask(root, 'audit'),
-    ]) assert.throws(read, /Unsupported concept frontmatter language/);
+    ]) assert.doesNotThrow(read);
+    assert.deepEqual(readNodes(index), []);
+    assert.doesNotThrow(() => ask(root, 'audit'));
     const built = spawnSync(process.execPath, [cli, 'build', root], {
         windowsHide: true, encoding: 'utf8', timeout: 30000, env: { ...process.env, GRAFLY_NO_DAEMON: '1' },
     });
-    assert.equal(built.status, 1, built.stderr);
-    assert.match(built.stderr, /Unsupported concept frontmatter language/);
+    assert.equal(built.status, 0, built.stderr);
+    assert.match(built.stderr, /Skipping invalid Grafly card/);
     assert.equal(existsSync(marker), false);
     assert.equal(readFileSync(card, 'utf8'), hostile);
 });

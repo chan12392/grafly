@@ -2,7 +2,7 @@
 // index it delegates to grafly's own Claude-format hooks (same injection
 // contract, session state, and timeouts as upstream). Inside a directory with
 // NO index it kicks off a background `grafly build` once — a git checkout
-// indexes its root, any other folder indexes itself — so the graph appears
+// indexes its root; other directories require an explicit build — so the graph appears
 // without the user ever typing a command. The explicit home workspace searches
 // saved project graphs; home itself and filesystem roots stay silent.
 // Usage: node grafly-devin-hook.cjs <session-start|prompt>
@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { homedir } = require('os');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const { createHash } = require('crypto');
 
 const EVENT = process.argv[2] || 'prompt';
@@ -27,14 +27,17 @@ function pkgDist() {
     INSTALLED_DIST,
     path.resolve(__dirname, '..', 'dist'),
     path.join(path.dirname(process.execPath), 'node_modules', 'grafly', 'dist'),
-    path.join(process.env.APPDATA || '', 'npm', 'node_modules', 'grafly', 'dist'),
+    process.env.APPDATA && path.isAbsolute(process.env.APPDATA) ? path.join(process.env.APPDATA, 'npm', 'node_modules', 'grafly', 'dist') : null,
   ];
   for (const dir of candidates) {
     if (dir && fs.existsSync(path.join(dir, 'claude', 'hooks.js'))
         && fs.existsSync(path.join(dir, 'util', 'background.cjs'))) return dir;
   }
   try {
-    const root = execSync('npm root -g', {
+    const npmCli = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+    const root = execFileSync(process.platform === 'win32' ? process.execPath : 'npm',
+      process.platform === 'win32' ? [npmCli, 'root', '-g'] : ['root', '-g'], {
+      cwd: path.dirname(process.execPath),
       encoding: 'utf8', timeout: 10000, windowsHide: true,
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
@@ -144,7 +147,10 @@ function readStdin(ms = 3000) {
   return new Promise((resolve) => {
     let buf = '';
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (c) => { buf += c; });
+    process.stdin.on('data', (c) => {
+      buf += c;
+      if (Buffer.byteLength(buf) > 1024 * 1024) { buf = ''; process.stdin.destroy(); resolve(''); }
+    });
     process.stdin.on('end', () => resolve(buf));
     process.stdin.on('error', () => resolve(buf));
     setTimeout(() => resolve(buf), ms).unref();
@@ -165,9 +171,7 @@ function emit(context) {
 function autoBuildRoot(start, home = homedir()) {
   const git = findUp(start, (d) => fs.existsSync(path.join(d, '.git')));
   if (git && !samePath(git, home)) return git;
-  const root = path.resolve(start);
-  if (samePath(root, home) || path.dirname(root) === root) return null;
-  return root;
+  return null; // Opening an arbitrary directory is not consent to index it.
 }
 
 // Kick one detached `grafly build` per directory; the stamp debounces retries.
@@ -175,9 +179,10 @@ function tryAutoBuild(start) {
   if (process.env.GRAFLY_NO_AUTO_INDEX || process.env.GRAFT_NO_AUTO_INDEX) return false;
   const root = autoBuildRoot(start);
   if (!root) return false;
-  const ctxDir = process.env.GRAFLY_DIR || process.env.GRAFT_DIR || '.grafly';
-  const stamp = path.join(root, ctxDir, '.cache', 'auto-build.stamp');
   try {
+    const ctxDir = indexDir(root, process.env.GRAFLY_DIR || process.env.GRAFT_DIR);
+    const stamp = path.join(ctxDir, '.cache', 'auto-build.stamp');
+    require(path.join(PKG, 'util', 'safe-path.cjs')).assertNoSymlinks(stamp);
     if (fs.existsSync(stamp) && Date.now() - fs.statSync(stamp).mtimeMs < BUILD_STALE_MS) return false;
     fs.mkdirSync(path.dirname(stamp), { recursive: true });
     fs.writeFileSync(stamp, new Date().toISOString());
@@ -195,13 +200,13 @@ function selfUpgradeDue(stampPath, now = Date.now(), staleMs = SELF_UPDATE_MS) {
   } catch { return true; }
 }
 
-// Once a day, kick a detached `grafly _self-upgrade`: it git-pulls the linked
+// With GRAFLY_AUTO_UPDATE=1, once a day kick `grafly _self-upgrade`: it git-pulls the linked
 // checkout (npm-linked installs ARE the repo — dist/ is the product, no build
 // step) and then reconciles hook wiring, so dropped registrations self-heal.
 // The stamp is written before spawn so a failing pull retries tomorrow, not
 // every session. GRAFLY_NO_SELF_UPDATE opts out.
 function maybeSelfUpgrade() {
-  if (EVENT !== 'session-start' ||
+  if (EVENT !== 'session-start' || process.env.GRAFLY_AUTO_UPDATE !== '1' ||
       process.env.GRAFLY_NO_SELF_UPDATE || process.env.GRAFT_NO_SELF_UPDATE) return false;
   const stamp = path.join(homedir(), '.grafly', '.cache', 'self-upgrade.stamp');
   try {

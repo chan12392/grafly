@@ -3,7 +3,7 @@
  * `%APPDATA%/devin` on Windows; GRAFLY_DEVIN_DIR overrides). Devin reads the
  * same AGENTS.md the 'agents' host writes, so init installs these hooks under
  * the same selection — and postinstall applies them directly, since the hook
- * is global and now indexes whatever folder a session opens: waiting for a
+ * is global and indexes Git checkouts a session opens: waiting for a
  * per-repo `grafly init` would leave Devin silent everywhere else.
  *
  * Two files are grafly-owned: the self-contained shim (it resolves the
@@ -17,6 +17,8 @@
 import { copyFileSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { quoteHookPath } from './quote-hook-path.js';
+import safePath from '../util/safe-path.cjs';
 import { homedir } from 'node:os';
 import { writeOwned, planOwned, mergeGraftHookEntries, readJsonObject } from './config-write.js';
 import { userHooksDistDir } from '../claude/paths.js';
@@ -101,7 +103,7 @@ export function installDevinHooks(home = homedir(), { apply = true } = {}) {
         return [...fileWrites, skipped];
     // Devin runs these through a shell on Windows — forward slashes survive
     // every quoting layer, matching the hand-installed entries.
-    const q = (p) => `"${p.replaceAll('\\', '/')}"`;
+    const q = quoteHookPath;
     const node = q(process.execPath);
     for (const d of [
         { event: 'SessionStart', budgetMs: 9000, sub: 'session-start', timeout: 10 },
@@ -121,7 +123,7 @@ export function installDevinHooks(home = homedir(), { apply = true } = {}) {
         return [...fileWrites, { id: 'devin-hooks', path: cfgT.path, action: 'unchanged' }];
     if (apply) {
         if (existed)
-            copyFileSync(cfgT.path, `${cfgT.path}.grafly-bak`);
+            copyFileSync(cfgT.path, safePath.assertNoSymlinks(`${cfgT.path}.grafly-bak`));
         writeFileSync(cfgT.path, `${JSON.stringify(root, null, 2)}\n`);
     }
     return [...fileWrites, { id: 'devin-hooks', path: cfgT.path, action: existed ? 'updated' : 'created' }];

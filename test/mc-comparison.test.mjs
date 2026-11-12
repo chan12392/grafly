@@ -89,8 +89,10 @@ test('producer submits the complete original to the existing broker and persists
     const input = event(original);
     input.items[0].role = 'explanation'; input.items[0].requires = ['guard'];
     input.items.push({ id: 'guard', text: 'Known constraint.', protected: false, constraint_status: 'unknown', role: 'constraint' });
-    const result = await observeComparison(input, { cwd: f.root, env: f.env });
+    const result = await observeComparison(input, { cwd: f.root, env: { ...f.env, OPENAI_API_KEY: 'fixture-private-api-key' } });
     assert.equal(result.status, 'queued');
+    assert.equal(packet.environment, undefined);
+    assert.ok(!JSON.stringify(packet).includes('fixture-private-api-key'));
     assert.equal(JSON.parse(packet.stdin).items[0].text, original);
     assert.equal(JSON.parse(packet.stdin).source, 'grafly');
     // The harness prepares once after adding the goal and constraints; this producer forwards actual facts unchanged.
@@ -102,7 +104,9 @@ test('producer submits the complete original to the existing broker and persists
 
 test('private material, oversized blocks and absent sessions are skipped without calls', async t => {
     const f = configuration(t, 1);
-    for (const text of ['x'.repeat(65000), 'Authorization: Bearer private-credential-value', '{"api_key":"private-credential-value"}']) {
+    for (const text of ['x'.repeat(65000), 'Authorization: Bearer private-credential-value', '{"api_key":"private-credential-value"}',
+        'oauth_token: fixture-token-value', 'machine localhost login user password fixture-secret',
+        'https://user:fixture-token-value@example.test', 'client-key-data: fixture-base64-key']) {
         const result = await observeComparison(event(text), { env: f.env });
         assert.equal(result.reason, 'input_size_or_private_material');
     }

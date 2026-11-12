@@ -1,7 +1,7 @@
 /**
  * Active-layer install for CLI agents that read user-level hooks.json.
  * SessionStart/UserPromptSubmit run the self-contained devin-hook shim —
- * it auto-indexes whatever folder the session opens (git root or not) and
+ * it auto-indexes Git checkouts that the session opens and
  * gates prompt retrieval. PostToolUse/Stop keep the generated shim: the
  * devin shim's injected-context envelope only exists for those two events.
  */
@@ -12,6 +12,7 @@ import { hooksShim } from '../claude/shim-template.js';
 import { userHooksDistDir } from '../claude/paths.js';
 import { writeOwned, planOwned, mergeGraftHookEntries, readJsonObject } from './config-write.js';
 import { devinShimSource } from './devin-hooks.js';
+import { quoteHookPath } from './quote-hook-path.js';
 function dirExists(p) {
     try {
         return statSync(p).isDirectory();
@@ -35,12 +36,12 @@ export function hookTargets(home = homedir()) {
     const commands = Object.values(loaded?.root?.hooks ?? {})
         .flatMap((entries) => Array.isArray(entries) ? entries : [])
         .flatMap((entry) => Array.isArray(entry?.hooks) ? entry.hooks : [])
-        .map((handler) => handler?.command);
+        .map((handler) => handler?.command?.replaceAll('\\', '/'));
     const shimPath = (file, subs) => {
         const shared = join(home, '.codex', 'hooks', 'grafly', file);
         // Keep registered shared shim paths stable because Codex hashes command definitions.
         if (base !== resolve(home, '.codex')
-            && subs.some((sub) => commands.includes(`node "${shared}" ${sub}`))
+            && subs.some((sub) => commands.includes(`node ${quoteHookPath(shared)} ${sub}`))
             && statSync(shared, { throwIfNoEntry: false })?.isFile())
             return shared;
         return join(base, 'hooks', 'grafly', file);
@@ -95,7 +96,7 @@ export function installCodexHooks(home, { apply = true } = {}) {
         if (hooks[d.event] !== undefined && !Array.isArray(hooks[d.event]))
             return [...fileWrites, skipped];
         const prior = Array.isArray(hooks[d.event]) ? hooks[d.event] : [];
-        const handler = { type: 'command', command: `node "${d.shim}" ${d.sub}`, timeout: d.timeout };
+        const handler = { type: 'command', command: `node ${quoteHookPath(d.shim)} ${d.sub}`, timeout: d.timeout };
         const entry = d.matcher ? { matcher: d.matcher, hooks: [handler] } : { hooks: [handler] };
         // Preserve foreign entries in this event; replace any prior graft entry so an
         // upgrade re-points to the current shim/sub-command instead of stacking.

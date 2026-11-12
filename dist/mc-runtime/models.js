@@ -3,7 +3,7 @@ import { verify } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../util/subprocess.js';
 import { acquireLock, atomicWrite, download, pinRuntime, readConfig, runtimeHome, sha256, validatePinned } from './runtime.js';
 
 export const MODEL_MAX_BYTES = 128 * 1024;

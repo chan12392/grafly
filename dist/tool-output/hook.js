@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Route before tool selection, so normal host approvals/sandbox still apply. */
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { readFileSync } from "node:fs";
+import { readStdinText } from "../util/stdin.js";
 
 export function outputContext(event) {
     if (process.env.GRAFLY_TOOL_OUTPUT === "0" || !["SessionStart", "UserPromptSubmit"].includes(event?.hook_event_name)) return null;
@@ -15,10 +15,8 @@ export function outputContext(event) {
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     try {
-        const raw = readFileSync(0, "utf8").replace(/^\uFEFF/, "");
-        if (Buffer.byteLength(raw) <= 1024 * 1024) {
-            const result = outputContext(JSON.parse(raw));
-            if (result) process.stdout.write(JSON.stringify(result));
-        }
+        const raw = readStdinText().replace(/^\uFEFF/, "");
+        const result = outputContext(JSON.parse(raw));
+        if (result) process.stdout.write(JSON.stringify(result));
     } catch { /* Invalid/unsupported hooks pass through, without changing permissions. */ }
 }

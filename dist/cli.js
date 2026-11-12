@@ -4,7 +4,6 @@
  * map, init, migrate. The local graph cache lives under .grafly/. A
  * workspace parent (≥2 git children) federates query commands across children.
  */
-import "dotenv/config";
 import { Command } from "commander";
 import { exitCommand } from "./util/cli-exit.js";
 import { join, relative, resolve } from "node:path";
@@ -30,7 +29,7 @@ import { planInit, selectedWrites } from "./hosts/plan.js";
 import { planRetract, runRetract, changed } from "./hosts/retract.js";
 import { formatNonInteractiveHelp, formatPlan, runPicker } from "./cli-picker.js";
 import { homedir } from "node:os";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./util/subprocess.js";
 import { formatUpgradeReport, formatVersionReport, getNpmViewVersion, readCurrentVersion, runUpgrade } from "./cli-meta.js";
 import { patchBuildConfig } from "./util/state.js";
 import { normalizePathPrefix } from "./util/paths.js";

@@ -10,7 +10,7 @@
  * comments, symbol ids and hashes — nothing a reader could reconstruct a private
  * codebase from.
  */
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../util/subprocess.js";
 /** Field separators inside one `git log` record. Chosen for being bytes no
  * commit message contains, the same trick blast/owners.ts uses. */
 const REC = "\x01";

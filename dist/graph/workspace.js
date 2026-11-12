@@ -41,6 +41,8 @@ import { fuseScopes, STRONG_FLOOR, HIGH_FLOOR } from "../ask/fuse.js";
 import { grepGraph } from "../search/grep.js";
 import { withSavings } from "../context/savings.js";
 import { splitWorkspaceScope } from "../compat/options.js";
+import { workspaceChildPath } from "../util/paths.js";
+import { readJson, writeJsonAtomic } from "../util/state.js";
 const WORKSPACE_FILE = "workspace.json";
 /** Absolute path to the workspace index for a parent root (`<dir>/grafly/workspace.json`). */
 export function workspacePath(root, override) {
@@ -51,10 +53,11 @@ export function workspacePath(root, override) {
 export function readWorkspace(root, override) {
     const path = workspacePath(root, override);
     try {
-        const parsed = JSON.parse(readFileSync(path, "utf8"));
-        if (parsed.version !== 1 || !Array.isArray(parsed.children))
+        const parsed = readJson(path);
+        if (parsed?.version !== 1 || !Array.isArray(parsed.children))
             return null;
-        return { version: 1, children: parsed.children.map(String) };
+        for (const child of parsed.children) workspaceChildPath(root, child);
+        return { version: 1, children: parsed.children };
     }
     catch {
         return null;
@@ -62,11 +65,12 @@ export function readWorkspace(root, override) {
 }
 /** Write the workspace index, sorting children for a stable, minimal git diff. */
 export function writeWorkspace(root, ws, override) {
+    for (const child of ws.children) workspaceChildPath(root, child);
     const dir = contextDirFor(root, override);
     mkdirSync(dir, { recursive: true });
     const path = join(dir, WORKSPACE_FILE);
     const sorted = { version: 1, children: [...ws.children].sort() };
-    writeFileSync(path, JSON.stringify(sorted, null, 2) + "\n");
+    writeJsonAtomic(path, sorted);
     return path;
 }
 /** A parent is a workspace BUILD target when it has no own `.git` and ≥2 git
@@ -111,7 +115,7 @@ export function loadWorkspaceGraphs(root, override, load = loadGraphCached) {
     const loaded = [];
     const missing = [];
     for (const child of children) {
-        const graph = load(contextDirFor(join(root, child)));
+        const graph = load(contextDirFor(workspaceChildPath(root, child)));
         if (graph)
             loaded.push({ child, graph });
         else

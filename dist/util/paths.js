@@ -23,7 +23,8 @@
  * on posix, which is what guarantees an existing Mac/Linux graph is byte-identical
  * across this change.
  */
-import { relative, sep } from "node:path";
+import { relative, sep, resolve, isAbsolute, win32 } from "node:path";
+import safePath from "./safe-path.cjs";
 /** Platform separators → `/`. Identity on posix. */
 export function toPosixPath(p) {
     return sep === "/" ? p : p.split(sep).join("/");
@@ -37,6 +38,15 @@ export function toPosixPath(p) {
  */
 export function relPosix(from, to) {
     return toPosixPath(relative(from, to));
+}
+/** A workspace manifest cannot grant access to another checkout or a linked directory. */
+export function workspaceChildPath(root, child) {
+    if (typeof child !== "string" || !child.trim() || isAbsolute(child) || win32.isAbsolute(child)
+        || /^[a-z]:/i.test(child) || child.split(/[\\/]/).includes(".."))
+        throw new Error("Invalid workspace child path");
+    const path = resolve(root, child);
+    if (path === resolve(root)) throw new Error("A workspace cannot include itself");
+    return safePath.assertNoSymlinks(path, root);
 }
 /**
  * Trailing `/` off a repo-relative path, in linear time.

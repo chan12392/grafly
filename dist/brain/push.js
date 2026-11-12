@@ -5,7 +5,7 @@
  * metadata only. GitHub discussion is an explicit legacy API opt-in. Mining sends
  * this digest to the user's selected model, which may be local or remote.
  */
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../util/subprocess.js";
 import { basename } from "node:path";
 import { buildDigest, readCommits, readSymbols, readThreads, } from "../app/history.js";
 import { budgetSources, readAgentInstructions, readBranchProtection, readCodeowners, readCodifiedRules, readDecisionDocs, readDeclinedIssues, readReverts, readTestNames, } from "../app/sources.js";

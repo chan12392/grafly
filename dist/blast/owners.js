@@ -22,7 +22,7 @@
  * checkout or a shallow clone leaves the report exactly as it was and the comment
  * simply says nothing about people.
  */
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../util/subprocess.js";
 import { resolve } from "node:path";
 /**
  * Recency half-life. A commit from four months ago counts half as much as one

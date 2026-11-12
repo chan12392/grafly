@@ -21,7 +21,9 @@ const learningHome=mkdtempSync(join(tmpdir(),"grafly-test-learning-"));
 let result;
 try {
     result=spawnSync(process.execPath,args,{cwd:repoRoot,stdio:"inherit",windowsHide:true,
-        env:{...testEnv,...gitEnv,MC_LEARNING_HOME:learningHome,MC_MODEL_HOME:join(learningHome,"consumer-models"),GRAFLY_JUDGMENT_CONFIG:"0"}});
+        env:{...testEnv,...gitEnv,HOME:learningHome,USERPROFILE:learningHome,APPDATA:join(learningHome,"Roaming"),
+            LOCALAPPDATA:join(learningHome,"Local"),CODEX_HOME:join(learningHome,"codex"),CLAUDE_CONFIG_DIR:join(learningHome,"claude"),
+            MC_LEARNING_HOME:learningHome,MC_MODEL_HOME:join(learningHome,"consumer-models"),GRAFLY_JUDGMENT_CONFIG:"0"}});
 } finally {
     rmSync(learningHome,{recursive:true,force:true});
 }

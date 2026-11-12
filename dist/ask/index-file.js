@@ -19,8 +19,8 @@
  * contribution is folded into the stored `df` at query time (see `ask.ts`),
  * which is why `df` here counts symbol/file nodes only.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { CACHE_DIR } from "../context/node-file.js";
 /** Words too common/short to carry query intent — dropped before scoring. */
 const STOP = new Set([
@@ -94,8 +94,7 @@ export function writeAskIndex(outDir, graph) {
         docs,
     };
     const outPath = askIndexPath(outDir);
-    mkdirSync(dirname(outPath), { recursive: true });
-    writeFileSync(outPath, JSON.stringify(index) + "\n");
+    writeJsonAtomic(outPath, index);
     return outPath;
 }
 /** Read the ask sidecar. Returns null on a missing file, unparseable JSON, an
@@ -108,7 +107,7 @@ export function readAskIndex(outDir) {
     if (!existsSync(path))
         return null;
     try {
-        const raw = JSON.parse(readFileSync(path, "utf8"));
+        const raw = readJson(path);
         if (!raw ||
             typeof raw !== "object" ||
             raw.version !== 1 ||
@@ -125,3 +124,4 @@ export function readAskIndex(outDir) {
         return null;
     }
 }
+import { readJson, writeJsonAtomic } from "../util/state.js";

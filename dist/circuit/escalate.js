@@ -32,7 +32,7 @@
  * The resident `morecoffee.channels.channel_host` is the upgrade path if this
  * ever shows up in a profile — the wire format is identical.
  */
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../util/subprocess.js";
 import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { isAbsolute, dirname } from "node:path";
 import { fileURLToPath } from "node:url";

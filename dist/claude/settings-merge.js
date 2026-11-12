@@ -5,14 +5,8 @@ const SL_CMD = 'node "${CLAUDE_PROJECT_DIR:-.}/.claude/helpers/grafly-statusline
 const GRAFLY_STATUSLINE_HELPER = 'grafly-statusline.cjs';
 const LEGACY_GRAFT_STATUSLINE_HELPER = 'graft-statusline.cjs';
 const FOOTER = 'grafly/[\\w./-]+\\.md';
-// Every form graft is actually invoked as. 'graft:*' covers a global install;
-// the other two cover a repo working on graft itself (or any consumer running it
-// from a checkout), where the binary is not on PATH under that name. A retrieval
-// call that raises a permission prompt loses to grep, which never does.
-const ALLOW_ENTRIES = [
-    'Bash(grafly:*)',
-    'Bash(node dist/cli.js:*)',
-];
+// Installing hooks must never grant shell execution permissions.
+const ALLOW_ENTRIES = [];
 /** Where the repo-level install's shims sit, relative to whatever project is open. */
 const REPO_HELPERS = '${CLAUDE_PROJECT_DIR:-.}/.claude/helpers';
 /**
@@ -23,13 +17,15 @@ const REPO_HELPERS = '${CLAUDE_PROJECT_DIR:-.}/.claude/helpers';
  * global copy exists to cover, so it cannot reuse the repo form.
  */
 function hookCmd(arg, helpers = REPO_HELPERS) {
-    return `node "${helpers}/grafly-hooks.cjs" ${arg}`;
+    const path = helpers === REPO_HELPERS ? '"' + REPO_HELPERS + '/grafly-hooks.cjs"'
+        : quoteHookPath(helpers + '/grafly-hooks.cjs');
+    return `node ${path} ${arg}`;
 }
 /** `agentShim`, when given, serves SessionStart/UserPromptSubmit instead — the
  * user-level install uses the devin-hook shim there, as Codex does, because it
  * also auto-indexes unindexed folders and serves the home workspace. */
 function graftBlocks(helpers, agentShim) {
-    const startCmd = (arg) => agentShim ? `node "${agentShim}" ${arg}` : hookCmd(arg, helpers);
+    const startCmd = (arg) => agentShim ? `node ${quoteHookPath(agentShim)} ${arg}` : hookCmd(arg, helpers);
     return {
         PostToolUse: [
             { matcher: 'Write|Edit|MultiEdit', hooks: [{ type: 'command', command: hookCmd('post-edit', helpers), timeout: 10 }] },
@@ -164,3 +160,4 @@ export function mergeGraftHooks(existing, helpers, agentShim) {
     }
     return { merged };
 }
+import { quoteHookPath } from "../hosts/quote-hook-path.js";

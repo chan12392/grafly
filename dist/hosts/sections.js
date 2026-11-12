@@ -4,6 +4,7 @@
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
+import safePath from '../util/safe-path.cjs';
 export const START = '<!-- grafly:start -->';
 export const END = '<!-- grafly:end -->';
 /**
@@ -33,7 +34,7 @@ export const ALL_MARKERS = [GRAFT_MARKERS, BRAIN_MARKERS, LEGACY_GRAFT_MARKERS, 
 export function fencedBlock(body, eol = '\n', markers = GRAFT_MARKERS) {
     // Normalize any pre-existing '\r' out of the body first so callers passing
     // a CRLF (or stray-CR) body never get doubled '\r' when eol is '\r\n'.
-    const normalizedBody = body.replace(/\r/g, '');
+    const normalizedBody = body.replace(/\r/g, '').replace(/<!--\s*(?:grafly|graft)(?::brain)?:(?:start|end)\s*-->/g, '');
     const block = `${markers.start}\n${normalizedBody.replace(/\s+$/, '')}\n${markers.end}`;
     return eol === '\n' ? block : block.replace(/\n/g, '\r\n');
 }
@@ -51,6 +52,7 @@ function markerLineIndex(lines, marker, from = 0) {
 }
 /** Remove only complete owned sections, leaving other instructions intact. */
 export function removeSection(filePath, markers = GRAFT_MARKERS) {
+    safePath.assertNoSymlinks(filePath);
     if (!existsSync(filePath))
         return { action: 'unchanged' };
     const text = readFileSync(filePath, 'utf8');
@@ -75,6 +77,7 @@ export function removeSection(filePath, markers = GRAFT_MARKERS) {
     return { action: 'removed' };
 }
 export function upsertSection(filePath, body, markers = GRAFT_MARKERS) {
+    safePath.assertNoSymlinks(filePath);
     if (!existsSync(filePath)) {
         const block = fencedBlock(body, '\n', markers);
         mkdirSync(dirname(filePath), { recursive: true });

@@ -57,8 +57,11 @@ function loadCorpus(outDir) {
         for (const entry of readdirSync(outDir)) {
             if (!entry.endsWith(".md") || entry === "INDEX.md")
                 continue;
+            try {
             const path = join(outDir, entry);
+            safePath.assertNoSymlinks(path, outDir);
             const stat = statSync(path);
+            if (stat.size > 1024 * 1024) throw new Error("oversize");
             const stamp = `${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}:${stat.ino}`;
             const cached = previous?.get(entry);
             const parsed = cached?.stamp === stamp ? cached.parsed : parseFrontmatter(readFileSync(path, "utf8"));
@@ -79,6 +82,7 @@ function loadCorpus(outDir) {
                 snippet,
                 text: `${fm.name ?? ""} ${snippet} ${sources.join(" ")}`,
             });
+            } catch { console.warn(`Skipping invalid Grafly card: ${entry}`); }
         }
     }
     // Re-list on every query: additions, deletions and renames invalidate naturally.
@@ -1309,3 +1313,4 @@ function scopeFooterLines(r) {
         out.push(`also matched: ${scopeLabel(m.scope)} — narrow with --in ${scopeLabel(m.scope)}`);
     return out;
 }
+import safePath from "../util/safe-path.cjs";
