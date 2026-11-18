@@ -57,6 +57,11 @@ test('PowerShell grafly calls count as grafly reads', () => {
     assert.equal(classifyToolUse('PowerShell', 'Get-Content a.js'), null);
 });
 
+test('Devin exec grafly calls count as grafly reads', () => {
+    assert.equal(classifyToolUse('exec', 'grafly grep add .'), 'graft');
+    assert.equal(classifyToolUse('exec', 'echo ok'), null);
+});
+
 test('stale banner names the command that actually clears it', () => {
     const banner = staleBanner({ missing: 2, total: 9 });
     assert.match(banner, /grafly build --deep/);

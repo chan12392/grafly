@@ -32,7 +32,7 @@ export declare const COMMON_KEYS: readonly ["app_version", "os", "arch", "node_m
 export type Surface = 'cli' | 'hook';
 /** Which editor/agent graft is running under. Derived from the surface and the
  *  wiring on disk — never from a hostname, a username, or an env var's value. */
-export type AgentHost = 'claude-code' | 'cursor' | 'cli';
+export type AgentHost = 'claude-code' | 'cursor' | 'devin' | 'cli';
 /**
  * The commands worth counting. A command absent here is simply not reported —
  * `track()` drops the event rather than sending a free-form string, which is

@@ -268,7 +268,10 @@ export function lastFileScopeHint(dir, lastFile) {
  * nothing is written.
  */
 function handleToolUse(input, dir) {
-    recordToolUse(dir, input?.session_id || 'default', { ...classifyAndScore(input?.tool_name, input?.tool_input?.command, () => input?.tool_response ?? input), host: 'claude-code' });
+    // Devin runs this same hook with Claude's payload shape; only the presence of the
+    // variable it sets for its hooks tells the two apart.
+    const host = process.env.DEVIN_PROJECT_DIR !== undefined ? 'devin' : 'claude-code';
+    recordToolUse(dir, input?.session_id || 'default', { ...classifyAndScore(input?.tool_name, input?.tool_input?.command, () => input?.tool_response ?? input), host });
 }
 /**
  * Classify a tool use and, only when it could carry a graft footer, parse the

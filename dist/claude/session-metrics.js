@@ -32,9 +32,10 @@ import { readSession, writeSession, sessionDir, listSessionIds } from './state.j
  *  Compared lower-cased. */
 const SOURCE_TOOLS = new Set(['read', 'grep', 'glob', 'search']);
 /** The host's shell tool, whose `command` we then inspect for a graft invocation.
- *  Claude Code on Windows exposes PowerShell beside (or instead of) Bash. */
+ *  Claude Code on Windows exposes PowerShell beside (or instead of) Bash; Devin's
+ *  shell tool is `exec`. */
 function isShellTool(t) {
-    return t === 'bash' || t === 'shell' || t === 'powershell';
+    return t === 'bash' || t === 'shell' || t === 'powershell' || t === 'exec';
 }
 /** Whether a shell command line invokes the graft CLI (any of its install shapes). */
 export function commandInvokesGraft(command) {

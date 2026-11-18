@@ -216,7 +216,7 @@ what established it.
 - Keep telemetry disabled unless GRAFLY_POSTHOG_KEY is explicitly configured. (https://github.com/chan12392/grafly/commit/04dc060163a5839be0fe3133af23d0d79435a2e5)
 
 ### dist/tool-output/retention.js
-- Cap raw-output archives at 20 MiB while protecting active writers from pruning. (https://github.com/chan12392/grafly/commit/680e5434b6c8431f99115971cf3e9cf5fdedccb1)
+- Cap raw-output archives at 20 MiB while protecting active writers from pruning. (https://github.com/chan12392/grafly/commit/680e5434b6)
 
 ### dist/tool-output/runner.js
 - Execute commands once and preserve raw stdout and stderr archives for integrity-checked retrieval while MoreCoffee owns output reduction decisions. (https://github.com/chan12392/grafly/commit/7741d8282fe3ce9f8e28a575d477cd32bae4f239)
@@ -228,5 +228,5 @@ what established it.
 ### dist/util/state.js
 - Use the hidden .grafly index layout while recognizing legacy directories that already contain an index. (https://github.com/chan12392/grafly/commit/0938e55d7ae5995ecceb2915cdb929eddb2768e1)
 
-_16 more rules apply to specific symbols; grafly attaches those to each `grafly ask` answer._
+_86 more rules apply to specific symbols; grafly attaches those to each `grafly ask` answer._
 <!-- grafly:brain:end -->
